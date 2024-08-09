@@ -153,6 +153,7 @@ end
     ΔT = parameters.ΔTᵉ
     Lf = parameters.Lf
     Lx = parameters.Lx
+    a  = parameters.a
 
     χ  = transformX(x, (; Lf, Lx))
 
@@ -162,7 +163,7 @@ end
     if z > - h
         return Tˢ
     else
-        return (Tˢ - T₀ + 1.2ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - 1.2ΔT
+        return (Tˢ - T₀ + a*ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a*ΔT
     end
 end
 
@@ -174,6 +175,7 @@ end
     ΔT = parameters.ΔTᵉ
     Lf = parameters.Lf
     Lx = parameters.Lx
+    a  = parameters.a
 
     χ  = transformX(x, (; Lf, Lx))
     Tˢ = T̅(χ)
@@ -182,7 +184,7 @@ end
     if z > - h
         return Tˢ
     else
-        return (Tˢ - T₀ + 1.2ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - 1.2ΔT
+        return (Tˢ - T₀ + a*ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a*ΔT
     end
 end
 

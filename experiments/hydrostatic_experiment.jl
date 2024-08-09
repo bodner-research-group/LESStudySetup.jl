@@ -1,13 +1,14 @@
 using LESStudySetup
 using LESStudySetup.Oceananigans.Units
 using LESStudySetup.Oceananigans.Utils: ConsecutiveIterations
+using LESStudySetup.Oceananigans.OutputWriters: Checkpointer
 using JLD2 
 
 # Architecture (CPU, GPU, or Distributed)
 architecture = GPU()
 
 # Setting some initial values (Q = heat flux in W/m², Δz = vertical spacing)
-set_value!(Δh = 250, Δz = 2)
+set_value!(Δh = 250, Δz = 2, Φ = 0.025)
 
 function run_experiment!(experiment; 
                          Q   = 0.0,  # Cooling heat flux in W/m²
@@ -15,22 +16,23 @@ function run_experiment!(experiment;
                          θ   = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
                          Δh  = 250,  # Horizontal resolution [m]
                          ΔTᵉ = 0.5,  # Eddy temperature difference
-                         ΔTᶠ = 0.5,  # Meridional temperature difference
+                         ΔTᶠ = 2.0,  # Meridional temperature difference
+                         a   = 1.2,  # Eddy temperature magnitude
                          Lf  = 0.9,  # Size of temperature front (large numbers correspond to steeper fronts)
                          σ²  = 0.15, # Initial spread of the barotropic eddy
                          N²  = 2e-6, # Initial stratification below the thermocline
-                         output_frequency = 3hours,
-                         checkpoint_frequency = 3hours,
+                         output_frequency = 6hours,
+                         checkpoint_frequency = 6hours,
                          stop_time = 20days,
-                         restoring = false,
-                         restart_file = nothing)
+                         background_forcing = true,
+                         restart_file = false)
     
-    set_value!(; Q, τw, θ, ΔTᵉ, ΔTᶠ, Lf, N², σ², Δh)
+    set_value!(; Q, τw, θ, ΔTᵉ, ΔTᶠ, a, Lf, N², σ², Δh)
 
     @info "Simulation parameters: " parameters
 
     # Let's start with an hydrostatic setup running for 20 days
-    simulation = idealized_setup(architecture; stop_time, hydrostatic_approximation = true, restoring)
+    simulation = idealized_setup(architecture; stop_time, hydrostatic_approximation = true, background_forcing)
 
     jldsave("experiment_$(experiment)_metadata.jld2", parameters = parameters)
 
@@ -41,10 +43,11 @@ function run_experiment!(experiment;
     model         = simulation.model
     output_fields = merge(model.velocities, model.tracers)
 
-    simulation.output_writers[:checkpoint] = Chekpointer(model;
+    simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                          schedule = TimeInterval(checkpoint_frequency),
-                                                         prefix = "hydrostatic_",
-                                                         overwrite_existing = true)
+                                                         prefix = "hydrostatic_$(experiment)",
+                                                         overwrite_existing = true,
+                                                         cleanup = true)
 
     simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
                                                              schedule = ConsecutiveIterations(TimeInterval(output_frequency)),

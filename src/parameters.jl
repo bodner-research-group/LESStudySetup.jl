@@ -28,6 +28,7 @@ A mutable struct representing the constants used in the LES study setup.
 @kwdef mutable struct ProblemConstants
     ΔTᵉ :: Float64 = 0.5
     ΔTᶠ :: Float64 = 2.0
+    a   :: Float64 = 1.2
     ρ₀  :: Float64 = 1020
     T₀  :: Float64 = 5
     cp  :: Float64 = 3995
@@ -54,6 +55,7 @@ end
 Base.show(io::IO, c::ProblemConstants) =
     print(io, "├── eddy temperature difference:  ΔTᵉ = ", c.ΔTᵉ, "\n",
               "├── front temperature difference: ΔTᶠ = ", c.ΔTᶠ, "\n",
+              "├── eddy temperature amplitude:     a = ", c.a, "\n",
               "├── reference density:             ρ₀ = ", c.ρ₀, "\n",
               "├── surface temperature:           T₀ = ", c.T₀, "\n",
               "├── heat capacity:                 cp = ", c.cp, "\n",
@@ -105,6 +107,7 @@ end
 
 struct GPUProblemConstants
     ΔT :: Float64 
+     a :: Float64
     ρ₀ :: Float64 
     T₀ :: Float64 
     cp :: Float64 
