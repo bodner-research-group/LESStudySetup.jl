@@ -12,8 +12,8 @@ function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
                                      a   = 1,    # Eddy temperature amplitude
                                      Δz  = 1,    # Vertical resolution [m]
                                      ΔTᵉ = 1,    # Eddy temperature difference
-                                     output_frequency = 3hours,
-                                     checkpoint_frequency = 3hours,
+                                     output_frequency = 1hours,
+                                     checkpoint_frequency = 10hours,
                                      stop_time = 10hours)
     
     set_value!(; τw, θ, ΔTᵉ, a, Δz, Δh)
@@ -38,7 +38,7 @@ function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
                                                          overwrite_existing = true)
 
     simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
-                                                             schedule = ConsecutiveIterations(TimeInterval(output_frequency)),
+                                                             schedule = TimeInterval(output_frequency),
                                                              overwrite_existing = true,
                                                              array_type = Array{Float32},
                                                              with_halos = true,
