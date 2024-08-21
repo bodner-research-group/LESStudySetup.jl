@@ -8,7 +8,6 @@ using JLD2
 architecture = GPU()
 
 # Setting some initial values (Q = heat flux in W/m², Δz = vertical spacing)
-set_value!(Δh = 250, Δz = 2, Φ = 0.025)
 
 function run_experiment!(experiment; 
                          Q   = 0.0,  # Cooling heat flux in W/m²
