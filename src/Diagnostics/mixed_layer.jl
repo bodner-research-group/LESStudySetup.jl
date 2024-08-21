@@ -14,10 +14,10 @@ const f = Face()
 
     Nz = grid.Nz
     
-    global k_start   = Nz - 2
+    k_start   = Nz - 2
     z_ij = znode(i, j, k_start, grid, c, c, f)
     while z_ij > -9.99
-        global k_start = k_start-1
+        k_start = k_start-1
         z_ij = znode(i, j, k_start, grid, c, c, f)
     end
     b_surface = @inbounds b[i, j, k_start+1]
