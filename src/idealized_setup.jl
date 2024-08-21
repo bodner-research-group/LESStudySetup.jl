@@ -121,6 +121,9 @@ function turbulence_generator_setup(arch;
     # Reduced domain size (200 by 200 meters)
     Lx = Ly = 200
 
+    # Remember to set the value!
+    set_value!(; Lx, Ly)
+    
     # Calculating the grid-size
     Nx = ceil(Int, Lx / Δh)
     Ny = ceil(Int, Ly / Δh)
