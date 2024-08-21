@@ -105,3 +105,81 @@ function idealized_setup(arch;
 
     return simulation
 end
+
+function turbulence_generator_setup(arch; 
+                                    stop_time = 10hours,
+                                    background_forcing = false)
+
+    # Retrieving the problem constants
+    Δh = parameters.Δh 
+    Δz = parameters.Δz 
+    Lz = parameters.Lz 
+     α = parameters.α
+     f = parameters.f  
+    ρ₀ = parameters.ρ₀
+    cₚ = parameters.cp
+    τw = parameters.τw 
+     θ = parameters.θ
+     
+    # Reduced domain size (200 by 200 meters)
+    Lx = Ly = 200
+
+    # Remember to set the value!
+    set_value!(; Lx, Ly)
+
+    # Calculating the grid-size
+    Nx = ceil(Int, Lx / Δh)
+    Ny = ceil(Int, Ly / Δh)
+    Nz = ceil(Int, Lz / Δz)
+
+    # Constructing the grid
+    grid = RectilinearGrid(arch, 
+                           size = (Nx, Ny, Nz), 
+                           x = (0, Lx), 
+                           y = (0, Ly), 
+                           z = (-Lz, 0),
+                           halo = (6, 6, 6))
+
+    @info "Running on a grid with $Nx, $Ny, and $Nz cells"
+
+    coriolis = FPlane(; f)
+    buoyancy = SeawaterBuoyancy(; equation_of_state = LinearEquationOfState(thermal_expansion = α), 
+                                  constant_salinity = 35)
+    
+    # # Cooling in the middle of the domain and heating outside?
+    # @inline Qtop(x, y, t, p) = - p.Q / p.ρ₀ / p.cₚ * cos(2π * x / p.Lx)
+
+    u_top = FluxBoundaryCondition(τw * cosd(θ) / ρ₀)
+    v_top = FluxBoundaryCondition(τw * sind(θ) / ρ₀)
+
+    u_bcs = FieldBoundaryConditions(top = u_top)
+    v_bcs = FieldBoundaryConditions(top = v_top)
+
+    # We force only velocity!
+    boundary_conditions = (u = u_bcs, v = v_bcs)
+    
+    model = NonhydrostaticModel(; grid, 
+                                  coriolis,
+                                  buoyancy,
+                                  boundary_conditions,
+                                  advection = WENO(; order = 9),
+                                  tracers = :T)
+
+    # We initialize with a fictitious
+    # vertical profile that only depends on z 
+    set!(model, T = Tᶻ) 
+     
+    # 10 seconds as an initial step does 
+    # not seem preposterous
+    Δt = 10
+    
+    # But let's always add a wizard to be sure!
+    wizard = TimeStepWizard(cfl = 0.25, max_change = 1.1)
+
+    simulation = Simulation(model; Δt, stop_time)
+
+    simulation.callbacks[:progress] = Callback(progress, IterationInterval(100))
+    simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
+
+    return simulation
+end

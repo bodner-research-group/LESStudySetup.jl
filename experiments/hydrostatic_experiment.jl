@@ -7,27 +7,25 @@ using JLD2
 # Architecture (CPU, GPU, or Distributed)
 architecture = GPU()
 
-# Setting some initial values (Q = heat flux in W/m², Δz = vertical spacing)
-
-function run_experiment!(experiment; 
-                         Q   = 0.0,  # Cooling heat flux in W/m²
-                         τw  = 0.0,  # Wind stress in N/m²
-                         θ   = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
-                         Δh  = 250,  # Horizontal resolution [m]
-                         ΔTᵉ = 0.5,  # Eddy temperature difference
-                         ΔTᶠ = 2.0,  # Meridional temperature difference
-                         Φ = 0.025,  # Barotropic eddy strength
-                         a   = 1.2,  # Eddy temperature magnitude
-                         Lf  = 0.9,  # Size of temperature front (large numbers correspond to steeper fronts)
-                         σ²  = 0.15, # Initial spread of the barotropic eddy
-                         N²  = 2e-6, # Initial stratification below the thermocline
-                         output_frequency = 6hours,
-                         checkpoint_frequency = 6hours,
-                         stop_time = 20days,
-                         background_forcing = true,
-                         restart_file = false)
+function run_experiment(experiment; 
+                        Q   = 0.0,    # Cooling heat flux in W/m²
+                        τw  = 0.0,    # Wind stress in N/m²
+                        θ   = 30.0,   # Wind stress angle in degrees (0 correspond to zonal wind stress)
+                        Δh  = 250,    # Horizontal resolution [m]
+                        Δz  = 2,      # Vertical resolution [m]
+                        ΔTᵉ = 0.5,    # Eddy temperature difference
+                        ΔTᶠ = 2.0,    # Meridional temperature difference
+                        Φ   = 0.025,  # Barotropic eddy strength
+                        a   = 1.2,    # Eddy temperature magnitude
+                        Lf  = 0.9,    # Size of temperature front (large numbers correspond to steeper fronts)
+                        σ²  = 0.15,   # Initial spread of the barotropic eddy
+                        output_frequency = 6hours,
+                        checkpoint_frequency = 6hours,
+                        stop_time = 20days,
+                        background_forcing = true,
+                        restart_file = false)
     
-    set_value!(; Q, τw, θ, ΔTᵉ, ΔTᶠ, a, Lf, σ², Φ, Δh)
+    set_value!(; Q, τw, θ, ΔTᵉ, ΔTᶠ, Δz, a, Lf, σ², Φ, Δh)
 
     @info "Simulation parameters: " parameters
 
