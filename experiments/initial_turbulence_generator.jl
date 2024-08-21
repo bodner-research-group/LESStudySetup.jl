@@ -9,13 +9,14 @@ architecture = GPU()
 function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
                                      θ   = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
                                      Δh  = 2,    # Horizontal resolution [m]
+                                     a   = 1,    # Eddy temperature amplitude
                                      Δz  = 1,    # Vertical resolution [m]
-                                     ΔTᵉ = 0.5,  # Eddy temperature difference
+                                     ΔTᵉ = 1,    # Eddy temperature difference
                                      output_frequency = 3hours,
                                      checkpoint_frequency = 3hours,
                                      stop_time = 10hours)
     
-    set_value!(; τw, θ, ΔTᵉ, Δh)
+    set_value!(; τw, θ, ΔTᵉ, a, Δz, Δh)
 
     @info "Simulation parameters: " parameters
 
@@ -41,7 +42,7 @@ function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
                                                              overwrite_existing = true,
                                                              array_type = Array{Float32},
                                                              with_halos = true,
-                                                             filename = "turublence_generator_output")
+                                                             filename = "turbulence_generator_output")
 
     #####
     ##### Let's run!!!!

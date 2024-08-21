@@ -121,8 +121,8 @@ function turbulence_generator_setup(arch;
     τw = parameters.τw 
      θ = parameters.θ
      
-    # Reduced domain size (200 by 200 meters)
-    Lx = Ly = 200
+    # Reduced domain size (250 by 250 meters)
+    Lx = Ly = 250
 
     # Remember to set the value!
     set_value!(; Lx, Ly)
