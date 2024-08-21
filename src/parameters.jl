@@ -12,7 +12,6 @@ A mutable struct representing the constants used in the LES study setup.
 # Fields
 - `Δρ::Float64`: Density difference at the fronts.
 - `ρ₀::Float64`: Reference density of the fluid.
-- `N²::Float64`: Initial Buoyancy frequency squared.
 - `Δh::Float64`: Horizontal grid spacing.
 - `Δz::Float64`: Vertical grid spacing.
 - `Lx::Float64`: Zonal domain size.
@@ -32,7 +31,6 @@ A mutable struct representing the constants used in the LES study setup.
     ρ₀  :: Float64 = 1020
     T₀  :: Float64 = 5
     cp  :: Float64 = 3995
-    N²  :: Float64 = 2e-6
     Δh  :: Float64 = 1kilometers
     m₀  :: Float64 = 50
     Δm  :: Float64 = 30
@@ -59,7 +57,6 @@ Base.show(io::IO, c::ProblemConstants) =
               "├── reference density:             ρ₀ = ", c.ρ₀, "\n",
               "├── surface temperature:           T₀ = ", c.T₀, "\n",
               "├── heat capacity:                 cp = ", c.cp, "\n",
-              "├── initial stratification         N² = ", c.N², "\n",
               "├── initial mixed layer            m₀ = ", c.m₀, "\n",
               "├── mld difference                 Δm = ", c.Δm, "\n",
               "├── initial stratification         N² = ", c.N², "\n",
@@ -106,12 +103,12 @@ function set!(c::ProblemConstants; kwargs...)
 end
 
 struct GPUProblemConstants
-    ΔT :: Float64 
+   ΔTᵉ :: Float64
+   ΔTᶠ :: Float64
      a :: Float64
     ρ₀ :: Float64 
     T₀ :: Float64 
     cp :: Float64 
-    N² :: Float64 
      H :: Float64 
     ΔH :: Float64 
     Δh :: Float64 
