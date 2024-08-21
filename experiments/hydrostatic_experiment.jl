@@ -27,7 +27,7 @@ function run_experiment!(experiment;
                          background_forcing = true,
                          restart_file = false)
     
-    set_value!(; Q, τw, θ, ΔTᵉ, ΔTᶠ, a, Lf, N², σ², Δh)
+    set_value!(; Q, τw, θ, ΔTᵉ, ΔTᶠ, a, Lf, σ², Φ, Δh)
 
     @info "Simulation parameters: " parameters
 
