@@ -1,7 +1,7 @@
 module LESStudySetup
 
 export parameters
-export idealized_setup
+export idealized_setup, turbulence_generator_setup
 export set_value!, set!
 
 using Reexport
