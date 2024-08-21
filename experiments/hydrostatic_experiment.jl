@@ -16,6 +16,7 @@ function run_experiment!(experiment;
                          Δh  = 250,  # Horizontal resolution [m]
                          ΔTᵉ = 0.5,  # Eddy temperature difference
                          ΔTᶠ = 2.0,  # Meridional temperature difference
+                         Φ = 0.025,  # Barotropic eddy strength
                          a   = 1.2,  # Eddy temperature magnitude
                          Lf  = 0.9,  # Size of temperature front (large numbers correspond to steeper fronts)
                          σ²  = 0.15, # Initial spread of the barotropic eddy
