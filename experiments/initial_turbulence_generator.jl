@@ -34,7 +34,7 @@ function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
 
     simulation.output_writers[:checkpoint] = Chekpointer(model;
                                                          schedule = TimeInterval(checkpoint_frequency),
-                                                         prefix = "turublence_generator_checkpoint",
+                                                         prefix = "turbulence_generator_checkpoint",
                                                          overwrite_existing = true)
 
     simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
