@@ -37,6 +37,7 @@ function model_settings(model_type, grid; background_forcing = false)
                   tracer_advection = advection)
     else
         return (; tracers = :T, 
+                  timestepper = :RungeKutta3,
                   advection)
     end
 end
