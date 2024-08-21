@@ -123,7 +123,7 @@ function turbulence_generator_setup(arch;
 
     # Remember to set the value!
     set_value!(; Lx, Ly)
-    
+
     # Calculating the grid-size
     Nx = ceil(Int, Lx / Δh)
     Ny = ceil(Int, Ly / Δh)
@@ -161,7 +161,6 @@ function turbulence_generator_setup(arch;
                                   boundary_conditions,
                                   advection = WENO(; order = 9),
                                   tracers = :T)
-
 
     # We initialize with a fictitious
     # vertical profile that only depends on z 
