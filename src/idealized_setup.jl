@@ -88,10 +88,13 @@ function idealized_setup(arch;
     end
     
     u, v, w = model.velocities
+    
+    um = maximum(abs, interior(u))
+    vm = maximum(abs, interior(v))
 
-    u_max = max(maximum(abs, u), maximum(abs, v))
+    u_max = max(um, vm) 
 
-    Δt = min(0.2 * Δh / u_max, 100)
+    Δt = min(0.2 * Δh / u_max, 10)
     
     wizard = TimeStepWizard(cfl = 0.25, max_change = 1.1)
 

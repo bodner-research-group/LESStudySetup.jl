@@ -16,6 +16,10 @@ const f = Face()
     
     k_start   = Nz - 2
     z_ij = znode(i, j, k_start, grid, c, c, f)
+    while z_ij > -9.99
+        k_start = k_start-1
+        z_ij = znode(i, j, k_start, grid, c, c, f)
+    end
     b_surface = @inbounds b[i, j, k_start+1]
 
     @unroll for k in k_start : -1 : 1 # scroll from point just below surface

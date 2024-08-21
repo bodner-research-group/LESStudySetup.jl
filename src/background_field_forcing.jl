@@ -20,7 +20,14 @@ import Oceananigans.Advection: div_Uc, U_dot_∇u, U_dot_∇v
     struct ForcedAdvection{N, FT, A, U, V, W} <: AbstractAdvectionScheme{N, FT}
 
 A structure representing advection from the prognostic velocities plus additional 
-background velocities.
+background velocities. The final advection term is calculated as:
+```math
+    (U +  u′)⋅ ∇u′
+```
+The two terms concenring advection of the background flow are neglected:
+```math
+    U ⋅ ∇U + u′ ⋅ ∇U
+```
 """
 struct ForcedAdvection{N, FT, A, U, V, W} <: AbstractAdvectionScheme{N, FT}
     scheme :: A
@@ -66,7 +73,7 @@ Base.show(io::IO, f::ForcedAdvection) =
 
     total_velocities = (; u, v, w)
 
-    return div_𝐯u(i, j, k, grid, scheme, total_velocities, total_velocities.u)
+    return div_𝐯u(i, j, k, grid, scheme, total_velocities, U.u)
 end
 
 @inline function U_dot_∇v(i, j, k, grid::RectilinearGrid, advection::ForcedAdvection, U) 
@@ -79,7 +86,7 @@ end
 
     total_velocities = (; u, v, w)
 
-    return div_𝐯v(i, j, k, grid, scheme, total_velocities, total_velocities.v)
+    return div_𝐯v(i, j, k, grid, scheme, total_velocities, U.v)
 end
 
 @inline function div_Uc(i, j, k, grid, advection::ForcedAdvection, U, c)
