@@ -1,6 +1,6 @@
 name = "LESStudySetup"
 uuid = "3abb6cec-4c1f-46c9-8142-0189ac50f859"
-authors = ["Simone Silvestri"]
+authors = ["Simone Silvestri, Shirui Peng and Abigail Bodner"]
 version = "1.0.0-DEV"
 
 [deps]
