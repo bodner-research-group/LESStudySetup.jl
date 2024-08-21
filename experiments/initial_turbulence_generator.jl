@@ -6,14 +6,14 @@ using JLD2
 # Architecture (CPU, GPU, or Distributed)
 architecture = GPU()
 
-function generate_initial_turbulence!(τw  = 0.0,  # Wind stress in N/m²
-                                      θ   = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
-                                      Δh  = 2,    # Horizontal resolution [m]
-                                      Δz  = 1,    # Vertical resolution [m]
-                                      ΔTᵉ = 0.5,  # Eddy temperature difference
-                                      output_frequency = 3hours,
-                                      checkpoint_frequency = 3hours,
-                                      stop_time = 10hours)
+function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
+                                     θ   = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
+                                     Δh  = 2,    # Horizontal resolution [m]
+                                     Δz  = 1,    # Vertical resolution [m]
+                                     ΔTᵉ = 0.5,  # Eddy temperature difference
+                                     output_frequency = 3hours,
+                                     checkpoint_frequency = 3hours,
+                                     stop_time = 10hours)
     
     set_value!(; τw, θ, ΔTᵉ, Δh)
 
