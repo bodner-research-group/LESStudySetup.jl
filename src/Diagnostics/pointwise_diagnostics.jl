@@ -100,7 +100,7 @@ function MLD(snapshots, i; threshold = 0.03)
     ρ₀ = parameters.ρ₀
     T    = snapshots[:T][i]
     grid = T.grid
-    h    = MixedLayerDepth(grid, (; T); ΔT = abs(threshold/ρ₀/α))
+    h    = MixedLayerDepth(grid, (; T); ΔT = abs(threshold / ρ₀ / α))
     return h
 end
 
