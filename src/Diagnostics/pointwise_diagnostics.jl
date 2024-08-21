@@ -96,7 +96,7 @@ end
 
 """ mixed layer depth """
 function MLD(snapshots, i; threshold = 0.03)
-    α = parameters.α
+    α  = parameters.α
     ρ₀ = parameters.ρ₀
     T    = snapshots[:T][i]
     grid = T.grid
