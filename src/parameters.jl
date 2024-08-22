@@ -59,7 +59,6 @@ Base.show(io::IO, c::ProblemConstants) =
               "├── heat capacity:                 cp = ", c.cp, "\n",
               "├── initial mixed layer            m₀ = ", c.m₀, "\n",
               "├── mld difference                 Δm = ", c.Δm, "\n",
-              "├── initial stratification         N² = ", c.N², "\n",
               "├── horizontal spacing:            Δh = ", c.Δh, "\n",
               "├── vertical spacing:              Δz = ", c.Δz, "\n",
               "├── x-domain size:                 Lx = ", c.Lx, "\n",

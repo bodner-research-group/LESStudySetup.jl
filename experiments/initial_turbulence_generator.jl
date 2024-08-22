@@ -1,12 +1,13 @@
 using LESStudySetup
 using LESStudySetup.Oceananigans.Units
 using LESStudySetup.Oceananigans.Utils: ConsecutiveIterations
+using LESStudySetup.Oceananigans.OutputWriters: Checkpointer
 using JLD2 
 
 # Architecture (CPU, GPU, or Distributed)
 architecture = GPU()
 
-function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
+function generate_initial_turbulence(;τw  = 0.0,  # Wind stress in N/m²
                                      θ   = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
                                      Δh  = 2,    # Horizontal resolution [m]
                                      a   = 1,    # Eddy temperature amplitude
@@ -32,10 +33,11 @@ function generate_initial_turbulence(τw  = 0.0,  # Wind stress in N/m²
     model         = simulation.model
     output_fields = merge(model.velocities, model.tracers)
 
-    simulation.output_writers[:checkpoint] = Chekpointer(model;
+    simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                          schedule = TimeInterval(checkpoint_frequency),
                                                          prefix = "turbulence_generator_checkpoint",
-                                                         overwrite_existing = true)
+                                                         overwrite_existing = true,
+                                                         cleanup = true)
 
     simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
                                                              schedule = TimeInterval(output_frequency),
