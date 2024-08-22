@@ -273,7 +273,7 @@ end
 end
 
 """ eddy with isopycnals pushed up """
-@inline function Tᶻ(z)
+@inline function Tᶻ(x, y, z)
 
     Lz = parameters.Lz
     T₀ = parameters.T₀
