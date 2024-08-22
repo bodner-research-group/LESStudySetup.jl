@@ -104,6 +104,20 @@ function MLD(snapshots, i; threshold = 0.03)
     return h
 end
 
+""" boundary layer depth """
+function BLD(snapshots, i; threshold = 0.3)
+    α  = parameters.α
+    g  = parameters.g
+    T  = snapshots[:T][i]
+    B  = compute!(Field(α * g * T))
+    uc = compute!(Field(@at (Center, Center, Center) snapshots[:u][i]))
+    vc = compute!(Field(@at (Center, Center, Center) snapshots[:v][i]))
+    wc = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+    grid = T.grid
+    h    = BoundaryLayerDepth(grid, (; B, uc, vc, wc); Ric = threshold)
+    return h
+end
+
 """ stratification """
 function N²(snapshots, i)
     α = parameters.α
