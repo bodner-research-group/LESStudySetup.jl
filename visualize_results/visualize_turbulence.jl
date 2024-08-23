@@ -6,7 +6,7 @@ using Oceananigans: compute!
 using Oceananigans.Grids: nodes
 using Statistics: mean
 using LESStudySetup.Diagnostics
-using LESStudySetup.Diagnostics: load_snapshots 
+using LESStudySetup.Diagnostics: load_snapshots, BLD1D
 set_theme!(Theme(fontsize = 12))
 
 filename = "turbulence_generator_output.jld2"
@@ -19,6 +19,15 @@ snapshots = load_snapshots(filename; metadata)
 # Let's pick the last snapshot!
 times = snapshots[:T].times
 snapshot_number = length(times)
+
+fig = Figure(size = (800, 300))
+hs = zeros(snapshot_number)
+for i = 2:snapshot_number
+    hs[i] = mean(compute!(BLD1D(snapshots,i)))
+end
+ax = Axis(fig[1,1];xlabel="Time (hours)", ylabel="Boundary layer depth (m)")
+lines!(ax, times[2:end]/3600, hs[2:end])
+save("results/initial_turbulence_hb.pdf", fig)
 
 u = snapshots[:u][snapshot_number]
 v = snapshots[:v][snapshot_number]

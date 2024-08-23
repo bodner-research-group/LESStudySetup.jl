@@ -2,6 +2,7 @@ using Oceananigans.Operators: div_xyᶜᶜᶜ
 using Oceananigans.Operators
 using Oceananigans.Utils: launch!
 using KernelAbstractions: @kernel, @index
+using Statistics: mean, var
 
 """ propagate a diagnostic over the timeseries found in snapshots 
     and save the results in a FieldTimeSeries object that is backed up in 
@@ -105,16 +106,21 @@ function MLD(snapshots, i; threshold = 0.03)
 end
 
 """ boundary layer depth """
-function BLD(snapshots, i; threshold = 0.3)
+function BLD1D(snapshots, i; threshold = 0.3)
     α  = parameters.α
     g  = parameters.g
     T  = snapshots[:T][i]
-    B  = compute!(Field(α * g * T))
-    uc = compute!(Field(@at (Center, Center, Center) snapshots[:u][i]))
-    vc = compute!(Field(@at (Center, Center, Center) snapshots[:v][i]))
+    B  = mean(compute!(Field(α * g * T)), dims = (1, 2))
+    uc = snapshots[:u][i]
+    vc = snapshots[:v][i]
     wc = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
-    grid = T.grid
-    h    = BoundaryLayerDepth(grid, (; B, uc, vc, wc); Ric = threshold)
+    Uₜ² = (var(uc,dims=(1, 2))+var(vc,dims=(1, 2))+var(wc,dims=(1, 2)))/3
+    uc = mean(uc, dims = (1, 2))
+    vc = mean(vc, dims = (1, 2))
+    wc = mean(wc, dims = (1, 2))
+    
+    grid = B.grid
+    h    = BoundaryLayerDepth(grid, (; B, uc, vc, wc, Uₜ²); Ric = threshold)
     return h
 end
 
