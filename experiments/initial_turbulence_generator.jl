@@ -14,7 +14,7 @@ function generate_initial_turbulence(;τw  = 0.0,  # Wind stress in N/m²
                                      Δz  = 1,    # Vertical resolution [m]
                                      ΔTᵉ = 1,    # Eddy temperature difference
                                      output_frequency = 1hours,
-                                     checkpoint_frequency = 10hours,
+                                     checkpoint_frequency = 1hours,
                                      stop_time = 10hours)
     
     set_value!(; τw, θ, ΔTᵉ, a, Δz, Δh)
