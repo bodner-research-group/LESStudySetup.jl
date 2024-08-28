@@ -5,22 +5,39 @@ using LESStudySetup.Oceananigans.Units
 using JLD2
 
 # Architecture (CPU, GPU, or Distributed)
-arch = Distributed(GPU(), partition = Partition(4))
+arch = Distributed(GPU(), partition = Partition(32, 32))
 
 # Setting some initial values (Q = heat flux in W/m², Δz = vertical spacing)
-set_value!(Δh = 4, Δz = 2, Lx = 10kilometers, Ly = 10kilometers)
-set_value!(; Q = 50, τw = 0.0)
+set_value!(; # Forcing
+             Q = 50.0, 
+            τw = 0.1, 
+             # Spacing -> BEWARE: this leads to a grid which is 50000 × 50000 × 250 in size!!!!
+            Δh = 2, 
+            Δz = 1, 
+             # Initial condition
+            ΔTᶠ = 1.0, 
+            ΔTᵉ = 0.5, 
+              Φ = 0.025, 
+              a = 1, 
+             σ² = 0.15, 
+            Lf  = 0.9)
 
 # Show all the parameters we are using
 @info "Simulation parameters: " parameters
 
-stop_time = 10days
+# Output writer details
+output_frequency = 10minutes
+checkpoint_frequency = 10minutes
+stop_time = 1hour
+
+background_forcing = true
+restart_file = false
 
 # Let's start with an nonhydrostatic setup running for 30 days
-simulation = idealized_setup(arch; stop_time)
+simulation = idealized_setup(arch; stop_time, background_forcing)
 
 if arch.local_rank == 0
-    jldsave("experiment_$(experiment)_metadata.jld2", parameters = parameters)
+    jldsave("nonhydrostatic_experiment_metadata.jld2", parameters = parameters)
 end
 
 # Show the configuration of the simulation
@@ -31,12 +48,18 @@ model         = simulation.model
 output_fields = merge(model.velocities, model.tracers)
 
 simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
-                                                            schedule = TimeInterval(3hours),
-                                                            overwrite_existing = true,
-                                                            filename = "nonhydrostatic_snapshots_$(experiment)_$(arch.local_rank)")
+                                                         schedule = ConsecutiveIterations(TimeInterval(output_frequency)),
+                                                         overwrite_existing = true,
+                                                         filename = "nonhydrostatic_snapshots_$(arch.local_rank)")
+
+simulation.output_writers[:checkpoint] = Checkpointer(model;
+                                                        schedule = TimeInterval(checkpoint_frequency),
+                                                        prefix = "nonhydrostatic_checkpoint_$(arch.local_rank)",
+                                                        overwrite_existing = true,
+                                                        cleanup = true)
 
 #####
 ##### Let's run!!!!
 #####
 
-run!(simulation)
+run!(simulation; pickup = restart_file)

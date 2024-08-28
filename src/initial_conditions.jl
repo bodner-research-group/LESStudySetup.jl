@@ -153,6 +153,7 @@ end
     ΔT = parameters.ΔTᵉ
     Lf = parameters.Lf
     Lx = parameters.Lx
+    a  = parameters.a
 
     χ  = transformX(x, (; Lf, Lx))
 
@@ -162,7 +163,7 @@ end
     if z > - h
         return Tˢ
     else
-        return (Tˢ - T₀ + 1.2ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - 1.2ΔT
+        return (Tˢ - T₀ + a*ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a*ΔT
     end
 end
 
@@ -174,6 +175,7 @@ end
     ΔT = parameters.ΔTᵉ
     Lf = parameters.Lf
     Lx = parameters.Lx
+    a  = parameters.a
 
     χ  = transformX(x, (; Lf, Lx))
     Tˢ = T̅(χ)
@@ -182,7 +184,7 @@ end
     if z > - h
         return Tˢ
     else
-        return (Tˢ - T₀ + 1.2ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - 1.2ΔT
+        return (Tˢ - T₀ + a*ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a*ΔT
     end
 end
 
@@ -267,5 +269,25 @@ end
         return ∂ξ∂r * ∂b∂ξ / f * (Lz - h) / 3 + uθᴮ
     else
         return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^2 / 3 + uθᴮ
+    end
+end
+
+""" eddy with isopycnals pushed up """
+@inline function Tᶻ(x, y, z)
+
+    Lz = parameters.Lz
+    T₀ = parameters.T₀
+    ΔT = parameters.ΔTᵉ
+    h₀ = parameters.m₀
+    Δh = parameters.Δm
+    a  = parameters.a
+
+    Tˢ = T̅(1)
+    h  = h₀ - Δh / 2
+    
+    if z > - h
+        return Tˢ
+    else
+        return (Tˢ - T₀ + a * ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a * ΔT
     end
 end

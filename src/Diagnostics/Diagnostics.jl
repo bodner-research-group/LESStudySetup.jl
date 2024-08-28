@@ -2,7 +2,7 @@ module Diagnostics
 
 export write_pointwise_diagnostics
 export load_snapshots, propagate_function,
-       ζ, ub, vb, wb, uw, vw, KE, MLD, PV
+       ζ, ub, vb, wb, uw, vw, KE, MLD, PV, BLD1D
 
 using Oceananigans
 using Oceananigans
@@ -51,8 +51,9 @@ function write_pointwise_diagnostics(file_prefix; architecture = CPU())
     D  = propagate_function(δ,   snapshots; filename = output_filename)
     Q  = propagate_function(PV,  snapshots; filename = output_filename)
     MX = propagate_function(MLD, snapshots; filename = output_filename)
+    BD = propagate_function(BLD1D, snapshots; filename = output_filename)
 
-    return (; UB, VB, WB, UW, VW, Z, D, Q, MX)
+    return (; UB, VB, WB, UW, VW, Z, D, Q, MX, BD)
 end
 
 function load_snapshots(filename; 
@@ -82,6 +83,7 @@ end
 times(snapshots::Dict) = snapshots[first(keys(snapshots))].times
 
 include("mixed_layer.jl")
+include("boundary_layer.jl")
 include("pointwise_diagnostics.jl")
 include("spectra.jl")
 include("filtering.jl")
