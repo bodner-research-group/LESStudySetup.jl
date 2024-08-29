@@ -11,7 +11,7 @@ using JLD2
 # -> Nx should be a multiple integer of the partitions in x
 # -> Ny should be a multiple integer of the partitions in y and x
 # -> Nz should be a multiple integer of the partitions in y
-arch = Distributed(GPU(), partition = Partition(x = 32, y = 32))
+arch = Distributed(GPU(), partition = Partition(x = 2, y = 2))
 
 # The connectivity with ranks for the west, east, north, south, 
 # northwest, northeast, southwest and southeast ranks is in 
@@ -22,19 +22,19 @@ arch = Distributed(GPU(), partition = Partition(x = 32, y = 32))
 # Ny = Ly / Δh
 # Nz = Lz / Δz
 # Set the grid size parameters
-set_value!(; Δh = 2, Δz = 1, Lx = 100000, Ly = 100000, Lz = 250)
+set_value!(; Δh = 2, Δz = 1, Lx = 10000, Ly = 10000, Lz = 250)
 
 # Show all the parameters we are using
 @info "Simulation parameters: " parameters
 
 # Output writer details
-stop_time = 1hour
+stop_iteration = 1000
 
 background_forcing = true
 restart_file = false
 
 # Let's start with an nonhydrostatic setup running for 30 days
-simulation = idealized_setup(arch; stop_time, background_forcing)
+simulation = idealized_setup(arch; stop_time, background_forcing, stop_iteration)
 
 # Show the configuration of the simulation
 @info simulation

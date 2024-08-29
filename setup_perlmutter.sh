@@ -10,4 +10,6 @@ export JULIA_NVTX_CALLBACKS=gc
 export SLURM_CPU_BIND="cores"
 export CRAY_ACCEL_TARGET="nvidia80"
 
-export JULIA="/global/homes/s/ssilvest/julia-1.10.4/bin/julia" 
+module load julia
+
+export JULIA="julia"
