@@ -44,15 +44,15 @@ function isotropic_powerspectrum(var1, var2, x, y; nfactor=100)
     Nfx, Nfy = Int(Int64(Nx)/2), Int(Int64(Ny)/2)
 
     # Hann window
-    wx = sin.(π*(1:Nx)/Nx).^2
+#=     wx = sin.(π*(1:Nx)/Nx).^2
     wy = sin.(π*(1:Ny)/Ny).^2
-    w = wx.*wy'
+    w = wx.*wy' =#
     
     Δx, Δy = x[2] - x[1], y[2] - y[1]
 
     # Fourier transform
-    v̂1 = (rfft(w.*var1))[2:Nfx+1,2:Nfy+1]
-    v̂2 = (rfft(w.*var2))[2:Nfx+1,2:Nfy+1]
+    v̂1 = (rfft(var1))[2:Nfx+1,2:Nfy+1]
+    v̂2 = (rfft(var2))[2:Nfx+1,2:Nfy+1]
 
     # Compute the power spectrum
     S = vec(v̂1 .* conj(v̂2))
