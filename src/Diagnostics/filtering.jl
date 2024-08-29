@@ -121,3 +121,52 @@ function spectral_filtering(u::Field; xcutoff = 20kilometer, ycutoff = 20kilomet
 
     return u̅
 end
+
+function symmetric_filtering(u::Field; cutoff = 20kilometer)
+
+    Δx = u.grid.Δxᶜᵃᵃ
+    Δy = u.grid.Δyᵃᶜᵃ
+
+    u̅l = deepcopy(u)
+    u̅h = deepcopy(u)
+    d = interior(u)
+    dl = deepcopy(d)
+    dh = deepcopy(d)
+
+    Nx, Ny, Nz = size(d)
+    Nfx, Nfy = Int(Int64(Nx)/2), Int(Int64(Ny)/2)
+
+    # Hann window
+#=     wx = sin.(π*(1:Nx)/Nx).^2
+    wy = sin.(π*(1:Ny)/Ny).^2
+    w = wx.*wy'
+    normw = sqrt.(irfft(conj(rfft(w)) .* rfft(w), Nx)) =#
+
+    # frequencies and wavenumbers
+    kx = (fftfreq(Nx)[1:Nfx])/Δx
+    ky = (fftfreq(Ny)[1:Nfy])/Δy
+    kx, ky = repeat(kx, 1, Nfy), repeat(ky', Nfx, 1)
+    k = sqrt.(kx.^2 + ky.^2)
+    kc = 2π/cutoff
+
+    # Fourier transform
+    for iz = 1:Nz
+        d̂ = (rfft(d[:,:,iz]))
+
+        d̂l = deepcopy(d̂)
+        d̂h = deepcopy(d̂)
+        d̂l[k.<=kc] .= 0
+        d̂h[k.>kc] .= 0
+        
+        # Inverse Fourier transform
+        dl[:, :, iz] = irfft(d̂l, Nx) #./ normw
+        dh[:, :, iz] = irfft(d̂h, Nx) #./ normw
+    end
+    
+    set!(u̅l, dl)
+    set!(u̅h, dh)
+    fill_halo_regions!(u̅l)
+    fill_halo_regions!(u̅h)
+
+    return u̅l, u̅h
+end
