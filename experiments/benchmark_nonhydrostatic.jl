@@ -18,10 +18,11 @@ arch = Distributed(GPU(), partition = Partition(x = 32, y = 32))
 @show arch.connectivity
 
 # Domain size is 100km x 100km x 250m, the mesh size is
-# Nx = 100000 / Δh
-# Ny = 100000 / Δh
-# Nz = 250 / Δz
-set_value!(; Δh = 2, Δz = 1)
+# Nx = Lx / Δh
+# Ny = Ly / Δh
+# Nz = Lz / Δz
+# Set the grid size parameters
+set_value!(; Δh = 2, Δz = 1, Lx = 100000, Ly = 100000, Lz = 250)
 
 # Show all the parameters we are using
 @info "Simulation parameters: " parameters
