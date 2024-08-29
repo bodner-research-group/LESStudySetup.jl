@@ -13,6 +13,10 @@ using JLD2
 # -> Nz should be a multiple integer of the partitions in y
 arch = Distributed(GPU(), partition = Partition(x = 32, y = 32))
 
+# The connectivity with ranks for the west, east, north, south, 
+# northwest, northeast, southwest and southeast ranks is in 
+@show arch.connectivity
+
 # Domain size is 100km x 100km x 250m, the mesh size is
 # Nx = 100000 / Δh
 # Ny = 100000 / Δh
