@@ -54,6 +54,84 @@ function vw(snapshots, i)
     return v * w
 end
 
+""" filtered x-z momentum flux """
+function uw_filtered(snapshots, i; cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    w = snapshots[:w][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+    wl, wh = symmetric_filtering(w; cutoff)
+
+    uw = (u - mean(u,dims=(1,2))) * (w - mean(w,dims=(1,2)))
+    ulwl = (ul - mean(ul,dims=(1,2))) * (wl - mean(wl,dims=(1,2)))
+    uhwh = (uh - mean(uh,dims=(1,2))) * (wh - mean(wh,dims=(1,2)))
+
+    return uw, ulwl, uhwh
+end
+
+""" filtered y-z momentum flux """
+function vw_filtered(snapshots, i; cutoff = 20kilometer)
+    v = snapshots[:v][i]
+    w = snapshots[:w][i]
+    vl, vh = symmetric_filtering(v; cutoff)
+    wl, wh = symmetric_filtering(w; cutoff)
+
+    vw = (v - mean(v,dims=(1,2))) * (w - mean(w,dims=(1,2)))
+    vlwl = (vl - mean(vl,dims=(1,2))) * (wl - mean(wl,dims=(1,2)))
+    vhwh = (vh - mean(vh,dims=(1,2))) * (wh - mean(wh,dims=(1,2)))
+
+    return vw, vlwl, vhwh
+end
+
+""" filtered x-y momentum flux """
+function uv_filtered(snapshots, i; cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+    vl, vh = symmetric_filtering(v; cutoff)
+
+    uv = (u - mean(u,dims=(1,2))) * (v - mean(v,dims=(1,2)))
+    ulvl = (ul - mean(ul,dims=(1,2))) * (vl - mean(vl,dims=(1,2)))
+    uhvh = (uh - mean(uh,dims=(1,2))) * (vh - mean(vh,dims=(1,2)))
+
+    return uv, ulvl, uhvh
+end
+
+""" filtered x-x momentum flux """
+function u²_filtered(snapshots, i; cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+
+    u² = (u - mean(u,dims=(1,2)))^2
+    ul² = (ul - mean(ul,dims=(1,2)))^2
+    uh² = (uh - mean(uh,dims=(1,2)))^2
+
+    return u², ul², uh²
+end
+
+""" filtered y-y momentum flux """
+function v²_filtered(snapshots, i; cutoff = 20kilometer)
+    v = snapshots[:v][i]
+    vl, vh = symmetric_filtering(v; cutoff)
+
+    v² = (v - mean(v,dims=(1,2)))^2
+    vl² = (vl - mean(vl,dims=(1,2)))^2
+    vh² = (vh - mean(vh,dims=(1,2)))^2
+
+    return v², vl², vh²
+end
+
+""" filtered z-z momentum flux """
+function w²_filtered(snapshots, i; cutoff = 20kilometer)
+    w = snapshots[:w][i]
+    wl, wh = symmetric_filtering(w; cutoff)
+
+    w² = (w - mean(w,dims=(1,2)))^2
+    wl² = (wl - mean(wl,dims=(1,2)))^2
+    wh² = (wh - mean(wh,dims=(1,2)))^2
+
+    return w², wl², wh²
+end
+
 """ zonal buoyancy flux """
 function ub(snapshots, i)
     α = parameters.α
@@ -85,6 +163,57 @@ function wb(snapshots, i)
     T = snapshots[:T][i]
 
     return α * g * T * w
+end
+
+""" filtered zonal buoyancy flux """
+function ub_filtered(snapshots, i; cutoff = 20kilometer)
+    α = parameters.α
+    g = parameters.g
+
+    u = snapshots[:u][i]
+    b = α * g * snapshots[:T][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+    bl, bh = symmetric_filtering(b; cutoff)
+
+    ub = (u - mean(u,dims=(1,2))) * (b - mean(b,dims=(1,2)))
+    ulbl = (ul - mean(ul,dims=(1,2))) * (bl - mean(bl,dims=(1,2)))
+    uhwh = (uh - mean(uh,dims=(1,2))) * (bh - mean(bh,dims=(1,2)))
+
+    return ub, ulbl, uhwh
+end
+
+""" filtered meridional buoyancy flux """
+function vb_filtered(snapshots, i; cutoff = 20kilometer)
+    α = parameters.α
+    g = parameters.g
+
+    v = snapshots[:v][i]
+    b = α * g * snapshots[:T][i]
+    vl, vh = symmetric_filtering(v; cutoff)
+    bl, bh = symmetric_filtering(b; cutoff)
+
+    vb = (v - mean(v,dims=(1,2))) * (b - mean(b,dims=(1,2)))
+    vlbl = (vl - mean(vl,dims=(1,2))) * (bl - mean(bl,dims=(1,2)))
+    vhwh = (vh - mean(vh,dims=(1,2))) * (bh - mean(bh,dims=(1,2)))
+
+    return vb, vlbl, vhwh
+end
+
+""" filtered vertical buoyancy flux """
+function wb_filtered(snapshots, i; cutoff = 20kilometer)
+    α = parameters.α
+    g = parameters.g
+
+    w = snapshots[:w][i]
+    b = α * g * snapshots[:T][i]
+    wl, wh = symmetric_filtering(w; cutoff)
+    bl, bh = symmetric_filtering(b; cutoff)
+
+    wb = (w - mean(w,dims=(1,2))) * (b - mean(b,dims=(1,2)))
+    wlbl = (wl - mean(wl,dims=(1,2))) * (bl - mean(bl,dims=(1,2)))
+    whwh = (wh - mean(wh,dims=(1,2))) * (bh - mean(bh,dims=(1,2)))
+
+    return wb, wlbl, whwh
 end
 
 """ horizontal kinetic energy """
