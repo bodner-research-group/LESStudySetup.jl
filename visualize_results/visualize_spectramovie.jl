@@ -15,7 +15,7 @@ function visualize(cooling, wind, dTf, a)
     wind = replace("$(wind)","." => "" )
     a = replace("$(a)","." => "" )
     if dTf < 0
-        fileparams = "four_vortices_cooling_$(cooling)_wind_$(wind)"
+        fileparams = "hydrostatic_twin_simulation"
     else
         if length(wind) < 2
             wind = "0" * wind
@@ -46,9 +46,9 @@ function visualize(cooling, wind, dTf, a)
     println("Loading fields wall time: $((now() - t0).value/1e3) seconds.")
 
     # Coordinate arrays
-    xu, yu, zu = nodes(u)
-    xv, yv, zv = nodes(v)
-    xw, yw, zw = nodes(w)
+    xu, yu, _ = nodes(u)
+    xv, yv, _ = nodes(v)
+    xw, yw, _ = nodes(w)
     xT, yT, zT = nodes(T)
 
     # Compute the horizontal spectrum of T, u, v, w 
@@ -59,6 +59,8 @@ function visualize(cooling, wind, dTf, a)
     fig = Figure(size = (400, 300))
     klev = 113
     println("Plotting spectra at z = $(zT[klev])m...")
+
+    n = Observable(2)
     ax = Axis(fig[1, 1][1,1]; 
               title = @lift("t = " * string(round(times[$n]/3600/24, digits=2)) * " days"),
               subtitle="z = $(zT[klev])m", axis_kwargs...) 
@@ -69,9 +71,9 @@ function visualize(cooling, wind, dTf, a)
     Sw = @lift isotropic_powerspectrum($wk, $wk, xw, yw)
     St = @lift isotropic_powerspectrum(interior(snapshots[:T][$n], :, :, klev), interior(snapshots[:T][$n], :, :, klev), xT, yT)
 
-    lines!(ax, @lift($Su.freq), 1e-8@lift($Su.freq).^-2, linestyle = :dash, color = :black)
+    lines!(ax, @lift($Su.freq), @lift(1e-8*($Su.freq).^-2), linestyle = :dash, color = :black)
     text!(ax, 1e-3, 1e-2; text = L"k^{-2}")
-    lines!(ax, @lift($Su.freq), 1e-15@lift($Su.freq).^-3, linestyle = :dash, color = :gray)
+    lines!(ax, @lift($Su.freq), @lift(1e-15*($Su.freq).^-3), linestyle = :dash, color = :gray)
     text!(ax, 10^-3.5, 1e-6; text = L"k^{-3}")
     lines!(ax, @lift($St.freq), @lift(Real.($St.spec./$St.spec[1])), color = :red, label = L"E_T")
     lines!(ax, @lift($Su.freq), @lift(Real.($Su.spec./$Sv.spec[1])), color = :blue, label = L"E_u")
@@ -79,7 +81,7 @@ function visualize(cooling, wind, dTf, a)
     lines!(ax, @lift($Sw.freq), @lift(Real.($Sw.spec./$Sv.spec[1])), color = :black, label = L"E_w")
     axislegend(ax, labelsize=10, patchsize = (20, 5))
 
-    frames = 1:2:length(times)
+    frames = 2:2:length(times)
     @info "Making a neat animation of spectra..."
     record(fig, filesave * "spectra_" * fileparams * ".mp4", frames, framerate=4) do i
         println("Loading fields $i day $(round(times[i]/3600/24, digits=2)) wall time: $((now() - t0).value/1e3) seconds.")
@@ -89,10 +91,9 @@ function visualize(cooling, wind, dTf, a)
     return
 end
 
-coolings = [0]
-winds = [0]
-dTfs = [4]
+coolings = [50]
+winds = [0.1]
+dTfs = [-1]
 as = [1.0]
-for i in 1:length(coolings)
-    visualize(coolings[i], winds[i], dTfs[i], as[i])
-end
+i = 1
+visualize(coolings[i], winds[i], dTfs[i], as[i])
