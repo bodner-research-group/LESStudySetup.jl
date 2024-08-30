@@ -146,7 +146,7 @@ function symmetric_filtering(u::Field; cutoff = 20kilometer)
     kx = (fftfreq(Nx)[1:Nfx])/Δx
     ky = (fftfreq(Ny)[1:Nfy])/Δy
     kx, ky = repeat(kx, 1, Nfy), repeat(ky', Nfx, 1)
-    k = sqrt.(kx.^2 + ky.^2)
+    k = 2π * sqrt.(kx.^2 + ky.^2)
     kc = 2π/cutoff
 
     # Fourier transform
@@ -155,8 +155,8 @@ function symmetric_filtering(u::Field; cutoff = 20kilometer)
 
         d̂l = deepcopy(d̂)
         d̂h = deepcopy(d̂)
-        d̂l[k.<=kc] .= 0
-        d̂h[k.>kc] .= 0
+        d̂l[k.>kc] .= 0
+        d̂h[k.<=kc] .= 0
         
         # Inverse Fourier transform
         dl[:, :, iz] = irfft(d̂l, Nx) #./ normw
