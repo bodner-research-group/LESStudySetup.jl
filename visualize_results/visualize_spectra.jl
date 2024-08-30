@@ -8,18 +8,20 @@ using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_snapshots, isotropic_powerspectrum
 set_theme!(Theme(fontsize = 12))
 
-function visualize(cooling, wind, dTf)
+function visualize(cooling, wind, dTf, a)
     # Examples! (fill in the correct filename and metadata filename)
     # cooling, wind, dTf = 25, 0.02, -1
     cooling = @sprintf("%03d", cooling)
     wind = replace("$(wind)","." => "" )
+    a = replace("$(a)","." => "" )
     if dTf < 0
         fileparams = "four_vortices_cooling_$(cooling)_wind_$(wind)"
     else
         if length(wind) < 2
             wind = "0" * wind
         end
-        fileparams = "free_surface_short_test_$(cooling)_wind_$(wind)_dTf_$(dTf)"
+        dTf = @sprintf("%1d", dTf)
+        fileparams = "free_surface_short_test_$(cooling)_wind_$(wind)_dTf_$(dTf)_a_$(a)"
     end
     filehead = "./"
     filename = filehead * "hydrostatic_snapshots_" * fileparams * ".jld2"
@@ -32,7 +34,7 @@ function visualize(cooling, wind, dTf)
 
     # Let's pick the last snapshot!
     times = snapshots[:T].times
-    snapshot_number = length(times)
+    snapshot_number = length(times)÷2
     nday = @sprintf("%02.0f", (times[snapshot_number])/60^2/24)
     println("Plotting snapshot $snapshot_number on day $(nday)...")
     t0 = now()
@@ -90,9 +92,9 @@ function visualize(cooling, wind, dTf)
     return
 end
 
-coolings = [0]
-winds = [0]
-dTfs = [4]
-for i in 1:length(coolings)
-    visualize(coolings[i], winds[i], dTfs[i])
-end
+coolings = [50]
+winds = [0.1]
+dTfs = [1]
+as = [1.0]
+i = 1
+visualize(coolings[i], winds[i], dTfs[i], as[i])
