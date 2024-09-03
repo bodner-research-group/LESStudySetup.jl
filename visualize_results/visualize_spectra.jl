@@ -15,7 +15,7 @@ function visualize(cooling, wind, dTf, a)
     wind = replace("$(wind)","." => "" )
     a = replace("$(a)","." => "" )
     if dTf < 0
-        fileparams = "four_vortices_cooling_$(cooling)_wind_$(wind)"
+        fileparams = "hydrostatic_twin_simulation"
     else
         if length(wind) < 2
             wind = "0" * wind
@@ -34,7 +34,7 @@ function visualize(cooling, wind, dTf, a)
 
     # Let's pick the last snapshot!
     times = snapshots[:T].times
-    snapshot_number = length(times)÷2
+    snapshot_number = length(times)÷2 + 48
     nday = @sprintf("%02.0f", (times[snapshot_number])/60^2/24)
     println("Plotting snapshot $snapshot_number on day $(nday)...")
     t0 = now()
@@ -55,7 +55,7 @@ function visualize(cooling, wind, dTf, a)
     axis_kwargs1 = (xlabel = "Wavenumber (rad⋅m⁻¹)", 
                     ylabel = L"E_i(k)/E_{T,v}(k_{min},z=-3~m)",
                     xscale = log10, yscale = log10,
-                    limits = ((8e-5, 4e-2), (1e-11,7)))
+                    limits = ((8e-5, 4e-2), (1e-11,10)))
     axis_kwargs2 = NamedTuple{(:xlabel,:xscale,:yscale,:limits)}(axis_kwargs1)
     fig = Figure(size = (800, 300))
     for (i,klev) in enumerate([124, 113, 95])
@@ -84,6 +84,7 @@ function visualize(cooling, wind, dTf, a)
         lines!(ax, Su.freq, Real.(Su.spec./Sv0.spec[1]), color = :blue, label = L"E_u")
         lines!(ax, Sv.freq, Real.(Sv.spec./Sv0.spec[1]), color = :green, label = L"E_v")
         lines!(ax, Sw.freq, Real.(Sw.spec./Sv0.spec[1]), color = :black, label = L"E_w")
+        vlines!(ax, [2π/10^4]; color = :black, linewidth = 0.5)
         axislegend(ax, labelsize=10, patchsize = (20, 5))
     end
     save(filesave * "spectra_" * fileparams * "_d$(nday).pdf", fig)
@@ -94,7 +95,7 @@ end
 
 coolings = [50]
 winds = [0.1]
-dTfs = [1]
+dTfs = [-1]
 as = [1.0]
 i = 1
 visualize(coolings[i], winds[i], dTfs[i], as[i])
