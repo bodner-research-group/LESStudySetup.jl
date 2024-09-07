@@ -37,11 +37,11 @@ A mutable struct representing the constants used in the LES study setup.
     Δz  :: Float64 = 4meters
     Lx  :: Float64 = 100kilometers
     Ly  :: Float64 = 100kilometers
-    Lz  :: Float64 = 250meters
+    Lz  :: Float64 = 256meters
      f  :: Float64 = 1e-4
     τw  :: Float64 = 0.1
      θ  :: Float64 = 30
-     Q  :: Float64 = 0
+     Q  :: Float64 = 10
      α  :: Float64 = 2e-4
      Φ  :: Float64 = 0.075
     Lf  :: Float64 = 0.9
