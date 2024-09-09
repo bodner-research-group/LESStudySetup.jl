@@ -136,12 +136,6 @@ function symmetric_filtering(u::Field; cutoff = 20kilometer)
     Nx, Ny, Nz = size(d)
     Nfx, Nfy = Int(Int64(Nx)/2), Int(Int64(Ny)/2)
 
-    # Hann window
-#=     wx = sin.(π*(1:Nx)/Nx).^2
-    wy = sin.(π*(1:Ny)/Ny).^2
-    w = wx.*wy'
-    normw = sqrt.(irfft(conj(rfft(w)) .* rfft(w), Nx)) =#
-
     # frequencies and wavenumbers
     kx = (fftfreq(Nx)[1:Nfx])/Δx
     ky = (fftfreq(Ny)[1:Nfy])/Δy
@@ -159,8 +153,8 @@ function symmetric_filtering(u::Field; cutoff = 20kilometer)
         d̂h[k.<=kc] .= 0
         
         # Inverse Fourier transform
-        dl[:, :, iz] = irfft(d̂l, Nx) #./ normw
-        dh[:, :, iz] = irfft(d̂h, Nx) #./ normw
+        dl[:, :, iz] = irfft(d̂l, Nx) 
+        dh[:, :, iz] = irfft(d̂h, Nx) 
     end
     
     set!(u̅l, dl)

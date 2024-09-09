@@ -2,7 +2,7 @@ module Diagnostics
 
 export write_pointwise_diagnostics
 export load_snapshots, propagate_function,
-       ζ, ub, vb, wb, uw, vw, KE, MLD, PV, BLD1D
+       ζ, ub, vb, wb, uw, vw, KE, MLD, BLD1D, PV
 
 using Oceananigans
 using Oceananigans
@@ -66,11 +66,13 @@ function load_snapshots(filename;
     v = FieldTimeSeries(filename, "v"; architecture, backend = OnDisk())
     w = FieldTimeSeries(filename, "w"; architecture, backend = OnDisk())
     T = FieldTimeSeries(filename, "T"; architecture, backend = OnDisk())
+    p = FieldTimeSeries(filename, "pHY′"; architecture, backend = OnDisk())
 
     snapshots[:u] = u
     snapshots[:v] = v
     snapshots[:w] = w
     snapshots[:T] = T
+    snapshots[:p] = p
 
     if !isnothing(metadata)
         params = jldopen(metadata)["parameters"]

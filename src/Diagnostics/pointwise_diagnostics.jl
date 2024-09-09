@@ -264,6 +264,17 @@ function N²(snapshots, i)
     return ∂z(B)
 end
 
+""" horizontalstratification """
+function M²(snapshots, i)
+    α = parameters.α
+    g = parameters.g
+    
+    T = snapshots[:T][i]
+    B = α * g * T
+    
+    return ∂x(B), ∂y(B)
+end
+
 """ vertical vorticity """
 function ζ(snapshots, i)
     u = snapshots[:u][i]
@@ -301,6 +312,114 @@ function PV(snapshots, i)
     bz = α * g * ∂z(T)
 
     return ωx * bx + ωy * by + ωz * bz
+end
+
+""" spectral horizontal advection """
+function Ah(snapshots, i; nfactor=100)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    KE = 0.5 * (u^2 + v^2)
+    ζ = ∂x(v) - ∂y(u)
+    xu, yu, zu = nodes(u)
+    xv, yv, _ = nodes(v)
+    Nz = length(zu)
+
+    Au = compute!(Field(- ∂x(KE) + v * ζ))
+    Av = compute!(Field(- ∂y(KE) - u * ζ))
+
+    # Fourier transform
+    Au1 = isotropic_powerspectrum(interior(u, :, :, 1), interior(Au, :, :, 1), xu, yu; nfactor)
+    Av1 = isotropic_powerspectrum(interior(v, :, :, 1), interior(Av, :, :, 1), xv, yv; nfactor)
+    A = zeros(Nz,length(Au1.spec))
+    A[1,:] = real.(Au1.spec + Av1.spec)
+    for k = 2:Nz
+        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
+        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        A[k,:] = real.(Auk.spec + Avk.spec)
+    end
+
+    return A, zu, Au1.freq
+end
+
+""" spectral vertical advection """
+function Av(snapshots, i; nfactor=100)
+    u = compute!(Field(@at (Center, Center, Face) snapshots[:u][i]))
+    v = compute!(Field(@at (Center, Center, Face) snapshots[:v][i]))
+    w = snapshots[:w][i]
+
+    xu, yu, zu = nodes(u)
+    xv, yv, _ = nodes(v)
+    Nz = length(zu)
+
+    Au = compute!(Field(- w * ∂z(u)))
+    Av = compute!(Field(- w * ∂z(v)))
+
+    Au1 = isotropic_powerspectrum(interior(Au, :, :, 1), interior(u, :, :, 1), xu, yu; nfactor)
+    A = zeros(Nz,length(Au1.spec))
+    for k = 2:Nz
+        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
+        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        A[k,:] = real.(Auk.spec .+ Avk.spec)
+    end
+
+    return A, zu, Au1.freq
+
+end
+
+""" spectral convertion of potential to kinetic energy """
+function Ac(snapshots, i; nfactor=100)
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+    T = snapshots[:T][i]
+
+    xT, yT, zT = nodes(T)
+    Nz = length(zT)
+
+    α = parameters.α
+    g = parameters.g
+    B = compute!(Field(α * g * T))
+    C1 = isotropic_powerspectrum(interior(B, :, :, 1), interior(w, :, :, 1), xT, yT; nfactor)
+    C = zeros(Nz,length(C1.spec))
+    C[1,:] = real.(C1.spec)
+    for k = 2:Nz
+        Ck = isotropic_powerspectrum(interior(B, :, :, k), interior(w, :, :, k), xT, yT; nfactor)
+        C[k,:] = real.(Ck.spec)
+    end
+
+    return C, zT, C1.freq
+end
+
+""" spectral 3D pressure work """
+function Ap(snapshots, i; nfactor=100)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+    p = snapshots[:p][i]
+    T = snapshots[:T][i]
+
+    α = parameters.α
+    g = parameters.g
+    ρ₀ = parameters.ρ₀
+    px = compute!(Field(∂x(p)))
+    py = compute!(Field(∂y(p)))
+    pz = compute!(Field(α * g * T))
+
+    xu, yu, zu = nodes(u)
+    xv, yv, _ = nodes(v)
+    xw, yw, _ = nodes(w)
+
+    Au1 = isotropic_powerspectrum(interior(px, :, :, 1), interior(u, :, :, 1), xu, yu; nfactor)
+    Av1 = isotropic_powerspectrum(interior(py, :, :, 1), interior(v, :, :, 1), xv, yv; nfactor)
+    Aw1 = isotropic_powerspectrum(interior(pz, :, :, 1), interior(w, :, :, 1), xw, yw; nfactor)
+    A = zeros(length(zu),length(Au1.spec))
+    A[1,:] = - real.(Au1.spec + Av1.spec + Aw1.spec)
+    for k = 2:length(zu)
+        Auk = isotropic_powerspectrum(interior(px, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
+        Avk = isotropic_powerspectrum(interior(py, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        Awk = isotropic_powerspectrum(interior(pz, :, :, k), interior(w, :, :, k), xw, yw; nfactor)
+        A[k,:] = - real.(Auk.spec + Avk.spec + Awk.spec)
+    end
+
+    return A, zu, Au1.freq
 end
 
 """ streamfunction computation kernel """
