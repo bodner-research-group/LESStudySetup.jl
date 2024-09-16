@@ -16,7 +16,7 @@ function visualize(cooling, wind, dTf, a)
     wind = replace("$(wind)","." => "" )
     a = replace("$(a)","." => "" )
     if dTf < 0
-        fileparams = "four_vortices_cooling_$(cooling)_wind_$(wind)"
+        fileparams = "hydrostatic_twin_simulation"
     else
         if length(wind) < 2
             wind = "0" * wind
