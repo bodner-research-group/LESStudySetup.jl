@@ -164,3 +164,39 @@ function symmetric_filtering(u::Field; cutoff = 20kilometer)
 
     return u̅l, u̅h
 end
+
+function coarse_graining(u::Field; kernel = :tophat, cutoff = 20kilometer)
+
+    Δx = u.grid.Δxᶜᵃᵃ
+    Δy = u.grid.Δyᵃᶜᵃ
+
+    u̅l = deepcopy(u)
+    d = interior(u)
+    dl = deepcopy(d)
+
+    xu, yu, _ = nodes(u)
+    Nx, Ny, Nz = size(d)
+    
+    Gl = zeros(Nx, Ny)
+    xm, ym = (xu[1]+xu[Nx])/2, (yu[1]+yu[Ny])/2
+    xG, yG = repeat(xu, 1, Ny) .- xm, repeat(yu', Nx, 1) .- ym
+    rG = (xG.^2 + yG.^2).^0.5   
+    if kernel == :tophat
+        A = π * cutoff^2/4
+        Gl[rG .< cutoff/2] .= 1/A
+    end
+    Ĝl = rfft(Gl/sum(Gl))
+
+    # Fourier transform for convolution
+    for iz = 1:Nz
+        
+        # Inverse Fourier transform
+        dl[:, :, iz] = irfft(Ĝl .* (rfft(d[:,:,iz])), Nx) 
+    end
+    
+    set!(u̅l, dl)
+    fill_halo_regions!(u̅l)
+
+    return u̅l
+
+end
