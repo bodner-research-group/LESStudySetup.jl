@@ -422,6 +422,30 @@ function Ap(snapshots, i; nfactor=100)
     return A, zu, Au1.freq
 end
 
+""" coarse-grained velocities and fluxes """
+function coarse_grained_fluxes(snapshots, i; kernel = :tophat, cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+
+    u̅l = coarse_graining(u; kernel, cutoff)
+    v̅l = coarse_graining(v; kernel, cutoff)
+    w̅l = coarse_graining(w; kernel, cutoff)
+
+    τ̅uul = coarse_graining(compute!(Field(u^2)); kernel, cutoff) - u̅l^2
+    τ̅vvl = coarse_graining(compute!(Field(v^2)); kernel, cutoff) - v̅l^2
+    τ̅wwl = coarse_graining(compute!(Field(w^2)); kernel, cutoff) - w̅l^2
+    τ̅uvl = coarse_graining(compute!(Field(u*v)); kernel, cutoff) - u̅l*v̅l
+    τ̅uwl = coarse_graining(compute!(Field(u*w)); kernel, cutoff) - u̅l*w̅l
+    τ̅vwl = coarse_graining(compute!(Field(v*w)); kernel, cutoff) - v̅l*w̅l
+
+    Πhl = -(τ̅uul * ∂x(u̅l) + τ̅vvl * ∂y(v̅l) + τ̅uvl * (∂y(u̅l) * ∂x(v̅l)))
+    Πvl = -(τ̅wwl * ∂z(w̅l)  + τ̅uwl * (∂z(u̅l) * ∂x(w̅l)) + τ̅vwl * (∂z(v̅l) * ∂y(w̅l)))
+
+    return u̅l, v̅l, w̅l, Πhl, Πvl
+
+end
+
 """ streamfunction computation kernel """
 @kernel function _streamfunction!(ψ, u, grid)
     i, k = @index(Global, NTuple)
