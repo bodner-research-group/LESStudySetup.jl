@@ -93,9 +93,9 @@ end
 
     scheme = advection.scheme
 
-    u = SumOfArrays{2}(U.u, advection.u_background)
-    v = SumOfArrays{2}(U.v, advection.v_background)
-    w = SumOfArrays{2}(U.w, advection.w_background)
+    tu = SumOfArrays{2}(U.u, advection.u_background)
+    tv = SumOfArrays{2}(U.v, advection.v_background)
+    tw = SumOfArrays{2}(U.w, advection.w_background)
 
     total_velocities = (; u = tu, v = tv, w = tw)
 
@@ -115,13 +115,13 @@ end
     return div_𝐯v(i, j, k, grid, scheme, total_velocities, v)
 end
 
-@inline function div_𝐯v(i, j, k, grid::RectilinearGrid, advection::ForcedAdvection, U, w) 
+@inline function div_𝐯w(i, j, k, grid::RectilinearGrid, advection::ForcedAdvection, U, w) 
 
     scheme = advection.scheme
 
-    u = SumOfArrays{2}(U.u, advection.u_background)
-    v = SumOfArrays{2}(U.v, advection.v_background)
-    w = SumOfArrays{2}(U.w, advection.w_background)
+    tu = SumOfArrays{2}(U.u, advection.u_background)
+    tv = SumOfArrays{2}(U.v, advection.v_background)
+    tw = SumOfArrays{2}(U.w, advection.w_background)
 
     total_velocities = (; u = tu, v = tv, w = tw)
 
