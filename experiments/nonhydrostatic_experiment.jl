@@ -18,8 +18,8 @@ set_value!(; # Forcing
              Q = 50.0, 
             τw = 0.1, 
              # Spacing -> BEWARE: this leads to a grid which is 50000 × 50000 × 250 in size!!!!
-            Δh = 2.5, 
-            Δz = 1, 
+            Δh = 4.01875, 
+            Δz = 1.28, 
              # Initial condition
            ΔTᶠ = 1.0, 
            ΔTᵉ = 0.5, 
