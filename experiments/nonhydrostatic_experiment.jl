@@ -1,10 +1,7 @@
 using Preferences
-const iscray = true
 @debug "Preloading GTL library" iscray
-if iscray
-    import Libdl
-    Libdl.dlopen_e("libmpi_gtl_cuda", Libdl.RTLD_LAZY | Libdl.RTLD_GLOBAL)
-end
+import Libdl
+Libdl.dlopen_e("libmpi_gtl_cuda", Libdl.RTLD_LAZY | Libdl.RTLD_GLOBAL)
 
 using MPI
 MPI.Init()
@@ -21,8 +18,8 @@ set_value!(; # Forcing
              Q = 50.0, 
             τw = 0.1, 
              # Spacing -> BEWARE: this leads to a grid which is 50000 × 50000 × 250 in size!!!!
-            Δh = 2, 
-            Δz = 1, 
+            Δh = 4.01875, 
+            Δz = 1.28, 
              # Initial condition
            ΔTᶠ = 1.0, 
            ΔTᵉ = 0.5, 

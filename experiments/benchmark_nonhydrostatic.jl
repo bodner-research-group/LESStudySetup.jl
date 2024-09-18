@@ -1,4 +1,8 @@
 using Preferences
+@debug "Preloading GTL library" iscray
+import Libdl
+Libdl.dlopen_e("libmpi_gtl_cuda", Libdl.RTLD_LAZY | Libdl.RTLD_GLOBAL)
+
 using MPI
 MPI.Init()
 
@@ -34,7 +38,7 @@ background_forcing = true
 restart_file = false
 
 # Let's start with an nonhydrostatic setup running for 30 days
-simulation = idealized_setup(arch; stop_time, background_forcing, stop_iteration)
+simulation = idealized_setup(arch; background_forcing, stop_iteration)
 
 # Show the configuration of the simulation
 @info simulation
