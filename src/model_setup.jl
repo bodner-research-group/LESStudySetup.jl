@@ -6,6 +6,9 @@ using Statistics: mean
 model_type(::Val{true})  = HydrostaticFreeSurfaceModel
 model_type(::Val{false}) = NonhydrostaticModel
 
+isforced(model::HydrostaticFreeSurfaceModel) = model.advection.momentum isa ForcedAdvection
+isforced(model::NonhydrostaticModel) = model.advection isa ForcedAdvection
+
 function model_settings(model_type, grid; background_forcing = false)
     
     advection = WENO(; order = 9)
