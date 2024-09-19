@@ -22,6 +22,7 @@ Finally, a `Simulation` object is created with the model, time step, and stop ti
 """
 function idealized_setup(arch; 
                          stop_time = 100days,
+			 stop_iteration = Inf,
                          hydrostatic_approximation = false,
                          background_forcing = false)
     
@@ -98,7 +99,7 @@ function idealized_setup(arch;
     
     wizard = TimeStepWizard(cfl = 0.25, max_change = 1.1)
 
-    simulation = Simulation(model; Δt, stop_time)
+    simulation = Simulation(model; Δt, stop_time, stop_iteration)
 
     simulation.callbacks[:progress] = Callback(progress, IterationInterval(100))
     simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))

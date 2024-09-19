@@ -11,7 +11,7 @@ isforced(model::NonhydrostaticModel) = model.advection isa ForcedAdvection
 
 function model_settings(model_type, grid; background_forcing = false)
     
-    advection = WENO(; order = 9)
+    advection = WENO(; order = 7)
 
     if background_forcing
         u_background = XFaceField(grid)

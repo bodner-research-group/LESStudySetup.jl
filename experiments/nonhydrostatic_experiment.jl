@@ -1,3 +1,8 @@
+using Preferences
+@debug "Preloading GTL library" iscray
+import Libdl
+Libdl.dlopen_e("libmpi_gtl_cuda", Libdl.RTLD_LAZY | Libdl.RTLD_GLOBAL)
+
 using MPI
 MPI.Init()
 using LESStudySetup
@@ -7,20 +12,21 @@ using JLD2
 # Architecture (CPU, GPU, or Distributed)
 arch = Distributed(GPU(), partition = Partition(32, 32))
 
+# Domain size is 100km x 100km x 250m, the mesh size 100000 / Δh, 100000 / Δh and 250 / Δz
 # Setting some initial values (Q = heat flux in W/m², Δz = vertical spacing)
 set_value!(; # Forcing
              Q = 50.0, 
             τw = 0.1, 
              # Spacing -> BEWARE: this leads to a grid which is 50000 × 50000 × 250 in size!!!!
-            Δh = 2, 
-            Δz = 1, 
+            Δh = 4.01875, 
+            Δz = 1.28, 
              # Initial condition
-            ΔTᶠ = 1.0, 
-            ΔTᵉ = 0.5, 
-              Φ = 0.025, 
-              a = 1, 
-             σ² = 0.15, 
-            Lf  = 0.9)
+           ΔTᶠ = 1.0, 
+           ΔTᵉ = 0.5, 
+             Φ = 0.025, 
+             a = 1, 
+            σ² = 0.15, 
+           Lf  = 0.9)
 
 # Show all the parameters we are using
 @info "Simulation parameters: " parameters
