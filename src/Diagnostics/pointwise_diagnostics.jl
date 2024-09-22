@@ -276,17 +276,17 @@ function M²(snapshots, i)
 end
 
 """ vertical vorticity """
-function ζ(snapshots, i)
-    u = snapshots[:u][i]
-    v = snapshots[:v][i]
+function ζ(snapshots, i; u0=0, v0=0)
+    u = compute!(Field(snapshots[:u][i] + u0))
+    v = compute!(Field(snapshots[:v][i] + v0))
 
     return ∂x(v) - ∂y(u)
 end
 
 """ horizontal divergence """
-function δ(snapshots, i)
-    u = snapshots[:u][i]
-    v = snapshots[:v][i]
+function δ(snapshots, i; u0=0, v0=0)
+    u = compute!(Field(snapshots[:u][i] + u0))
+    v = compute!(Field(snapshots[:v][i] + v0))
 
     grid = u.grid
     return KernelFunctionOperation{Center, Center, Center}(div_xyᶜᶜᶜ, grid, u, v)
@@ -315,17 +315,19 @@ function PV(snapshots, i)
 end
 
 """ spectral horizontal advection """
-function Ah(snapshots, i; nfactor=100)
-    u = snapshots[:u][i]
+function Ah(snapshots, i; u0=0, v0=0, nfactor=100)
+    u = snapshots[:u][i] 
     v = snapshots[:v][i]
-    KE = 0.5 * (u^2 + v^2)
-    ζ = ∂x(v) - ∂y(u)
+    #KE = 0.5 * (u^2 + v^2)
+    #ζ = ∂x(v) - ∂y(u)
     xu, yu, zu = nodes(u)
     xv, yv, _ = nodes(v)
     Nz = length(zu)
 
-    Au = compute!(Field(- ∂x(KE) + v * ζ))
-    Av = compute!(Field(- ∂y(KE) - u * ζ))
+    #Au = compute!(Field(- ∂x(KE) + v * ζ))
+    #Av = compute!(Field(- ∂y(KE) - u * ζ))
+    Au = compute!(Field(- (u + u0) * ∂x(u) - (v + v0) * ∂y(u)))
+    Av = compute!(Field(- (u + u0) * ∂x(v) - (v + v0) * ∂y(v)))
 
     # Fourier transform
     Au1 = isotropic_powerspectrum(interior(u, :, :, 1), interior(Au, :, :, 1), xu, yu; nfactor)
@@ -343,9 +345,9 @@ end
 
 """ spectral vertical advection """
 function Av(snapshots, i; nfactor=100)
-    u = compute!(Field(@at (Center, Center, Face) snapshots[:u][i]))
-    v = compute!(Field(@at (Center, Center, Face) snapshots[:v][i]))
-    w = snapshots[:w][i]
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
 
     xu, yu, zu = nodes(u)
     xv, yv, _ = nodes(v)
@@ -423,7 +425,7 @@ function Ap(snapshots, i; nfactor=100)
 end
 
 """ coarse-grained velocities and fluxes """
-function coarse_grained_fluxes(snapshots, i; kernel = :tophat, cutoff = 20kilometer)
+function coarse_grained_fluxes(snapshots, i; u0=0, v0=0, kernel = :tophat, cutoff = 20kilometer)
     u = snapshots[:u][i]
     v = snapshots[:v][i]
     w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
@@ -431,16 +433,21 @@ function coarse_grained_fluxes(snapshots, i; kernel = :tophat, cutoff = 20kilome
     u̅l = coarse_graining(u; kernel, cutoff)
     v̅l = coarse_graining(v; kernel, cutoff)
     w̅l = coarse_graining(w; kernel, cutoff)
+    u̅0l = coarse_graining(u0; kernel, cutoff)
+    v̅0l = coarse_graining(v0; kernel, cutoff)
 
-    τ̅uul = coarse_graining(compute!(Field(u^2)); kernel, cutoff) - u̅l^2
-    τ̅vvl = coarse_graining(compute!(Field(v^2)); kernel, cutoff) - v̅l^2
+    τ̅uul = coarse_graining(compute!(Field(u*(u+u0))); kernel, cutoff) - u̅l*(u̅l+u̅0l)
+    τ̅vvl = coarse_graining(compute!(Field(v*(v+v0))); kernel, cutoff) - v̅l*(v̅l+v̅0l)
     τ̅wwl = coarse_graining(compute!(Field(w^2)); kernel, cutoff) - w̅l^2
-    τ̅uvl = coarse_graining(compute!(Field(u*v)); kernel, cutoff) - u̅l*v̅l
+    τ̅uvl = coarse_graining(compute!(Field(u*(v+v0))); kernel, cutoff) - u̅l*(v̅l+v̅0l)
+    τ̅vul = coarse_graining(compute!(Field(v*(u+u0))); kernel, cutoff) - v̅l*(u̅l+u̅0l)
     τ̅uwl = coarse_graining(compute!(Field(u*w)); kernel, cutoff) - u̅l*w̅l
+    τ̅wul = coarse_graining(compute!(Field(w*(u+u0))); kernel, cutoff) - w̅l*(u̅l+u̅0l)
     τ̅vwl = coarse_graining(compute!(Field(v*w)); kernel, cutoff) - v̅l*w̅l
+    τ̅wvl = coarse_graining(compute!(Field(w*(v+v0))); kernel, cutoff) - w̅l*(v̅l+v̅0l)
 
-    Πhl = -(τ̅uul * ∂x(u̅l) + τ̅vvl * ∂y(v̅l) + τ̅uvl * (∂y(u̅l) * ∂x(v̅l)))
-    Πvl = -(τ̅wwl * ∂z(w̅l)  + τ̅uwl * (∂z(u̅l) * ∂x(w̅l)) + τ̅vwl * (∂z(v̅l) * ∂y(w̅l)))
+    Πhl = -(τ̅uul * ∂x(u̅l) + τ̅vvl * ∂y(v̅l) + τ̅uvl * ∂y(u̅l) + τ̅vul * ∂x(v̅l))
+    Πvl = -(τ̅wwl * ∂z(w̅l)  + τ̅uwl * ∂z(u̅l) + τ̅wul * ∂x(w̅l) + τ̅vwl * ∂z(v̅l) + τ̅wvl * ∂y(w̅l))
 
     return u̅l, v̅l, w̅l, Πhl, Πvl
 
