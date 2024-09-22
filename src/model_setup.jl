@@ -8,7 +8,7 @@ model_type(::Val{false}) = NonhydrostaticModel
 
 function model_settings(model_type, grid; background_forcing = false)
     
-    advection = WENO(; order = 9)
+    advection = WENO(; order = 7)
 
     if background_forcing
         u_background = XFaceField(grid)
