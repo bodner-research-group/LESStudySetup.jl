@@ -8,7 +8,6 @@ using Oceananigans.Units: kilometer
 using Statistics: mean
 using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_snapshots, symmetric_filtering 
-using LESStudySetup.Diagnostics: coarse_grained_fluxes, δ
 using LESStudySetup.Diagnostics: u²_filtered, v²_filtered, w²_filtered
 using LESStudySetup.Diagnostics: uv_filtered, uw_filtered, vw_filtered
 using LESStudySetup.Diagnostics: ub_filtered, vb_filtered, wb_filtered
@@ -44,51 +43,6 @@ times = snapshots[:T].times
 snapshot_number = length(times)÷2 + 48
 nday = @sprintf("%2.0f", (times[snapshot_number])/60^2/24)
 println("Plotting snapshot $snapshot_number on day $(nday)...")
-
-### Plot the coarse-grained cross-scale fluxes 
-u̅l, v̅l, w̅l, Πhl, Πvl = coarse_grained_fluxes(snapshots, snapshot_number; cutoff = 4kilometer)
-ωz = ζ(snapshots, snapshot_number)
-δz = δ(snapshots, snapshot_number)
-T = snapshots[:T][snapshot_number]
-x, y, _ = nodes(T)
-α = parameters.α
-g = parameters.g
-f = parameters.f
-∇b = α * g * (∂x(T)^2 + ∂y(T)^2 + ∂z(T)^2)^0.5
-
-Πl = compute!(Field(Πhl))
-ωz = compute!(Field(ωz))
-δz = compute!(Field(δz))
-∇b = compute!(Field(∇b))
-
-# Plotting!
-fig = Figure(size = (900, 750))
-axis_kwargs1 = (xlabel = "x (km)", ylabel = "y (km)",
-            limits = ((0, 100), (0, 100)))
-axis_kwargs2 = NamedTuple{(:xlabel,:limits)}(axis_kwargs1)
-axis_kwargs3 = NamedTuple{(:ylabel,:limits)}(axis_kwargs1)
-ax_Π = Axis(fig[1, 1][1,1]; title=L"\Pi_h^4", axis_kwargs3...)
-ax_Ro = Axis(fig[1, 2][1,1]; title=L"\zeta/f", limits = ((0, 100), (0, 100)))
-ax_δ = Axis(fig[2, 1][1,1]; title=L"\delta/f", axis_kwargs1...)
-ax_b = Axis(fig[2, 2][1,1]; title=L"|\nabla b|", axis_kwargs2...)
-
-k = 123
-hm_Π = heatmap!(ax_Π, 1e-3x, 1e-3y, interior(Πl,:,:,k); rasterize = true, colormap = :balance, colorrange = (-1e-6, 1e-6))
-hm_Ro = heatmap!(ax_Ro, 1e-3x, 1e-3y, interior(ωz,:,:,k)/f; rasterize = true, colormap = :balance, colorrange = (-2, 2))
-hm_δ = heatmap!(ax_δ, 1e-3x, 1e-3y, interior(δz,:,:,k)/f; rasterize = true, colormap = :balance, colorrange = (-1, 1))
-hm_b = heatmap!(ax_b, 1e-3x, 1e-3y, interior(∇b,:,:,k); rasterize = true, colormap = :binary, colorrange = (0, 1e-5))
-
-Colorbar(fig[1, 1][1, 2], hm_Π)
-Colorbar(fig[1, 2][1, 2], hm_Ro)
-Colorbar(fig[2, 1][1, 2], hm_δ)
-Colorbar(fig[2, 2][1, 2], hm_b)
-
-hidexdecorations!(ax_Π, ticks = false)
-hidexdecorations!(ax_Ro, ticks = false)
-hideydecorations!(ax_Ro, ticks = false)
-hideydecorations!(ax_b, ticks = false)
-
-save(filesave * "coarse_grained_" * fileparams * "_d$(nday).pdf", fig)
 
 ### Plotting circularly-filtered fluxes!
 axis_kwargs0 = (xlabel = L"\langle \phi^\prime \varphi^\prime \rangle_{xy}",
