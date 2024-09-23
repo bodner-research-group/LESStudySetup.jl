@@ -48,6 +48,21 @@ println("Plotting snapshot $snapshot_number on day $(nday)...")
 
 ### Plot the coarse-grained cross-scale fluxes 
 u̅l, v̅l, w̅l, Πhl, Πvl = coarse_grained_fluxes(snapshots, snapshot_number; u0, v0, cutoff = 4kilometer)
+Πhl = compute!(Field(Πhl))
+Πvl = compute!(Field(Πvl))
+
+Π̅h = [mean(Πhl, dims = (1,2))]
+Π̅v = [mean(Πvl, dims = (1,2))]
+
+for l = [2,6,8,10,12,14,16,18,20]
+    _, _, _, Πhl, Πvl = coarse_grained_fluxes(snapshots, snapshot_number; u0, v0, cutoff = 1e3l)
+    Πhl = compute!(Field(Πhl))
+    Πvl = compute!(Field(Πvl))
+    push!(Π̅h, mean(Πhl, dims = (1,2)))
+    push!(Π̅v, mean(Πvl, dims = (1,2)))
+    println("Coarse-grained at l = $l km...")
+end
+
 ωz = ζ(snapshots, snapshot_number; u0, v0)
 δz = δ(snapshots, snapshot_number; u0, v0)
 T = snapshots[:T][snapshot_number]
@@ -57,7 +72,6 @@ g = parameters.g
 f = parameters.f
 ∇b = α * g * (∂x(T)^2 + ∂y(T)^2 + ∂z(T)^2)^0.5
 
-Πl = compute!(Field(Πhl))
 ωz = compute!(Field(ωz))
 δz = compute!(Field(δz))
 ∇b = compute!(Field(∇b))
@@ -74,7 +88,7 @@ ax_δ = Axis(fig[2, 1][1,1]; title=L"\delta/f", axis_kwargs1...)
 ax_b = Axis(fig[2, 2][1,1]; title=L"|\nabla b|", axis_kwargs2...)
 
 k = 123
-hm_Π = heatmap!(ax_Π, 1e-3x, 1e-3y, interior(Πl,:,:,k); rasterize = true, colormap = :balance, colorrange = (-1e-6, 1e-6))
+hm_Π = heatmap!(ax_Π, 1e-3x, 1e-3y, interior(Πhl,:,:,k); rasterize = true, colormap = :balance, colorrange = (-1e-6, 1e-6))
 hm_Ro = heatmap!(ax_Ro, 1e-3x, 1e-3y, interior(ωz,:,:,k)/f; rasterize = true, colormap = :balance, colorrange = (-2, 2))
 hm_δ = heatmap!(ax_δ, 1e-3x, 1e-3y, interior(δz,:,:,k)/f; rasterize = true, colormap = :balance, colorrange = (-1, 1))
 hm_b = heatmap!(ax_b, 1e-3x, 1e-3y, interior(∇b,:,:,k); rasterize = true, colormap = :binary, colorrange = (0, 1e-5))
