@@ -33,7 +33,7 @@ cooling = @sprintf("%03d", cooling)
 wind = replace("$(wind)","." => "" )
 a = replace("$(a)","." => "" )
 if dTf < 0
-    fileparams = "hydrostatic_twin_simulation"
+    fileparams = "hydrostatic_twin_simulation_dh100"
 else
     if length(wind) < 2
         wind = "0" * wind
@@ -45,7 +45,7 @@ filehead = "./"
 filename = filehead * "hydrostatic_snapshots_" * fileparams * ".jld2"
 metadata = filehead * "experiment_" * fileparams * "_metadata.jld2"
 filesave = "./results/"
-initfile = filehead * "hydrostatic_snapshots_hydrostatic_background.jld2"
+initfile = filehead * "hydrostatic_snapshots_hydrostatic_background_dh100.jld2"
 
 # load all the data!!
 println("Loading data from $filename...")
@@ -73,6 +73,8 @@ for i = 1:9
 end
 N̅² = compute!(Field(N̅²/10))
 Γx, Γy = compute!(Field(Γx/10)), compute!(Field(Γy/10))
+Γxz = compute!(Field(@at (Nothing, Nothing, Center) ∂z(Γx)))
+Γyz = compute!(Field(@at (Nothing, Nothing, Center) ∂z(Γy)))
 
 function bvarainces(snapshot_number)
     α = parameters.α
@@ -89,6 +91,8 @@ function bvarainces(snapshot_number)
     bz = deepcopy(mean(B, dims=(1,2)))
     bx = deepcopy(mean(B, dims=(2)))
     by = deepcopy(mean(B, dims=(1)))
+    bxz = deepcopy(mean(B, dims=(2)))
+    byz = deepcopy(mean(B, dims=(1)))
     d = interior(bz)
     d[1,1,:] = cumtrapz(zw, vec(interior(N̅²)))[2:end]
     set!(bz, d)
@@ -98,6 +102,10 @@ function bvarainces(snapshot_number)
     fill_halo_regions!(bx)
     set!(by, reshape(yT,(1,:,1)) .* interior(Γy))
     fill_halo_regions!(by)
+    set!(bxz, xT .* interior(Γxz))
+    fill_halo_regions!(bxz)
+    set!(byz, reshape(yT,(1,:,1)) .* interior(Γyz))
+    fill_halo_regions!(byz)
     b̃ = compute!(Field(B - bz - bx - by))
 
     b̃ᵖ = compute!(Field(b̃ - mean(b̃, dims = (1,2))))
@@ -113,20 +121,23 @@ function bvarainces(snapshot_number)
     wbp = mean(wᵖ * b̃ᵖ, dims = (1,2))
     println("compute buoyacy variance term 3...")
     var3 = compute!(Field((N̅² + mean(∂z(b̃ᵖ), dims = (1,2))) * wbp))
-    return wbp, var1, var2, var3, zT, zw
+    var4 = mean(compute!(Field(b̃ᵖ * w * (bxz + byz))), dims = (1,2))
+    return wbp, var1, var2, var3, var4, zT, zw
 end
 
-wbp, var1, var2, var3, zT, zw = bvarainces(snapshot_number)
+wbp, var1, var2, var3, var4, zT, zw = bvarainces(snapshot_number)
 for i = 1:9
-    wbi, var1i, var2i, var3i, _, _ = bvarainces(snapshot_number+8i)
+    wbi, var1i, var2i, var3i, var4i,_, _ = bvarainces(snapshot_number+8i)
     wbp += wbi
     var1 += var1i
     var2 += var2i
     var3 += var3i
+    var4 += var4i
     println("another $i day(s) added")
 end
 wbp = compute!(Field(wbp/10))
 var1, var2, var3 = compute!(Field(var1/10)), compute!(Field(var2/10)), compute!(Field(var3/10))
+var4 = compute!(Field(var4/10))
 
 # Plot the buoyancy variance terms
 fig = Figure(size = (800, 900))
@@ -136,10 +147,11 @@ axis_kwargs = (xlabel = "Wavenumber (m⁻¹)", ylabel = "z (m)",
 ax = Axis(fig[1, 1]; title=L"\overline{\langle w^\prime \tilde{b}^\prime \rangle}", xlabel = "(m²/s³)", limits = (nothing, (-250, 0)))
 lines!(ax, vec(wbp), zT)
 ax = Axis(fig[1, 2]; title="buoyancy variance terms", xlabel = "(m²/s)", limits = (nothing, (-250, 0)))
-lines!(ax, vec(var1), zT; label = L"\overline{\langle \mathbf{u} \cdot \nabla (\tilde{b}^{\prime 2}/2) \rangle}")
-lines!(ax, vec(var2), zT; label = L"\overline{\langle \mathbf{u}^\prime \tilde{b}^\prime \rangle \cdot \mathbf{\Gamma}}")
-lines!(ax, vec(var1 + var2), zT; label = L"\overline{\langle \mathbf{u} \cdot \nabla (\tilde{b}^{\prime 2}/2) \rangle} +\overline{\langle \mathbf{u}' \tilde{b}' \rangle \cdot \mathbf{\Gamma}}")
+lines!(ax, vec(var1), zT; label = L"\overline{\langle \bm{u} \cdot \nabla (\tilde{b}^{\prime 2}/2) \rangle}")
+lines!(ax, vec(var2), zT; label = L"\overline{\langle \bm{u}^\prime \tilde{b}^\prime \rangle \cdot \bm{\Gamma}}")
+lines!(ax, vec(var1 + var2), zT; label = L"\overline{\langle \bm{u} \cdot \nabla (\tilde{b}^{\prime 2}/2) \rangle} +\overline{\langle \bm{u}' \tilde{b}' \rangle \cdot \bm{\Gamma}}")
 lines!(ax, vec(var3), zw; label = L"\overline{( N^2 +\langle \partial_z \tilde{b}^\prime \rangle) \langle w^\prime \tilde{b}^\prime \rangle}")
+lines!(ax, vec(var4), zT; label = L"\overline{\langle \tilde{b}^{\prime} w \partial_z \bm{\Gamma} \cdot \bm{x} \rangle}")
 hideydecorations!(ax, ticks = false)
 axislegend(ax, position = :rb)
 
