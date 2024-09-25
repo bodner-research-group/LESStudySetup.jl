@@ -1,10 +1,9 @@
-using Oceananigans.Advection: div_𝐯u, div_𝐯v
-
 using Oceananigans.Advection: 
             AbstractAdvectionScheme,
             _advective_tracer_flux_x,
             _advective_tracer_flux_y,
             _advective_tracer_flux_z,
+            ZeroU,
             required_halo_size
 
 using Oceananigans.Fields: ZeroField
@@ -15,6 +14,7 @@ using Adapt
 
 import Base
 import Oceananigans.Advection: div_Uc, U_dot_∇u, U_dot_∇v
+import Oceananigans.Advection: div_𝐯u, div_𝐯v, div_𝐯w
 
 """
     struct ForcedAdvection{N, FT, A, U, V, W} <: AbstractAdvectionScheme{N, FT}
@@ -89,6 +89,53 @@ end
     return div_𝐯v(i, j, k, grid, scheme, total_velocities, U.v)
 end
 
+@inline function div_𝐯u(i, j, k, grid, advection::ForcedAdvection, U, u) 
+
+    scheme = advection.scheme
+
+    tu = SumOfArrays{2}(U.u, advection.u_background)
+    tv = SumOfArrays{2}(U.v, advection.v_background)
+    tw = SumOfArrays{2}(U.w, advection.w_background)
+
+    total_velocities = (; u = tu, v = tv, w = tw)
+
+    return div_𝐯u(i, j, k, grid, scheme, total_velocities, u)
+end
+
+@inline function div_𝐯v(i, j, k, grid, advection::ForcedAdvection, U, v) 
+
+    scheme = advection.scheme
+
+    tu = SumOfArrays{2}(U.u, advection.u_background)
+    tv = SumOfArrays{2}(U.v, advection.v_background)
+    tw = SumOfArrays{2}(U.w, advection.w_background)
+
+    total_velocities = (; u = tu, v = tv, w = tw)
+
+    return div_𝐯v(i, j, k, grid, scheme, total_velocities, v)
+end
+
+@inline function div_𝐯w(i, j, k, grid, advection::ForcedAdvection, U, w) 
+
+    scheme = advection.scheme
+
+    tu = SumOfArrays{2}(U.u, advection.u_background)
+    tv = SumOfArrays{2}(U.v, advection.v_background)
+    tw = SumOfArrays{2}(U.w, advection.w_background)
+
+    total_velocities = (; u = tu, v = tv, w = tw)
+
+    return div_𝐯w(i, j, k, grid, scheme, total_velocities, w)
+end
+
+@inline div_𝐯u(i, j, k, grid, ::ForcedAdvection, ::ZeroU, u) = zero(grid)
+@inline div_𝐯v(i, j, k, grid, ::ForcedAdvection, ::ZeroU, v) = zero(grid)
+@inline div_𝐯w(i, j, k, grid, ::ForcedAdvection, ::ZeroU, w) = zero(grid)
+
+@inline div_𝐯u(i, j, k, grid, ::ForcedAdvection, U, ::ZeroField) = zero(grid)
+@inline div_𝐯v(i, j, k, grid, ::ForcedAdvection, U, ::ZeroField) = zero(grid)
+@inline div_𝐯w(i, j, k, grid, ::ForcedAdvection, U, ::ZeroField) = zero(grid)
+
 @inline function div_Uc(i, j, k, grid, advection::ForcedAdvection, U, c)
 
     scheme = advection.scheme
@@ -101,3 +148,6 @@ end
                                     δyᵃᶜᵃ(i, j, k, grid, _advective_tracer_flux_y, scheme, v, c) +
                                     δzᵃᵃᶜ(i, j, k, grid, _advective_tracer_flux_z, scheme, w, c))
 end
+
+@inline div_Uc(i, j, k, grid, ::ForcedAdvection, ::ZeroU, c) = zero(grid)
+@inline div_Uc(i, j, k, grid, ::ForcedAdvection, U, ::ZeroField) = zero(grid)

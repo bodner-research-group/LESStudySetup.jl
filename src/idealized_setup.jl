@@ -81,7 +81,7 @@ function idealized_setup(arch;
                         boundary_conditions,
                         settings...)
 
-    if model.advection.momentum isa ForcedAdvection 
+    if isforced(model)
         set!(model, T = Tᵢ) 
     else
         set!(model, u = uᵢ, v = vᵢ, T = Tᵢ)

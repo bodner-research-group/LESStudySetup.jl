@@ -56,17 +56,48 @@ function write_pointwise_diagnostics(file_prefix; architecture = CPU())
     return (; UB, VB, WB, UW, VW, Z, D, Q, MX, BD)
 end
 
+const F = Face
+const C = Center
+
+
+function rewrite_variable_with_halos(filename, new_filename, variable_name; architecture = CPU())
+    old_fts = FieldTimeSeries(filename, variable_name; architecture, backend = OnDisk())
+    grid    = old_fts.grid
+    times   = old_fts.times
+    loc     = location(old_fts)
+    new_fts = FieldTimeSeries{loc...}(grid, times; backend = OnDisk(), name = variable_name, path = new_filename)
+    tmp     = Field{loc...}(grid)
+
+    for t in eachindex(times)
+        set!(tmp, old_fts[t])
+        fill_halo_regions!(tmp)
+        set!(new_fts, tmp, t)
+    end
+
+    return new_fts
+end
+
 function load_snapshots(filename; 
+                        add_halos = false,
+                        new_filename = nothing,
                         architecture = CPU(),
                         metadata = nothing)
 
     snapshots = Dict()
 
-    u = FieldTimeSeries(filename, "u"; architecture, backend = OnDisk())
-    v = FieldTimeSeries(filename, "v"; architecture, backend = OnDisk())
-    w = FieldTimeSeries(filename, "w"; architecture, backend = OnDisk())
-    T = FieldTimeSeries(filename, "T"; architecture, backend = OnDisk())
-    p = FieldTimeSeries(filename, "pHY′"; architecture, backend = OnDisk())
+    if add_halos
+        u = rewrite_variable_with_halos(filename, new_filename, "u";     architecture)
+        v = rewrite_variable_with_halos(filename, new_filename, "v";     architecture)
+        w = rewrite_variable_with_halos(filename, new_filename, "w";     architecture)
+        T = rewrite_variable_with_halos(filename, new_filename, "T";     architecture)
+        p = rewrite_variable_with_halos(filename, new_filename, "pNHY′"; architecture)
+    else
+        u = FieldTimeSeries(filename, "u"; architecture, backend = OnDisk())
+        v = FieldTimeSeries(filename, "v"; architecture, backend = OnDisk())
+        w = FieldTimeSeries(filename, "w"; architecture, backend = OnDisk())
+        T = FieldTimeSeries(filename, "T"; architecture, backend = OnDisk())
+        p = FieldTimeSeries(filename, "pNHY′"; architecture, backend = OnDisk())
+    end
 
     snapshots[:u] = u
     snapshots[:v] = v
