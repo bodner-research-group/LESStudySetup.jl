@@ -81,29 +81,20 @@ function load_snapshots(filename;
                         add_halos = false,
                         new_filename = nothing,
                         architecture = CPU(),
-                        metadata = nothing)
+                        metadata = nothing,
+                        variables = (:u, :v, :w, :T))
 
     snapshots = Dict()
 
     if add_halos
-        u = rewrite_variable_with_halos(filename, new_filename, "u";     architecture)
-        v = rewrite_variable_with_halos(filename, new_filename, "v";     architecture)
-        w = rewrite_variable_with_halos(filename, new_filename, "w";     architecture)
-        T = rewrite_variable_with_halos(filename, new_filename, "T";     architecture)
-        p = rewrite_variable_with_halos(filename, new_filename, "pNHY′"; architecture)
+        for var in variables
+            snapshots[var] = rewrite_variable_with_halos(filename, new_filename, string(var); architecture)
+        end
     else
-        u = FieldTimeSeries(filename, "u"; architecture, backend = OnDisk())
-        v = FieldTimeSeries(filename, "v"; architecture, backend = OnDisk())
-        w = FieldTimeSeries(filename, "w"; architecture, backend = OnDisk())
-        T = FieldTimeSeries(filename, "T"; architecture, backend = OnDisk())
-        p = FieldTimeSeries(filename, "pNHY′"; architecture, backend = OnDisk())
+        for var in variables
+            snapshots[var] = FieldTimeSeries(filename, string(var); architecture, backend = OnDisk())
+        end
     end
-
-    snapshots[:u] = u
-    snapshots[:v] = v
-    snapshots[:w] = w
-    snapshots[:T] = T
-    snapshots[:p] = p
 
     if !isnothing(metadata)
         params = jldopen(metadata)["parameters"]
