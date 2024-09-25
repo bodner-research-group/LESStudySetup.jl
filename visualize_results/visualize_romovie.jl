@@ -9,18 +9,20 @@ using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_snapshots,ζ
 set_theme!(Theme(fontsize = 12))
 
-function visualize(cooling, wind, dTf)
+function visualize(cooling, wind, dTf, a)
     # Examples! (fill in the correct filename and metadata filename)
     # cooling, wind, dTf = 25, 0.02, -1
     cooling = @sprintf("%03d", cooling)
     wind = replace("$(wind)","." => "" )
+    a = replace("$(a)","." => "" )
     if dTf < 0
-        fileparams = "four_vortices_cooling_$(cooling)_wind_$(wind)"
+        fileparams = "hydrostatic_twin_simulation"
     else
         if length(wind) < 2
             wind = "0" * wind
         end
-        fileparams = "free_surface_short_test_$(cooling)_wind_$(wind)_dTf_$(dTf)"
+        dTf = @sprintf("%1d", dTf)
+        fileparams = "free_surface_short_test_$(cooling)_wind_$(wind)_dTf_$(dTf)_a_$(a)"
     end
     filehead = "./"
     filename = filehead * "hydrostatic_snapshots_" * fileparams * ".jld2"
@@ -37,7 +39,7 @@ function visualize(cooling, wind, dTf)
     t0 = now()
 
     # Coordinate arrays
-    xT, yT, zT = nodes(snapshots[:T][end])
+    xT, yT, _ = nodes(snapshots[:T][end])
 
     # Plot the fields
     k = 113 # index of the vertical level to plot
@@ -57,7 +59,7 @@ function visualize(cooling, wind, dTf)
     hm_v = heatmap!(ax_v, 1e-3xT, 1e-3yT, v; rasterize = true, colormap = :balance, colorrange = (-vbnd, vbnd))
     Colorbar(fig[1, 1][1, 2], hm_v)
     #Label(fig[1, 1][1,1:2], title, fontsize=15, tellwidth=false)
-    frames = 1:4:length(times)
+    frames = 1:2:length(times)
     @info "Making a neat animation of Ro..."
     record(fig, filesave * "ro_" * fileparams * ".mp4", frames, framerate=4) do i
         println("Loading fields $i wall time: $((now() - t0).value/1e3) seconds.")
@@ -67,9 +69,9 @@ function visualize(cooling, wind, dTf)
     return
 end
 
-coolings = [50,0,0]
-winds = [0.1,0.1,0]
-dTfs = [2,2,2]
-for i in 1:length(coolings)
-    visualize(coolings[i], winds[i], dTfs[i])
-end
+coolings = [50]
+winds = [0.1]
+dTfs = [-1]
+as = [1.0]
+i = 1
+visualize(coolings[i], winds[i], dTfs[i], as[i])

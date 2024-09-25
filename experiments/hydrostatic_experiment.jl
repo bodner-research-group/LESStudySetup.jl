@@ -39,7 +39,7 @@ function run_experiment(experiment;
 
     # Let's attach some outputs
     model         = simulation.model
-    output_fields = merge(model.velocities, model.tracers)
+    output_fields = merge(model.velocities, model.tracers, model.pressure)
 
     simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                          schedule = TimeInterval(checkpoint_frequency),

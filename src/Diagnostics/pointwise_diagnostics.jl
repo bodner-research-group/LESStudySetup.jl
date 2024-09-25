@@ -54,6 +54,84 @@ function vw(snapshots, i)
     return v * w
 end
 
+""" filtered x-z momentum flux """
+function uw_filtered(snapshots, i; cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    w = snapshots[:w][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+    wl, wh = symmetric_filtering(w; cutoff)
+
+    uw = (u - mean(u,dims=(1,2))) * (w - mean(w,dims=(1,2)))
+    ulwl = (ul - mean(ul,dims=(1,2))) * (wl - mean(wl,dims=(1,2)))
+    uhwh = (uh - mean(uh,dims=(1,2))) * (wh - mean(wh,dims=(1,2)))
+
+    return uw, ulwl, uhwh
+end
+
+""" filtered y-z momentum flux """
+function vw_filtered(snapshots, i; cutoff = 20kilometer)
+    v = snapshots[:v][i]
+    w = snapshots[:w][i]
+    vl, vh = symmetric_filtering(v; cutoff)
+    wl, wh = symmetric_filtering(w; cutoff)
+
+    vw = (v - mean(v,dims=(1,2))) * (w - mean(w,dims=(1,2)))
+    vlwl = (vl - mean(vl,dims=(1,2))) * (wl - mean(wl,dims=(1,2)))
+    vhwh = (vh - mean(vh,dims=(1,2))) * (wh - mean(wh,dims=(1,2)))
+
+    return vw, vlwl, vhwh
+end
+
+""" filtered x-y momentum flux """
+function uv_filtered(snapshots, i; cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+    vl, vh = symmetric_filtering(v; cutoff)
+
+    uv = (u - mean(u,dims=(1,2))) * (v - mean(v,dims=(1,2)))
+    ulvl = (ul - mean(ul,dims=(1,2))) * (vl - mean(vl,dims=(1,2)))
+    uhvh = (uh - mean(uh,dims=(1,2))) * (vh - mean(vh,dims=(1,2)))
+
+    return uv, ulvl, uhvh
+end
+
+""" filtered x-x momentum flux """
+function u²_filtered(snapshots, i; cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+
+    u² = (u - mean(u,dims=(1,2)))^2
+    ul² = (ul - mean(ul,dims=(1,2)))^2
+    uh² = (uh - mean(uh,dims=(1,2)))^2
+
+    return u², ul², uh²
+end
+
+""" filtered y-y momentum flux """
+function v²_filtered(snapshots, i; cutoff = 20kilometer)
+    v = snapshots[:v][i]
+    vl, vh = symmetric_filtering(v; cutoff)
+
+    v² = (v - mean(v,dims=(1,2)))^2
+    vl² = (vl - mean(vl,dims=(1,2)))^2
+    vh² = (vh - mean(vh,dims=(1,2)))^2
+
+    return v², vl², vh²
+end
+
+""" filtered z-z momentum flux """
+function w²_filtered(snapshots, i; cutoff = 20kilometer)
+    w = snapshots[:w][i]
+    wl, wh = symmetric_filtering(w; cutoff)
+
+    w² = (w - mean(w,dims=(1,2)))^2
+    wl² = (wl - mean(wl,dims=(1,2)))^2
+    wh² = (wh - mean(wh,dims=(1,2)))^2
+
+    return w², wl², wh²
+end
+
 """ zonal buoyancy flux """
 function ub(snapshots, i)
     α = parameters.α
@@ -85,6 +163,57 @@ function wb(snapshots, i)
     T = snapshots[:T][i]
 
     return α * g * T * w
+end
+
+""" filtered zonal buoyancy flux """
+function ub_filtered(snapshots, i; cutoff = 20kilometer)
+    α = parameters.α
+    g = parameters.g
+
+    u = snapshots[:u][i]
+    b = α * g * snapshots[:T][i]
+    ul, uh = symmetric_filtering(u; cutoff)
+    bl, bh = symmetric_filtering(b; cutoff)
+
+    ub = (u - mean(u,dims=(1,2))) * (b - mean(b,dims=(1,2)))
+    ulbl = (ul - mean(ul,dims=(1,2))) * (bl - mean(bl,dims=(1,2)))
+    uhwh = (uh - mean(uh,dims=(1,2))) * (bh - mean(bh,dims=(1,2)))
+
+    return ub, ulbl, uhwh
+end
+
+""" filtered meridional buoyancy flux """
+function vb_filtered(snapshots, i; cutoff = 20kilometer)
+    α = parameters.α
+    g = parameters.g
+
+    v = snapshots[:v][i]
+    b = α * g * snapshots[:T][i]
+    vl, vh = symmetric_filtering(v; cutoff)
+    bl, bh = symmetric_filtering(b; cutoff)
+
+    vb = (v - mean(v,dims=(1,2))) * (b - mean(b,dims=(1,2)))
+    vlbl = (vl - mean(vl,dims=(1,2))) * (bl - mean(bl,dims=(1,2)))
+    vhwh = (vh - mean(vh,dims=(1,2))) * (bh - mean(bh,dims=(1,2)))
+
+    return vb, vlbl, vhwh
+end
+
+""" filtered vertical buoyancy flux """
+function wb_filtered(snapshots, i; cutoff = 20kilometer)
+    α = parameters.α
+    g = parameters.g
+
+    w = snapshots[:w][i]
+    b = α * g * snapshots[:T][i]
+    wl, wh = symmetric_filtering(w; cutoff)
+    bl, bh = symmetric_filtering(b; cutoff)
+
+    wb = (w - mean(w,dims=(1,2))) * (b - mean(b,dims=(1,2)))
+    wlbl = (wl - mean(wl,dims=(1,2))) * (bl - mean(bl,dims=(1,2)))
+    whwh = (wh - mean(wh,dims=(1,2))) * (bh - mean(bh,dims=(1,2)))
+
+    return wb, wlbl, whwh
 end
 
 """ horizontal kinetic energy """
@@ -135,18 +264,29 @@ function N²(snapshots, i)
     return ∂z(B)
 end
 
+""" horizontalstratification """
+function M²(snapshots, i)
+    α = parameters.α
+    g = parameters.g
+    
+    T = snapshots[:T][i]
+    B = α * g * T
+    
+    return ∂x(B), ∂y(B)
+end
+
 """ vertical vorticity """
-function ζ(snapshots, i)
-    u = snapshots[:u][i]
-    v = snapshots[:v][i]
+function ζ(snapshots, i; u0=0, v0=0)
+    u = compute!(Field(snapshots[:u][i] + u0))
+    v = compute!(Field(snapshots[:v][i] + v0))
 
     return ∂x(v) - ∂y(u)
 end
 
 """ horizontal divergence """
-function δ(snapshots, i)
-    u = snapshots[:u][i]
-    v = snapshots[:v][i]
+function δ(snapshots, i; u0=0, v0=0)
+    u = compute!(Field(snapshots[:u][i] + u0))
+    v = compute!(Field(snapshots[:v][i] + v0))
 
     grid = u.grid
     return KernelFunctionOperation{Center, Center, Center}(div_xyᶜᶜᶜ, grid, u, v)
@@ -172,6 +312,145 @@ function PV(snapshots, i)
     bz = α * g * ∂z(T)
 
     return ωx * bx + ωy * by + ωz * bz
+end
+
+""" spectral horizontal advection """
+function Ah(snapshots, i; u0=0, v0=0, nfactor=100)
+    u = snapshots[:u][i] 
+    v = snapshots[:v][i]
+    #KE = 0.5 * (u^2 + v^2)
+    #ζ = ∂x(v) - ∂y(u)
+    xu, yu, zu = nodes(u)
+    xv, yv, _ = nodes(v)
+    Nz = length(zu)
+
+    #Au = compute!(Field(- ∂x(KE) + v * ζ))
+    #Av = compute!(Field(- ∂y(KE) - u * ζ))
+    Au = compute!(Field(- (u + u0) * ∂x(u) - (v + v0) * ∂y(u)))
+    Av = compute!(Field(- (u + u0) * ∂x(v) - (v + v0) * ∂y(v)))
+
+    # Fourier transform
+    Au1 = isotropic_powerspectrum(interior(u, :, :, 1), interior(Au, :, :, 1), xu, yu; nfactor)
+    Av1 = isotropic_powerspectrum(interior(v, :, :, 1), interior(Av, :, :, 1), xv, yv; nfactor)
+    A = zeros(Nz,length(Au1.spec))
+    A[1,:] = real.(Au1.spec + Av1.spec)
+    for k = 2:Nz
+        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
+        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        A[k,:] = real.(Auk.spec + Avk.spec)
+    end
+
+    return A, zu, Au1.freq
+end
+
+""" spectral vertical advection """
+function Av(snapshots, i; nfactor=100)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+
+    xu, yu, zu = nodes(u)
+    xv, yv, _ = nodes(v)
+    Nz = length(zu)
+
+    Au = compute!(Field(- w * ∂z(u)))
+    Av = compute!(Field(- w * ∂z(v)))
+
+    Au1 = isotropic_powerspectrum(interior(Au, :, :, 1), interior(u, :, :, 1), xu, yu; nfactor)
+    A = zeros(Nz,length(Au1.spec))
+    for k = 2:Nz
+        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
+        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        A[k,:] = real.(Auk.spec .+ Avk.spec)
+    end
+
+    return A, zu, Au1.freq
+
+end
+
+""" spectral convertion of potential to kinetic energy """
+function Ac(snapshots, i; nfactor=100)
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+    T = snapshots[:T][i]
+
+    xT, yT, zT = nodes(T)
+    Nz = length(zT)
+
+    α = parameters.α
+    g = parameters.g
+    B = compute!(Field(α * g * T))
+    C1 = isotropic_powerspectrum(interior(B, :, :, 1), interior(w, :, :, 1), xT, yT; nfactor)
+    C = zeros(Nz,length(C1.spec))
+    C[1,:] = real.(C1.spec)
+    for k = 2:Nz
+        Ck = isotropic_powerspectrum(interior(B, :, :, k), interior(w, :, :, k), xT, yT; nfactor)
+        C[k,:] = real.(Ck.spec)
+    end
+
+    return C, zT, C1.freq
+end
+
+""" spectral 3D pressure work """
+function Ap(snapshots, i; nfactor=100)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+    p = snapshots[:p][i]
+    T = snapshots[:T][i]
+
+    α = parameters.α
+    g = parameters.g
+    ρ₀ = parameters.ρ₀
+    px = compute!(Field(∂x(p)))
+    py = compute!(Field(∂y(p)))
+    pz = compute!(Field(α * g * T))
+
+    xu, yu, zu = nodes(u)
+    xv, yv, _ = nodes(v)
+    xw, yw, _ = nodes(w)
+
+    Au1 = isotropic_powerspectrum(interior(px, :, :, 1), interior(u, :, :, 1), xu, yu; nfactor)
+    Av1 = isotropic_powerspectrum(interior(py, :, :, 1), interior(v, :, :, 1), xv, yv; nfactor)
+    Aw1 = isotropic_powerspectrum(interior(pz, :, :, 1), interior(w, :, :, 1), xw, yw; nfactor)
+    A = zeros(length(zu),length(Au1.spec))
+    A[1,:] = - real.(Au1.spec + Av1.spec + Aw1.spec)
+    for k = 2:length(zu)
+        Auk = isotropic_powerspectrum(interior(px, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
+        Avk = isotropic_powerspectrum(interior(py, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        Awk = isotropic_powerspectrum(interior(pz, :, :, k), interior(w, :, :, k), xw, yw; nfactor)
+        A[k,:] = - real.(Auk.spec + Avk.spec + Awk.spec)
+    end
+
+    return A, zu, Au1.freq
+end
+
+""" coarse-grained velocities and fluxes """
+function coarse_grained_fluxes(snapshots, i; u0=0, v0=0, kernel = :tophat, cutoff = 20kilometer)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+
+    u̅l = coarse_graining(u; kernel, cutoff)
+    v̅l = coarse_graining(v; kernel, cutoff)
+    w̅l = coarse_graining(w; kernel, cutoff)
+    u̅0l = coarse_graining(u0; kernel, cutoff)
+    v̅0l = coarse_graining(v0; kernel, cutoff)
+
+    τ̅uul = coarse_graining(compute!(Field(u*(u+u0))); kernel, cutoff) - u̅l*(u̅l+u̅0l)
+    τ̅vvl = coarse_graining(compute!(Field(v*(v+v0))); kernel, cutoff) - v̅l*(v̅l+v̅0l)
+    τ̅wwl = coarse_graining(compute!(Field(w^2)); kernel, cutoff) - w̅l^2
+    τ̅uvl = coarse_graining(compute!(Field(u*(v+v0))); kernel, cutoff) - u̅l*(v̅l+v̅0l)
+    τ̅vul = coarse_graining(compute!(Field(v*(u+u0))); kernel, cutoff) - v̅l*(u̅l+u̅0l)
+    τ̅uwl = coarse_graining(compute!(Field(u*w)); kernel, cutoff) - u̅l*w̅l
+    τ̅wul = coarse_graining(compute!(Field(w*(u+u0))); kernel, cutoff) - w̅l*(u̅l+u̅0l)
+    τ̅vwl = coarse_graining(compute!(Field(v*w)); kernel, cutoff) - v̅l*w̅l
+    τ̅wvl = coarse_graining(compute!(Field(w*(v+v0))); kernel, cutoff) - w̅l*(v̅l+v̅0l)
+
+    Πhl = -(τ̅uul * ∂x(u̅l) + τ̅vvl * ∂y(v̅l) + τ̅uvl * ∂y(u̅l) + τ̅vul * ∂x(v̅l))
+    Πvl = -(τ̅wwl * ∂z(w̅l)  + τ̅uwl * ∂z(u̅l) + τ̅wul * ∂x(w̅l) + τ̅vwl * ∂z(v̅l) + τ̅wvl * ∂y(w̅l))
+
+    return u̅l, v̅l, w̅l, Πhl, Πvl
+
 end
 
 """ streamfunction computation kernel """

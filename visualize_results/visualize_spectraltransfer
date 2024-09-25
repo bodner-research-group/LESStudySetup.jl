@@ -1,0 +1,138 @@
+using LESStudySetup
+using CairoMakie
+using SixelTerm
+using Printf, Dates
+using Oceananigans: compute!
+using Oceananigans.Grids: xnodes, ynodes, znodes
+using Oceananigans.Units: kilometer
+using Statistics: mean
+using LESStudySetup.Diagnostics
+using LESStudySetup.Diagnostics: load_snapshots
+using LESStudySetup.Diagnostics: Ah, Av, Ac, Ap
+set_theme!(Theme(fontsize = 12))
+
+function cumtrapz(X::T, Y::T) where {T <: AbstractVector}
+    # Check matching vector length
+    @assert length(X) == length(Y)
+    # Initialize Output
+    out = similar(X)
+    out[1] = 0
+    # Iterate over arrays
+    for i in 2:length(X)
+      out[i] = out[i-1] + 0.5*(X[i] - X[i-1])*(Y[i] + Y[i-1])
+    end
+    # Return output
+    out
+end
+
+cooling, wind, dTf,a = 50, 0.1, -1,1.0
+# Examples! (fill in the correct filename and metadata filename)
+# cooling, wind, dTf = 25, 0.02, -1
+cooling = @sprintf("%03d", cooling)
+wind = replace("$(wind)","." => "" )
+a = replace("$(a)","." => "" )
+if dTf < 0
+    fileparams = "hydrostatic_twin_simulation_dh100"
+else
+    if length(wind) < 2
+        wind = "0" * wind
+    end
+    dTf = @sprintf("%1d", dTf)
+    fileparams = "free_surface_short_test_$(cooling)_wind_$(wind)_dTf_$(dTf)_a_$(a)"
+end
+filehead = "./"
+filename = filehead * "hydrostatic_snapshots_" * fileparams * ".jld2"
+metadata = filehead * "experiment_" * fileparams * "_metadata.jld2"
+filesave = "./results/"
+initfile = filehead * "hydrostatic_snapshots_hydrostatic_background.jld2"
+
+# load all the data!!
+println("Loading data from $filename...")
+snapshots = load_snapshots(filename; metadata)
+initsnaps = load_snapshots(initfile)
+u0 = initsnaps[:u][1]
+v0 = initsnaps[:v][1]
+
+# Let's pick the last snapshot!
+times = snapshots[:T].times
+snapshot_number = length(times)÷2 + 48
+nday = @sprintf("%2.0f", (times[snapshot_number])/60^2/24)
+println("Plotting snapshot $snapshot_number on day $(nday)...")
+
+nfactor = 1000
+Ahi,zh,fh = Ah(snapshots, snapshot_number; u0,v0,nfactor)
+println("Computed spectral transfer Ah...")
+Avi,zv,_ = Av(snapshots, snapshot_number; nfactor)
+println("Computed spectral transfer Av...")
+Aci,zc,_ = Ac(snapshots, snapshot_number; nfactor)
+println("Computed spectral transfer Ac...")
+#Api,zp,_ = Ap(snapshots, snapshot_number; nfactor)
+#println("Computed spectral transfer Ap...")
+Fi = Avi .+ Ahi
+h = 50
+
+# Plot the spectral transfers
+axis_kwargs1 = (xlabel = "spectral density (m³/s³)",
+                ylabel = "z (m)",
+                limits = (nothing, (-250, 0)))
+axis_kwargs2 = NamedTuple{(:xlabel,:limits)}(axis_kwargs1)
+fig = Figure(size = (900, 500))
+
+Ls = [16kilometer, 4kilometer, 1kilometer]
+for (i, L) in enumerate(Ls)
+    ki = 2π/L
+    idx = argmin(abs.(fh.- ki))
+    if i == 1
+        axi = Axis(fig[1, i]; title="k = 2π/($(L/kilometer) km)", axis_kwargs1...)
+    else
+        axi = Axis(fig[1, i]; title="k = 2π/($(L/kilometer) km)", axis_kwargs2...)
+        hideydecorations!(axi, ticks = false)
+    end
+
+    #lines!(axi, Api[:,idx],zp; label = L"P")
+    lines!(axi, Fi[:,idx],zh; label = L"F")
+    lines!(axi, Aci[:,idx],zc; label = L"C")
+    lines!(axi, Avi[:,idx],zv; label = L"A_v")
+    lines!(axi, Ahi[:,idx],zh; label = L"A_h")
+    
+    if i == 1
+        axislegend(axi, position = :rb)
+    end
+    hlines!(axi, -h; color = :black, linewidth = 0.8)
+end
+
+save(filesave * "spectraltransfersZ_" * fileparams * "_d$(nday).pdf", fig)
+println("Completed plotting spectral transfers in depth!")
+
+Δz = zh[2] - zh[1]
+#P = sum(Api[zp .> -h,:], dims = 1) * Δz / h
+F = sum(Fi[zh .> -h,:], dims = 1) * Δz / h
+C = sum(Aci[zc .> -h,:], dims = 1) * Δz / h
+A_v = sum(Avi[zv .> -h,:], dims = 1) * Δz / h
+A_h = sum(Ahi[zh .> -h,:], dims = 1) * Δz / h
+
+Π = cumtrapz(fh, vec(F))
+#mean5(a) = map(mean, Iterators.partition(a[2:end], 10))
+fig = Figure(size = (800, 800))
+ax = Axis(fig[1, 1]; xlabel = "k (rad m⁻¹)",
+ylabel = "spectral density (m³/s³)",xscale = log10)
+#lines!(ax, fh, vec(P); label = L"P")
+lines!(ax, fh, vec(F); label = L"F")
+lines!(ax, fh, vec(C); label = L"C")
+lines!(ax, fh, vec(A_v); label = L"A_v")
+lines!(ax, fh, vec(A_h); label = L"A_h")
+axislegend(ax)
+vlines!(ax, 2π./Ls, color = :black, linewidth = 0.8)
+ax = Axis(fig[2, 1]; xlabel = "k (rad m⁻¹)",
+ylabel = "spectral density (m³/s³)",xscale = log10,limits = ((3e-4,nothing), (-2e-5,2e-5)))
+#lines!(ax, fh, vec(P); label = L"P")
+lines!(ax, fh, vec(F); label = L"F")
+lines!(ax, fh, vec(C); label = L"C")
+lines!(ax, fh, vec(A_v); label = L"A_v")
+lines!(ax, fh, vec(A_h); label = L"A_h")
+vlines!(ax, 2π./Ls, color = :black, linewidth = 0.8)
+ax = Axis(fig[3, 1]; xlabel = "k (rad m⁻¹)",
+ylabel = "spectral KE transfer (m²/s³)",xscale = log10,limits = ((3e-4,nothing), nothing))
+lines!(ax, fh, Π .- Π[end]) # transition around 0.0115 rad m⁻¹
+hlines!(ax, 0, color = :black, linewidth = 0.8)
+save(filesave * "spectraltransfersK_" * fileparams * "_d$(nday).pdf", fig)

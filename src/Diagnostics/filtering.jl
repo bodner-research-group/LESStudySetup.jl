@@ -121,3 +121,82 @@ function spectral_filtering(u::Field; xcutoff = 20kilometer, ycutoff = 20kilomet
 
     return u̅
 end
+
+function symmetric_filtering(u::Field; cutoff = 20kilometer)
+
+    Δx = u.grid.Δxᶜᵃᵃ
+    Δy = u.grid.Δyᵃᶜᵃ
+
+    u̅l = deepcopy(u)
+    u̅h = deepcopy(u)
+    d = interior(u)
+    dl = deepcopy(d)
+    dh = deepcopy(d)
+
+    Nx, Ny, Nz = size(d)
+    Nfx, Nfy = Int(Int64(Nx)/2), Int(Int64(Ny)/2)
+
+    # frequencies and wavenumbers
+    kx = (fftfreq(Nx)[1:Nfx])/Δx
+    ky = (fftfreq(Ny)[1:Nfy])/Δy
+    kx, ky = repeat(kx, 1, Nfy), repeat(ky', Nfx, 1)
+    k = 2π * sqrt.(kx.^2 + ky.^2)
+    kc = 2π/cutoff
+
+    # Fourier transform
+    for iz = 1:Nz
+        d̂ = (rfft(d[:,:,iz]))
+
+        d̂l = deepcopy(d̂)
+        d̂h = deepcopy(d̂)
+        d̂l[k.>kc] .= 0
+        d̂h[k.<=kc] .= 0
+        
+        # Inverse Fourier transform
+        dl[:, :, iz] = irfft(d̂l, Nx) 
+        dh[:, :, iz] = irfft(d̂h, Nx) 
+    end
+    
+    set!(u̅l, dl)
+    set!(u̅h, dh)
+    fill_halo_regions!(u̅l)
+    fill_halo_regions!(u̅h)
+
+    return u̅l, u̅h
+end
+
+function coarse_graining(u::Field; kernel = :tophat, cutoff = 20kilometer)
+
+    Δx = u.grid.Δxᶜᵃᵃ
+    Δy = u.grid.Δyᵃᶜᵃ
+
+    u̅l = deepcopy(u)
+    d = interior(u)
+    dl = deepcopy(d)
+
+    xu, yu, _ = nodes(u)
+    Nx, Ny, Nz = size(d)
+    
+    Gl = zeros(Nx, Ny)
+    xm, ym = (xu[1]+xu[Nx])/2, (yu[1]+yu[Ny])/2
+    xG, yG = repeat(xu, 1, Ny) .- xm, repeat(yu', Nx, 1) .- ym
+    rG = (xG.^2 + yG.^2).^0.5   
+    if kernel == :tophat
+        A = π * cutoff^2/4
+        Gl[rG .< cutoff/2] .= 1/A
+    end
+    Ĝl = rfft(Gl/sum(Gl))
+
+    # Fourier transform for convolution
+    for iz = 1:Nz
+        
+        # Inverse Fourier transform
+        dl[:, :, iz] = irfft(Ĝl .* (rfft(d[:,:,iz])), Nx) 
+    end
+    
+    set!(u̅l, dl)
+    fill_halo_regions!(u̅l)
+
+    return u̅l
+
+end
