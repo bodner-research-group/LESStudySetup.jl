@@ -56,16 +56,56 @@ function write_pointwise_diagnostics(file_prefix; architecture = CPU())
     return (; UB, VB, WB, UW, VW, Z, D, Q, MX, BD)
 end
 
+const F = Face
+const C = Center
+
 function load_snapshots(filename; 
+                        add_halos = false,
+                        new_filename = nothing,
                         architecture = CPU(),
                         metadata = nothing)
 
     snapshots = Dict()
 
-    u = FieldTimeSeries(filename, "u"; architecture, backend = OnDisk())
-    v = FieldTimeSeries(filename, "v"; architecture, backend = OnDisk())
-    w = FieldTimeSeries(filename, "w"; architecture, backend = OnDisk())
-    T = FieldTimeSeries(filename, "T"; architecture, backend = OnDisk())
+    if add_halos
+        tmp   = FieldTimeSeries(filename, "u"; architecture, backend = OnDisk())
+        grid  = tmp.grid
+        times = tmp.times
+
+        u_old = FieldTimeSeries(filename, "u"; architecture, backend = OnDisk())
+        v_old = FieldTimeSeries(filename, "v"; architecture, backend = OnDisk())
+        w_old = FieldTimeSeries(filename, "w"; architecture, backend = OnDisk())
+        T_old = FieldTimeSeries(filename, "T"; architecture, backend = OnDisk())
+
+        u = FieldTimeSeries{F, C, C}(grid, times; backend = OnDisk(), name = "u", path = new_filename)
+        v = FieldTimeSeries{C, F, C}(grid, times; backend = OnDisk(), name = "v", path = new_filename)
+        w = FieldTimeSeries{C, C, F}(grid, times; backend = OnDisk(), name = "w", path = new_filename)
+        T = FieldTimeSeries{C, C, C}(grid, times; backend = OnDisk(), name = "T", path = new_filename)
+
+        utmp = Field{F, C, C}(grid)
+        vtmp = Field{C, F, C}(grid)
+        wtmp = Field{C, C, F}(grid)
+        Ttmp = Field{C, C, C}(grid)
+
+        for t in eachindex(times)
+            set!(utmp, u_old[t])
+            set!(vtmp, v_old[t])
+            set!(wtmp, w_old[t])
+            set!(Ttmp, T_old[t])
+
+            fill_halo_regions!((utmp, vtmp, wtmp, Ttmp))
+
+            set!(u, utmp, t)
+            set!(v, vtmp, t)
+            set!(w, wtmp, t)
+            set!(T, Ttmp, t)
+        end
+    else
+        u = FieldTimeSeries(filename, "u"; architecture, backend = OnDisk())
+        v = FieldTimeSeries(filename, "v"; architecture, backend = OnDisk())
+        w = FieldTimeSeries(filename, "w"; architecture, backend = OnDisk())
+        T = FieldTimeSeries(filename, "T"; architecture, backend = OnDisk())
+    end
 
     snapshots[:u] = u
     snapshots[:v] = v
