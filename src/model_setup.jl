@@ -20,6 +20,9 @@ function model_settings(model_type, grid; background_forcing = false)
         set!(u_background, uᵢ)
         set!(v_background, vᵢ)
 
+        fill_halo_regions!(u_background)
+        fill_halo_regions!(v_background)
+
         advection = ForcedAdvection(; scheme = advection,
                                       u_background,
                                       v_background)
