@@ -114,14 +114,14 @@ function load_distributed_snapshot(filename, iteration;
         Rx = file["grid/architecture/local_index/1"]
         Ry = file["grid/architecture/local_index/2"]
 
-        udata = file["timeseries/u/" * iteration]
-        vdata = file["timeseries/v/" * iteration]
-        wdata = file["timeseries/w/" * iteration]
-        Tdata = file["timeseries/T/" * iteration]
+        udata = file["timeseries/u/" * string(iteration)]
+        vdata = file["timeseries/v/" * string(iteration)]
+        wdata = file["timeseries/w/" * string(iteration)]
+        Tdata = file["timeseries/T/" * string(iteration)]
         
         irange = 1 + (Rx - 1) * nx : Rx * nx
         jrange = 1 + (Ry - 1) * ny : Ry * ny
-        
+
         interior(u, irange, jrange, :) .= udata[:, :, indices[3]]
         interior(v, irange, jrange, :) .= vdata[:, :, indices[3]]
         interior(w, irange, jrange, :) .= wdata[:, :, indices[3]]
