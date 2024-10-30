@@ -38,6 +38,8 @@ function load_distributed_checkpoint(filename, iteration;
     close(file)
 
     for rank in 0 : (Px * Py-1)
+        @info "loading rank $rank of $(Px * Py - 1)"
+
         file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
 
         Rx = file["grid"].architecture.local_index[1]
@@ -101,7 +103,9 @@ function load_distributed_snapshot(filename, iteration;
 
     close(file)
 
-    for rank in 0 : (Px * Py-1)
+    for rank in 0 : (Px * Py - 1)
+        @info "loading rank $rank of $(Px * Py - 1)"
+
         file = jldopen(filename * "$(rank).jld2")
 
         Rx = file["grid/architecture/local_index/1"]
