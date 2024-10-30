@@ -67,7 +67,7 @@ function load_distributed_checkpoint(filename, iteration;
         set_value!(params)
     end
     
-    return snapshots
+    return snapshot
 end
 
 function load_distributed_snapshot(filename, iteration; 
@@ -131,5 +131,5 @@ function load_distributed_snapshot(filename, iteration;
         set_value!(params)
     end
     
-    return snapshots
+    return snapshot
 end
