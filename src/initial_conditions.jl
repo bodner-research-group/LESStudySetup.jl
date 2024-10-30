@@ -156,7 +156,6 @@ end
     a  = parameters.a
 
     χ  = transformX(x, (; Lf, Lx))
-
     Tˢ = T̅(χ)
     h  = h̅⁻(ξ)
 
@@ -239,12 +238,15 @@ end
     ∂ξ∂r = - 2π / R * Lf
 
     uθᴮ = - g / f * ∂η(r, (; R, Lf, σ², Φ))
+    
+    # component that depends in the gradient in the front ∫-Lz^z ∂b/∂x dz where b = αgT and this is only the front part
+    # uF = ∂x_χ * ∂χ_T̄ where χ = transformX(x, (; Lf, Lx)) and T̄ = T̅(χ)
 
     h = h̅⁺(ξ)
     if z > - h
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz - h) / 3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f * (Lz - h) / 3 + uθᴮ # + uF
     else
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^2 / 3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^2 / 3 + uθᴮ # + uF
     end
 end
 
