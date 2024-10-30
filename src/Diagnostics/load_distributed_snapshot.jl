@@ -28,7 +28,7 @@ function load_distributed_checkpoint(filename, iteration;
 
     grid = RectilinearGrid(architecture; size = (Nx, Ny, Nz), extent = (Lx, Ly, Lz))
         
-    indices = !isnothing(level) ? (:, :, :) : (:, :, level:level) 
+    indices = !isnothing(level) ? (Colon(), Colon(), Colon()) : (Colon(), Colon(), UnitRange(level, level))
 
     u = XFaceField(grid; indices)
     v = YFaceField(grid; indices)
