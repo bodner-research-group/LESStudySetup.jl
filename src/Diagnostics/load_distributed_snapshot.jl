@@ -2,7 +2,8 @@
 function load_distributed_checkpoint(filename, iteration; 
                                      architecture = CPU(),
                                      metadata = nothing,
-                                     level = nothing)
+                                     level = nothing,
+                                     ranks = nothing)
 
     snapshot = Dict()
 
@@ -37,8 +38,10 @@ function load_distributed_checkpoint(filename, iteration;
 
     close(file)
 
-    for rank in 0 : (Px * Py-1)
-        @info "loading rank $rank of $(Px * Py - 1)"
+    ranks = isnothing(ranks) ? UnitRange(0, Px * Py - 1) : ranks
+
+    for rank in ranks
+        @info "loading rank $rank of $(ranks[end])"
 
         file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
 
@@ -75,7 +78,8 @@ end
 function load_distributed_snapshot(filename, iteration; 
                                    architecture = CPU(),
                                    metadata = nothing,
-                                   level = nothing)
+                                   level = nothing,
+                                   ranks = nothing)
 
     snapshot = Dict()
 
@@ -106,8 +110,10 @@ function load_distributed_snapshot(filename, iteration;
 
     close(file)
 
-    for rank in 0 : (Px * Py - 1)
-        @info "loading rank $rank of $(Px * Py - 1)"
+    ranks = isnothing(ranks) ? UnitRange(0, Px * Py - 1) : ranks
+
+    for rank in ranks
+        @info "loading rank $rank of $(ranks[end])"
 
         file = jldopen(filename * "$(rank).jld2")
 
