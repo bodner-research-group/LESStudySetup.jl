@@ -97,8 +97,12 @@ function idealized_setup(arch;
 
     Δt = min(0.2 * Δh / u_max, 10)
     
-    wizard = TimeStepWizard(cfl = 0.25, max_change = 1.1)
+    # HydrostaticFreeSurfaceModel uses quasi Adams-Bashforth-2 which requires
+    # a very small timestep, the NonhydrostaticModel uses a Runge-Kutta-3 scheme,
+    # which is heavier but more stable and can use larger timesteps.
+    cfl = hydrostatic_approximation ? 0.25 : 0.75
 
+    wizard = TimeStepWizard(; cfl, max_change = 1.1)
     simulation = Simulation(model; Δt, stop_time, stop_iteration)
 
     simulation.callbacks[:progress] = Callback(progress, IterationInterval(100))
