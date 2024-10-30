@@ -74,7 +74,8 @@ end
 
 function load_distributed_snapshot(filename, iteration; 
                                    architecture = CPU(),
-                                   metadata = nothing)
+                                   metadata = nothing,
+                                   level = nothing)
 
     snapshot = Dict()
 
@@ -96,10 +97,12 @@ function load_distributed_snapshot(filename, iteration;
 
     grid = RectilinearGrid(architecture; size = (Nx, Ny, Nz), extent = (Lx, Ly, Lz))
         
-    u = XFaceField(grid)
-    v = YFaceField(grid)
-    w = ZFaceField(grid)
-    T = CenterField(grid)
+    indices = isnothing(level) ? (Colon(), Colon(), Colon()) : (Colon(), Colon(), UnitRange(level, level))
+
+    u = XFaceField(grid; indices)
+    v = YFaceField(grid; indices)
+    w = ZFaceField(grid; indices)
+    T = CenterField(grid; indices)
 
     close(file)
 
@@ -118,11 +121,11 @@ function load_distributed_snapshot(filename, iteration;
         
         irange = 1 + (Rx - 1) * nx : Rx * nx
         jrange = 1 + (Ry - 1) * ny : Ry * ny
-
-        interior(u, irange, jrange, :) .= udata
-        interior(v, irange, jrange, :) .= vdata
-        interior(w, irange, jrange, :) .= wdata
-        interior(T, irange, jrange, :) .= Tdata
+        
+        interior(u, irange, jrange, :) .= udata[:, :, indices[3]]
+        interior(v, irange, jrange, :) .= vdata[:, :, indices[3]]
+        interior(w, irange, jrange, :) .= wdata[:, :, indices[3]]
+        interior(T, irange, jrange, :) .= Tdata[:, :, indices[3]]
     end
 
     snapshot[:u] = u
