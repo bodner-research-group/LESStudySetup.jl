@@ -5,7 +5,7 @@ function load_distributed_checkpoint(filename, iteration;
 
     snapshot = Dict()
 
-    file = jldopen(filename * "0.jld2")
+    file = jldopen(filename * "0_iteration$(iteration).jld2")
 
     Px = file["grid"].architecture.partition.x
     Py = file["grid"].architecture.partition.y
@@ -35,7 +35,7 @@ function load_distributed_checkpoint(filename, iteration;
     close(file)
 
     for rank in 0 : (Px * Py-1)
-        file = jldopen(filename * "$(rank).jld2")
+        file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
 
         Rx = file["grid"].architecture.local_index[1]
         Ry = file["grid"].architecture.local_index[2]
