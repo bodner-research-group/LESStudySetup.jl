@@ -180,7 +180,7 @@ end
     χ  = transformX(x, (; Lf, Lx))
     Tˢ = T̅(χ)
     h  = h̅⁺(ξ)
-
+    
     if z > - h
         return Tˢ
     else
@@ -233,8 +233,10 @@ end
     g  = parameters.g
     σ² = parameters.σ²
     Φ  = parameters.Φ
+    a  = parameters.a
+    Δh = parameters.Δm
 
-    ∂b∂ξ = - g * α * ΔT * (sin(ξ)^2 - cos(ξ)^2 + 1) / π
+    ∂b∂ξ = - 2g * α * (sin(ξ)^2 - cos(ξ)^2 + 1) / π * a * ΔT * Δh / 3
     ∂b∂ξ = Int(0 < ξ < 3.1415926535897) * ∂b∂ξ
     ∂ξ∂r = - 2π / R * Lf
 
@@ -242,9 +244,9 @@ end
 
     h = h̅⁺(ξ)
     if z > - h
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz - h) / 3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f + uθᴮ
     else
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^2 / 3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^3 + uθᴮ
     end
 end
 
@@ -257,8 +259,10 @@ end
     g  = parameters.g
     σ² = parameters.σ²
     Φ  = parameters.Φ
+    a  = parameters.a
+    Δh = parameters.Δm
 
-    ∂b∂ξ = g * α * ΔT * (sin(ξ)^2 - cos(ξ)^2 + 1) / π
+    ∂b∂ξ = 2g * α * (sin(ξ)^2 - cos(ξ)^2 + 1) / π * a * ΔT * Δh / 3
     ∂b∂ξ = Int(0 < ξ < 3.1415926535897) * ∂b∂ξ
     ∂ξ∂r = - 2π / R * Lf
 
@@ -266,9 +270,9 @@ end
 
     h = h̅⁻(ξ)
     if z > - h
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz - h) / 3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f + uθᴮ
     else
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^2 / 3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^3 + uθᴮ
     end
 end
 
