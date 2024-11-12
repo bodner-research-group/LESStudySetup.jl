@@ -86,7 +86,7 @@ function idealized_setup(arch;
     if isforced(model)
         set!(model, v = vᶠ, T = Tᵢ) 
     else
-        set!(model, u = uᵢ, v = vᵢ, T = Tᵢ)
+        set!(model, u = uᵢ, v = vᵢ + vᶠ, T = Tᵢ)
     end
     
     u, v, w = model.velocities
