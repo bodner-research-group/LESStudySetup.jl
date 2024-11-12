@@ -65,10 +65,11 @@ function idealized_setup(arch;
     
     # # Cooling in the middle of the domain and heating outside?
     # @inline Qtop(x, y, t, p) = - p.Q / p.ρ₀ / p.cₚ * cos(2π * x / p.Lx)
+    @inline Qtop(x, y, t) = Q / ρ₀ / cₚ * (1 - tanh((t - 10days) / 12hours)) / 2
 
     u_top = FluxBoundaryCondition(τw * cosd(θ) / ρ₀)
     v_top = FluxBoundaryCondition(τw * sind(θ) / ρ₀)
-    T_top = FluxBoundaryCondition(Q / ρ₀ / cₚ) # Positive fluxes at the top are cooling in Oceananigans
+    T_top = FluxBoundaryCondition(Qtop)# / ρ₀ / cₚ) # Positive fluxes at the top are cooling in Oceananigans
 
     u_bcs = FieldBoundaryConditions(top = u_top)
     v_bcs = FieldBoundaryConditions(top = v_top)
@@ -83,7 +84,7 @@ function idealized_setup(arch;
                         settings...)
 
     if isforced(model)
-        set!(model, T = Tᵢ) 
+        set!(model, v = vᶠ, T = Tᵢ) 
     else
         set!(model, u = uᵢ, v = vᵢ, T = Tᵢ)
     end
@@ -97,8 +98,12 @@ function idealized_setup(arch;
 
     Δt = min(0.2 * Δh / u_max, 10)
     
-    wizard = TimeStepWizard(cfl = 0.25, max_change = 1.1)
+    # HydrostaticFreeSurfaceModel uses quasi Adams-Bashforth-2 which requires
+    # a very small timestep, the NonhydrostaticModel uses a Runge-Kutta-3 scheme,
+    # which is heavier but more stable and can use larger timesteps.
+    cfl = hydrostatic_approximation ? 0.25 : 0.75
 
+    wizard = TimeStepWizard(; cfl, max_change = 1.1)
     simulation = Simulation(model; Δt, stop_time, stop_iteration)
 
     simulation.callbacks[:progress] = Callback(progress, IterationInterval(100))
