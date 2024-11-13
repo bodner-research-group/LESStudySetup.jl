@@ -382,3 +382,8 @@ end
         return M²₀ * 0.5 / f * (sech((x-Lx/2)/(0.5*Lf))^2-sech((x-Lx)/(0.5*Lf))^2)*(Δh*log(cosh((z+h₀)/Δh))+z+h₀)
     end
 end
+
+""" velocity for eddies and fronts """
+@inline function vᵢᶠ(x, y, z)
+    return vᵢ(x, y, z) + vᶠ(x, y, z)
+end
