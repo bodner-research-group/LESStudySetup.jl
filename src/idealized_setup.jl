@@ -112,8 +112,12 @@ function idealized_setup(arch;
 end
 
 function default_experimental_setup!(; Δh=parameters.Δh, Δz=parameters.Δz)
-    set_value!(; # Forcing
+    set_value!(; 
+               # Grid,
+              Δh = Δh,
+              Δz = Δz,
               Lz = 252,
+               # Forcing
                Q = 40.0,   # Cooling heat flux in W/m²
               τw = 0.1,    # Wind stress in N/m²
                θ = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
