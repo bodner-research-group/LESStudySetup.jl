@@ -32,7 +32,7 @@ function model_settings(model_type, grid; background_forcing = false)
         set!(u_background, uᵢ)
         fill_halo_regions!(u_background)
 
-        launch!(architecture(grid), grid, :xz, _compute_v_from_continuity, v_background, grid, u_background)
+        launch!(architecture(grid), grid, :xz, _compute_v_from_continuity!, v_background, grid, u_background)
         fill_halo_regions!(v_background)
 
         advection = ForcedAdvection(; scheme = advection,
