@@ -133,15 +133,7 @@ end
     end
 end
 
-@inline function T̅(χ) 
-    ΔT = parameters.ΔTᶠ
-    T₀ = parameters.T₀
-    
-    T₃ = 1 - (π - χ - sin(π - χ) * cos(π - χ)) / π
-    Tₘ = Int(χ > 3.1415926535897) + Int(0 < χ < 3.1415926535897) * T₃
-
-    return ΔT * Tₘ + T₀
-end
+@inline T̅(χ) = parameters.T₀
 
 # Mixed layer depth profile
 @inline function h̅⁺(ξ)

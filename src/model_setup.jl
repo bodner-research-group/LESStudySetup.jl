@@ -45,6 +45,7 @@ function model_settings(model_type, grid; background_forcing = false)
     else
         return (; tracers = :T, 
                   timestepper = :RungeKutta3,
+                  hydrostatic_pressure_anomaly = CenterField(grid),
                   advection)
     end
 end

@@ -29,7 +29,6 @@ A mutable struct representing the constants used in the LES study setup.
     N²T :: Float64 = 1e-4
     M²₀ :: Float64 = 5e-7
     ΔTᵉ :: Float64 = 0.5
-    ΔTᶠ :: Float64 = 2.0
     a   :: Float64 = 1.2
     ρ₀  :: Float64 = 1020
     T₀  :: Float64 = 5
@@ -59,7 +58,6 @@ Base.show(io::IO, c::ProblemConstants) =
               "├── pycnocline stratification:    N²T = ", c.N²T, "\n",
               "├── frontal density gradient:     M²₀ = ", c.M²₀, "\n",
               "├── eddy temperature difference:  ΔTᵉ = ", c.ΔTᵉ, "\n",
-              "├── front temperature difference: ΔTᶠ = ", c.ΔTᶠ, "\n",
               "├── eddy temperature amplitude:     a = ", c.a, "\n",
               "├── reference density:             ρ₀ = ", c.ρ₀, "\n",
               "├── surface temperature:           T₀ = ", c.T₀, "\n",
@@ -109,36 +107,4 @@ function set!(c::ProblemConstants; kwargs...)
     return nothing
 end
 
-struct GPUProblemConstants
-   N²s :: Float64
-   N²T :: Float64
-   M²₀ :: Float64
-   ΔTᵉ :: Float64
-   ΔTᶠ :: Float64
-     a :: Float64
-    ρ₀ :: Float64 
-    T₀ :: Float64 
-    cp :: Float64 
-     m :: Float64 
-   Δmᶠ :: Float64 
-    Δm :: Float64 
-    Δh :: Float64 
-    Δz :: Float64 
-    Lx :: Float64 
-    Ly :: Float64 
-    Lz :: Float64 
-     f :: Float64 
-    τw :: Float64 
-     θ :: Float64 
-     Q :: Float64 
-     α :: Float64 
-    Lf :: Float64 
-    σ² :: Float64 
-     g :: Float64 
-end
-
-Adapt.adapt_structure(to, p::ProblemConstants) = 
-    GPUProblemConstants(Tuple(getproperty(p, name) for name in propertynames(p))...)
-
-gpuify(p::ProblemConstants)  = GPUProblemConstants(Tuple(getproperty(p, name) for name in propertynames(p))...)
 tuplify(p::ProblemConstants) = NamedTuple{propertynames(parameters)}(Tuple(getproperty(parameters, prop) for prop in propertynames(parameters)))

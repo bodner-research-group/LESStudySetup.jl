@@ -20,7 +20,6 @@ function run_experiment(experiment;
                         Δh  = 250,    # Horizontal resolution [m]
                         Δz  = 2,      # Vertical resolution [m]
                         ΔTᵉ = 0.5,    # Eddy temperature difference
-                        ΔTᶠ = 2.0,    # Meridional temperature difference
                         Φ   = 0.025,  # Barotropic eddy strength
                         a   = 1.2,    # Eddy temperature magnitude
                         Lf  = 0.9,    # Size of temperature front (large numbers correspond to steeper fronts)
@@ -31,7 +30,7 @@ function run_experiment(experiment;
                         background_forcing = true,
                         restart_file = false)
     
-    set_value!(; m₀, T₀, Δmᶠ, N²s, N²T, M²₀, Q, τw, θ, ΔTᵉ, ΔTᶠ, Δz, a, Lf, σ², Φ, Δh)
+    set_value!(; m₀, T₀, Δmᶠ, N²s, N²T, M²₀, Q, τw, θ, ΔTᵉ, Δz, a, Lf, σ², Φ, Δh)
 
 
     @info "Simulation parameters: " parameters

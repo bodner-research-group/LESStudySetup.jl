@@ -7,6 +7,8 @@ using MPI
 MPI.Init()
 using LESStudySetup
 using LESStudySetup.Oceananigans.Units
+using LESStudySetup.Oceananigans.Utils: ConsecutiveIterations
+using LESStudySetup.Oceananigans.OutputWriters: Checkpointer
 using JLD2
 
 # Architecture (CPU, GPU, or Distributed)
@@ -18,16 +20,27 @@ set_value!(; # Forcing
              Q = 50.0, 
             τw = 0.1, 
              # Spacing -> BEWARE: this leads to a grid which is 50000 × 50000 × 250 in size!!!!
-            Δh = 4.01875, 
+            Δh = 4.8828125, 
             Δz = 1.28, 
+            Lz = 252,
              # Initial condition
-           ΔTᶠ = 1.0, 
-           ΔTᵉ = 0.5, 
-             Φ = 0.025, 
-             a = 1, 
-            σ² = 0.15, 
-           Lf  = 0.9)
+            T₀ = 20,
+            m₀ = 60,
+           Δmᶠ = 10,
+           N²s = 5e-7,
+           N²T = 1e-4,
+           M²₀ = 5e-7,
+           Q   = 40.0,   # Cooling heat flux in W/m²
+           τw  = 0.1,    # Wind stress in N/m²
+           θ   = 30.0,   # Wind stress angle in degrees (0 correspond to zonal wind stress)
+           ΔTᵉ = 0.5,    # Eddy temperature difference
+           Φ   = 0.025,  # Barotropic eddy strength
+           a   = 1.2,    # Eddy temperature magnitude
+           Lf  = 0.9,    # Size of temperature front (large numbers correspond to steeper fronts)
+           σ²  = 0.15)   # Initial spread of the barotropic eddy
 
+                  
+                
 # Show all the parameters we are using
 @info "Simulation parameters: " parameters
 
@@ -61,8 +74,7 @@ simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
 simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                         schedule = TimeInterval(checkpoint_frequency),
                                                         prefix = "nonhydrostatic_checkpoint_$(arch.local_rank)",
-                                                        overwrite_existing = true,
-                                                        cleanup = true)
+                                                        overwrite_existing = true)
 
 #####
 ##### Let's run!!!!
