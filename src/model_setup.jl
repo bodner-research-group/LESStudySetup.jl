@@ -1,5 +1,5 @@
 using Oceananigans.Utils
-using Oceananigans.Grids: node
+using Oceananigans.Grids: node, architecture
 using Oceananigans.BoundaryConditions
 using Oceananigans.Advection: TracerAdvection
 using Oceananigans.TurbulenceClosures.TKEBasedVerticalDiffusivities: CATKEMixingLength, CATKEVerticalDiffusivity
