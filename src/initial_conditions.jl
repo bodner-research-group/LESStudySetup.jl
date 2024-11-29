@@ -49,45 +49,45 @@ end
 
     # divide into 4 regions
 
-    # if x < 50e3 && y < 50e3 # Region 1: warm eddy!
-        x′ = x - R
-        y′ = y - R
-        
-        r  = sqrt(x′^2 + y′^2)
-        ξ  = transformR(r, (; R, Le))
-        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u1 = trig(θ) * uθ
+    # Region 1: warm eddy! (x < 50e3 && y < 50e3)
+    x′ = x - R
+    y′ = y - R
     
-    # elseif x < 50e3 && y >= 50e3 # Region 2: cold eddy!
-        x′ = x - R
-        y′ = y - 3R
+    r  = sqrt(x′^2 + y′^2)
+    ξ  = transformR(r, (; R, Le))
+    uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u1 = trig(θ) * uθ
+    
+    # Region 2: cold eddy! (x < 50e3 && y >= 50e3)
+    x′ = x - R
+    y′ = y - 3R
 
-        r  = sqrt(x′^2 + y′^2)
-        ξ  = transformR(r, (; R, Le))
-        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u2 = trig(θ) * uθ
+    r  = sqrt(x′^2 + y′^2)
+    ξ  = transformR(r, (; R, Le))
+    uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u2 = trig(θ) * uθ
 
-    # elseif x >= 50e3 && y < 50e3 # Region 3: cold eddy!
-        x′ = x - 3R
-        y′ = y - R
+    # Region 3: cold eddy! (x >= 50e3 && y < 50e3)
+    x′ = x - 3R
+    y′ = y - R
 
-        r  = sqrt(x′^2 + y′^2)
-        ξ  = transformR(r, (; R, Le))
-        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u3 = trig(θ) * uθ
+    r  = sqrt(x′^2 + y′^2)
+    ξ  = transformR(r, (; R, Le))
+    uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u3 = trig(θ) * uθ
 
-    # else # Region 4: warm eddy!
-        x′ = x - 3R
-        y′ = y - 3R
+    # Region 4: warm eddy! 
+    x′ = x - 3R
+    y′ = y - 3R
 
-        r = sqrt(x′^2 + y′^2)
-        ξ = transformR(r, (; R, Le))
-        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u4 = trig(θ) * uθ
+    r = sqrt(x′^2 + y′^2)
+    ξ = transformR(r, (; R, Le))
+    uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u4 = trig(θ) * uθ
     
     return u1 + u2 + u3 + u4
 end
