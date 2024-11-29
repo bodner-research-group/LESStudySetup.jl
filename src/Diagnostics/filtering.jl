@@ -25,6 +25,15 @@ end
     @inbounds new_field[i, j, k] = ℑxy₂(i, j, k, grid, ℑxy₁, field)
 end
 
+@kernel function _top_hat_filter!(new_field, field, G, Ng)
+    i, j, k = @index(Global, NTuple)
+
+    @inbounds begin
+        nn = field[i-Ng÷2:i+Ng÷2, j-Ng÷2:j+Ng÷2, k].*G    
+        new_field[i, j, k] = sum(nn)
+    end
+end
+
 @inline get_first_interpolation(::Tuple{<:Face,   <:Face,   <:Any}) = ℑxyᶜᶜᵃ
 @inline get_first_interpolation(::Tuple{<:Center, <:Face,   <:Any}) = ℑxyᶠᶜᵃ
 @inline get_first_interpolation(::Tuple{<:Face,   <:Center, <:Any}) = ℑxyᶜᶠᵃ
@@ -63,6 +72,35 @@ function spatial_filtering(u::Field;
     end
 
     return ifelse(isodd(iterations), u̅₁, u̅₂)
+end
+
+function spatial_convolution!(u::Field, u̅₁::Field; 
+    smoothing_range = 1kilometer, 
+    kernel! = _top_hat_filter!)
+
+    Δx = u.grid.Δxᶜᵃᵃ
+    Δy = u.grid.Δyᵃᶜᵃ
+
+    Δs = sqrt(Δy * Δx)
+    Ng = ceil(Int, smoothing_range / Δs)
+    if Ng % 2 == 0
+    Ng += 1
+    end
+
+    xg, yg = -Ng÷2:Ng÷2, -Ng÷2:Ng÷2
+    xg, yg = Δx*repeat(xg, 1, Ng), Δy*repeat(yg', Ng, 1)
+    rg = sqrt.(xg.^2 + yg.^2)
+    G = zeros(Float32, Ng, Ng)
+    G[rg .< smoothing_range/2] .= 1
+    G ./= sum(G)
+
+    arch = architecture(u)
+    grid = u.grid
+
+    launch!(arch, grid, :xyz, kernel!, u̅₁, u, G, Ng)
+    fill_halo_regions!(u̅₁)
+
+    return nothing
 end
 
 @kernel function _corse_grain!(d̂, nx, ny, nx2, ny2, Nx, Ny)
@@ -165,25 +203,27 @@ function symmetric_filtering(u::Field; cutoff = 20kilometer)
     return u̅l, u̅h
 end
 
-function coarse_graining(u::Field; kernel = :tophat, cutoff = 20kilometer)
+function coarse_graining!(u::Field, u̅l::Field; kernel = :tophat, cutoff = 20kilometer)
 
-    Δx = u.grid.Δxᶜᵃᵃ
-    Δy = u.grid.Δyᵃᶜᵃ
-
-    u̅l = deepcopy(u)
     d = interior(u)
-    dl = deepcopy(d)
 
     xu, yu, _ = nodes(u)
     Nx, Ny, Nz = size(d)
+    Lx = parameters.Lx 
+    Ly = parameters.Ly 
     
-    Gl = zeros(Nx, Ny)
-    xm, ym = (xu[1]+xu[Nx])/2, (yu[1]+yu[Ny])/2
-    xG, yG = repeat(xu, 1, Ny) .- xm, repeat(yu', Nx, 1) .- ym
-    rG = (xG.^2 + yG.^2).^0.5   
+    Gl = zeros(Float32, Nx, Ny)
+    dl = zeros(Float32, Nx, Ny, Nz)
     if kernel == :tophat
-        A = π * cutoff^2/4
-        Gl[rG .< cutoff/2] .= 1/A
+        xG, yG = repeat(xu, 1, Ny), repeat(yu', Nx, 1)
+        rG1 = sqrt.(xG.^2 + yG.^2)
+        rG2 = sqrt.((xG.-Lx).^2 + yG.^2)   
+        rG3 = sqrt.(xG.^2 + (yG.-Ly).^2)
+        rG4 = sqrt.((xG.-Lx).^2 + (yG.-Ly).^2)
+        Gl[rG1 .< cutoff/2] .= 1
+        Gl[rG2 .< cutoff/2] .= 1
+        Gl[rG3 .< cutoff/2] .= 1
+        Gl[rG4 .< cutoff/2] .= 1
     end
     Ĝl = rfft(Gl/sum(Gl))
 
@@ -197,6 +237,5 @@ function coarse_graining(u::Field; kernel = :tophat, cutoff = 20kilometer)
     set!(u̅l, dl)
     fill_halo_regions!(u̅l)
 
-    return u̅l
-
+    return nothing
 end

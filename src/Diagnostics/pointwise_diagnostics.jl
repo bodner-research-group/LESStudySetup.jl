@@ -225,12 +225,12 @@ function KE(snapshots, i)
 end
 
 """ mixed layer depth """
-function MLD(snapshots, i; threshold = 0.03)
+function MLD(snapshots, i; threshold = 0.03, surface = false)
     α  = parameters.α
     ρ₀ = parameters.ρ₀
     T    = snapshots[:T][i]
     grid = T.grid
-    h    = MixedLayerDepth(grid, (; T); ΔT = abs(threshold / ρ₀ / α))
+    h    = MixedLayerDepth(grid, (; T); ΔT = abs(threshold / ρ₀ / α), surface)
     return h
 end
 
@@ -330,13 +330,13 @@ function Ah(snapshots, i; u0=0, v0=0, nfactor=100)
     Av = compute!(Field(- (u + u0) * ∂x(v) - (v + v0) * ∂y(v)))
 
     # Fourier transform
-    Au1 = isotropic_powerspectrum(interior(u, :, :, 1), interior(Au, :, :, 1), xu, yu; nfactor)
-    Av1 = isotropic_powerspectrum(interior(v, :, :, 1), interior(Av, :, :, 1), xv, yv; nfactor)
+    Au1 = isotropic_powerspectrum(interior(u, :, :, 1), interior(Au, :, :, 1), xu, yu)
+    Av1 = isotropic_powerspectrum(interior(v, :, :, 1), interior(Av, :, :, 1), xv, yv)
     A = zeros(Nz,length(Au1.spec))
     A[1,:] = real.(Au1.spec + Av1.spec)
     for k = 2:Nz
-        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
-        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu)
+        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv)
         A[k,:] = real.(Auk.spec + Avk.spec)
     end
 
@@ -344,7 +344,7 @@ function Ah(snapshots, i; u0=0, v0=0, nfactor=100)
 end
 
 """ spectral vertical advection """
-function Av(snapshots, i; nfactor=100)
+function Av(snapshots, i)
     u = snapshots[:u][i]
     v = snapshots[:v][i]
     w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
@@ -356,11 +356,11 @@ function Av(snapshots, i; nfactor=100)
     Au = compute!(Field(- w * ∂z(u)))
     Av = compute!(Field(- w * ∂z(v)))
 
-    Au1 = isotropic_powerspectrum(interior(Au, :, :, 1), interior(u, :, :, 1), xu, yu; nfactor)
+    Au1 = isotropic_powerspectrum(interior(Au, :, :, 1), interior(u, :, :, 1), xu, yu)
     A = zeros(Nz,length(Au1.spec))
     for k = 2:Nz
-        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
-        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
+        Auk = isotropic_powerspectrum(interior(Au, :, :, k), interior(u, :, :, k), xu, yu)
+        Avk = isotropic_powerspectrum(interior(Av, :, :, k), interior(v, :, :, k), xv, yv)
         A[k,:] = real.(Auk.spec .+ Avk.spec)
     end
 
@@ -379,11 +379,11 @@ function Ac(snapshots, i; nfactor=100)
     α = parameters.α
     g = parameters.g
     B = compute!(Field(α * g * T))
-    C1 = isotropic_powerspectrum(interior(B, :, :, 1), interior(w, :, :, 1), xT, yT; nfactor)
+    C1 = isotropic_powerspectrum(interior(B, :, :, 1), interior(w, :, :, 1), xT, yT)
     C = zeros(Nz,length(C1.spec))
     C[1,:] = real.(C1.spec)
     for k = 2:Nz
-        Ck = isotropic_powerspectrum(interior(B, :, :, k), interior(w, :, :, k), xT, yT; nfactor)
+        Ck = isotropic_powerspectrum(interior(B, :, :, k), interior(w, :, :, k), xT, yT)
         C[k,:] = real.(Ck.spec)
     end
 
@@ -409,15 +409,15 @@ function Ap(snapshots, i; nfactor=100)
     xv, yv, _ = nodes(v)
     xw, yw, _ = nodes(w)
 
-    Au1 = isotropic_powerspectrum(interior(px, :, :, 1), interior(u, :, :, 1), xu, yu; nfactor)
-    Av1 = isotropic_powerspectrum(interior(py, :, :, 1), interior(v, :, :, 1), xv, yv; nfactor)
-    Aw1 = isotropic_powerspectrum(interior(pz, :, :, 1), interior(w, :, :, 1), xw, yw; nfactor)
+    Au1 = isotropic_powerspectrum(interior(px, :, :, 1), interior(u, :, :, 1), xu, yu)
+    Av1 = isotropic_powerspectrum(interior(py, :, :, 1), interior(v, :, :, 1), xv, yv)
+    Aw1 = isotropic_powerspectrum(interior(pz, :, :, 1), interior(w, :, :, 1), xw, yw)
     A = zeros(length(zu),length(Au1.spec))
     A[1,:] = - real.(Au1.spec + Av1.spec + Aw1.spec)
     for k = 2:length(zu)
-        Auk = isotropic_powerspectrum(interior(px, :, :, k), interior(u, :, :, k), xu, yu; nfactor)
-        Avk = isotropic_powerspectrum(interior(py, :, :, k), interior(v, :, :, k), xv, yv; nfactor)
-        Awk = isotropic_powerspectrum(interior(pz, :, :, k), interior(w, :, :, k), xw, yw; nfactor)
+        Auk = isotropic_powerspectrum(interior(px, :, :, k), interior(u, :, :, k), xu, yu)
+        Avk = isotropic_powerspectrum(interior(py, :, :, k), interior(v, :, :, k), xv, yv)
+        Awk = isotropic_powerspectrum(interior(pz, :, :, k), interior(w, :, :, k), xw, yw)
         A[k,:] = - real.(Auk.spec + Avk.spec + Awk.spec)
     end
 
@@ -425,32 +425,68 @@ function Ap(snapshots, i; nfactor=100)
 end
 
 """ coarse-grained velocities and fluxes """
-function coarse_grained_fluxes(snapshots, i; u0=0, v0=0, kernel = :tophat, cutoff = 20kilometer)
+function subfilter_stress!(τ, u, v, u̅, v̅; kernel = :tophat, cutoff = 4kilometer)
+    coarse_graining!(compute!(Field(u*v)), τ; kernel, cutoff)
+    set!(τ, interior(compute!(Field(τ - u̅ * v̅)),:,:,:))
+    return nothing
+end
+
+function coarse_grained_fluxes(snapshots, i; u0=0, v0=0, kernel = :tophat, cutoff = 4kilometer)
     u = snapshots[:u][i]
     v = snapshots[:v][i]
-    w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
+    w = snapshots[:w][i]
+    T = snapshots[:T][i]
+    α = parameters.α
+    g = parameters.g
+    f = parameters.f
+    B = compute!(Field(α * g * T))
 
-    u̅l = coarse_graining(u; kernel, cutoff)
-    v̅l = coarse_graining(v; kernel, cutoff)
-    w̅l = coarse_graining(w; kernel, cutoff)
-    u̅0l = coarse_graining(u0; kernel, cutoff)
-    v̅0l = coarse_graining(v0; kernel, cutoff)
+    u̅l = XFaceField(u.grid)
+    v̅l = YFaceField(v.grid)
+    w̅l = ZFaceField(w.grid)
+    B̅l = CenterField(B.grid)
+    u̅0l = XFaceField(u.grid)
+    v̅0l = YFaceField(v.grid)
 
-    τ̅uul = coarse_graining(compute!(Field(u*(u+u0))); kernel, cutoff) - u̅l*(u̅l+u̅0l)
-    τ̅vvl = coarse_graining(compute!(Field(v*(v+v0))); kernel, cutoff) - v̅l*(v̅l+v̅0l)
-    τ̅wwl = coarse_graining(compute!(Field(w^2)); kernel, cutoff) - w̅l^2
-    τ̅uvl = coarse_graining(compute!(Field(u*(v+v0))); kernel, cutoff) - u̅l*(v̅l+v̅0l)
-    τ̅vul = coarse_graining(compute!(Field(v*(u+u0))); kernel, cutoff) - v̅l*(u̅l+u̅0l)
-    τ̅uwl = coarse_graining(compute!(Field(u*w)); kernel, cutoff) - u̅l*w̅l
-    τ̅wul = coarse_graining(compute!(Field(w*(u+u0))); kernel, cutoff) - w̅l*(u̅l+u̅0l)
-    τ̅vwl = coarse_graining(compute!(Field(v*w)); kernel, cutoff) - v̅l*w̅l
-    τ̅wvl = coarse_graining(compute!(Field(w*(v+v0))); kernel, cutoff) - w̅l*(v̅l+v̅0l)
+    coarse_graining!(u, u̅l; kernel, cutoff)
+    coarse_graining!(v, v̅l; kernel, cutoff)
+    coarse_graining!(w, w̅l; kernel, cutoff)
+    coarse_graining!(B, B̅l; kernel, cutoff)
+    coarse_graining!(u0, u̅0l; kernel, cutoff)
+    coarse_graining!(v0, v̅0l; kernel, cutoff)
 
-    Πhl = -(τ̅uul * ∂x(u̅l) + τ̅vvl * ∂y(v̅l) + τ̅uvl * ∂y(u̅l) + τ̅vul * ∂x(v̅l))
-    Πvl = -(τ̅wwl * ∂z(w̅l)  + τ̅uwl * ∂z(u̅l) + τ̅wul * ∂x(w̅l) + τ̅vwl * ∂z(v̅l) + τ̅wvl * ∂y(w̅l))
+    τ̅uu0l = XFaceField(u.grid)
+    τ̅uv0l = XFaceField(u.grid)
+    τ̅uwl  = XFaceField(u.grid)
+    subfilter_stress!(τ̅uu0l,u,u+u0,u̅l,u̅l+u̅0l; kernel, cutoff)
+    subfilter_stress!(τ̅uv0l,u,v+v0,u̅l,v̅l+v̅0l; kernel, cutoff)
+    subfilter_stress!(τ̅uwl ,u,w,u̅l,w̅l; kernel, cutoff)
+    
+    τ̅vv0l = YFaceField(v.grid)
+    τ̅vu0l = YFaceField(v.grid)
+    τ̅vwl  = YFaceField(v.grid)
+    subfilter_stress!(τ̅vv0l,v,v+v0,v̅l,v̅l+v̅0l; kernel, cutoff)
+    subfilter_stress!(τ̅vu0l,v,u+u0,v̅l,u̅l+u̅0l; kernel, cutoff)
+    subfilter_stress!(τ̅vwl ,v,w,v̅l,w̅l; kernel, cutoff)
 
-    return u̅l, v̅l, w̅l, Πhl, Πvl
+    τ̅wwl = ZFaceField(w.grid)
+    subfilter_stress!(τ̅wwl,w,w,w̅l,w̅l; kernel, cutoff)
 
+    Πhl = -(τ̅uu0l * ∂x(u̅l) + τ̅vv0l * ∂y(v̅l) + τ̅uv0l * ∂y(u̅l) + τ̅vu0l * ∂x(v̅l))
+    Πδl = -(τ̅uu0l + τ̅vv0l) * (∂x(u̅l) + ∂y(v̅l))/2
+    # -(τ̅uu0l * ∂x(u̅l) + τ̅vv0l * ∂y(v̅l) + τ̅uv0l * ∂y(u̅l) + τ̅vu0l * ∂x(v̅l)
+    # + τ̅wu0l * ∂x(w̅l) + τ̅wv0l * ∂y(w̅l))
+    Πvl = -(τ̅uwl * ∂z(u̅l) + τ̅vwl * ∂z(v̅l))
+    # -(τ̅wwl * ∂z(w̅l)  + τ̅uwl * ∂z(u̅l) + τ̅vwl * ∂z(v̅l))
+
+    τ̅uul = XFaceField(u.grid)
+    τ̅vvl = YFaceField(v.grid)
+    subfilter_stress!(τ̅uul,u,u,u̅l,u̅l; kernel, cutoff)
+    subfilter_stress!(τ̅vvl,v,v,v̅l,v̅l; kernel, cutoff)
+
+    Πvgl = -(τ̅uwl * ∂z(-∂y(B̅l)) + τ̅vwl * ∂z(∂x(B̅l)))/f
+
+    return u̅l, v̅l, w̅l, τ̅uul, τ̅vvl, τ̅wwl, Πhl, Πδl, Πvl, Πvgl
 end
 
 """ streamfunction computation kernel """

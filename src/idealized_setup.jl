@@ -22,9 +22,9 @@ Finally, a `Simulation` object is created with the model, time step, and stop ti
 """
 function idealized_setup(arch; 
                          stop_time = 100days,
-			 stop_iteration = Inf,
+			             stop_iteration = Inf,
                          hydrostatic_approximation = false,
-                         background_forcing = false)
+                         background_forcing = true) # by default we include the eddies as a background forcing 
     
     # Retrieving the problem constants
     Δh = parameters.Δh 
@@ -83,9 +83,9 @@ function idealized_setup(arch;
                         settings...)
 
     if isforced(model)
-        set!(model, T = Tᵢ) 
+        set!(model, v = vᶠ, T = Tᵢ) 
     else
-        set!(model, u = uᵢ, v = vᵢ, T = Tᵢ)
+        set!(model, u = uᵢ, v = vᵢᶠ, T = Tᵢ)
     end
     
     u, v, w = model.velocities
@@ -109,6 +109,33 @@ function idealized_setup(arch;
     simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
     return simulation
+end
+
+function default_experimental_setup!(; Δh=parameters.Δh, Δz=parameters.Δz)
+    set_value!(; 
+               # Grid,
+              Δh = Δh,
+              Δz = Δz,
+              Lz = 252,
+               # Forcing
+               Q = 40.0,   # Cooling heat flux in W/m²
+              τw = 0.1,    # Wind stress in N/m²
+               θ = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
+              # Initial condition - frontal values
+             M²₀ = 5e-7,
+              T₀ = 20,
+              m₀ = 60,
+             Δmᶠ = 10,
+             N²s = 5e-7,
+             N²T = 2e-4,
+             # Eddy forcing
+             ΔTᵉ = 0.1,  # Eddy temperature difference
+             Φ   = 0.01, # Barotropic eddy strength
+             a   = 1.0,  # Eddy temperature magnitude
+             Lf  = 0.9,  # Size of temperature front (large numbers correspond to steeper fronts)
+             σ²  = 1.0)
+    
+    return nothing
 end
 
 function turbulence_generator_setup(arch; 

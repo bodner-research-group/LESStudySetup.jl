@@ -38,39 +38,42 @@ function power_cospectrum_1d(var1, var2, x)
     return Spectrum(spectra, freqs)
 end
 
-function isotropic_powerspectrum(var1, var2, x, y; nfactor=100)
+function isotropic_powerspectrum(var1, var2, x, y)
 
     Nx, Ny = size(var1)
-    Nfx, Nfy = Int(Int64(Nx)/2), Int(Int64(Ny)/2)
     
     Δx, Δy = x[2] - x[1], y[2] - y[1]
 
     # Fourier transform
-    v̂1 = (rfft(var1 .- mean(var1)))[2:Nfx+1,2:Nfy+1]
-    v̂2 = (rfft(var2 .- mean(var2)))[2:Nfx+1,2:Nfy+1]
+    v̂1 = (rfft(var1 .- mean(var1))) * Δx * Δy
+    v̂2 = (rfft(var2 .- mean(var2))) * Δx * Δy
+    Nfx, Nfy = size(v̂1, 1), size(v̂1, 1)
+    v̂1 = v̂1[:,1:Nfx]
+    v̂2 = v̂2[:,1:Nfy]
 
     # Compute the power spectrum
-    S = vec(v̂1 .* conj(v̂2))
+    S = v̂1 .* conj(v̂2)
 
-    # frequencies and wavenumbers
-    kx = (fftfreq(Nx)[2:Nfx+1])/Δx
-    ky = (fftfreq(Ny)[2:Nfy+1])/Δy
-    kx, ky = repeat(kx, 1, Nfy), repeat(ky', Nfx, 1)
-    k = vec(sqrt.(kx.^2 + ky.^2))
+    # wavenumbers
+    kx = (fftfreq(Nx)[1:Nfx])/Δx
+    ky = (fftfreq(Ny)[1:Nfy])/Δy
+    k = sqrt.(kx.^2 .+ ky'.^2)
 
     # group the spectra by wavenumber bins and compute the mean
-    kmin, kmax = min(k...), max(k...)
-    kdis, klen = kmax - kmin, length(k)
-    Nk = trunc(Int, klen/nfactor)
-    kbins = range(kmin-1e-3kdis, kmax+1e-3kdis, length = Nk+1)
+    Δkx, Δky = kx[2] - kx[1], ky[2] - ky[1]
+    Δk = sqrt(Δkx * Δky)
+    kmin, kmax = minimum(k), maximum(k)
+    klen = kmax - kmin
+    Nk = ceil(Int, klen/Δk)
+    kbins = range(0, Nk*Δk, length = Nk+1)
     spectra = []
     freqs = []
     for i = 1:Nk
         idx = kbins[i] .< k .≤ kbins[i+1]
         if !isnan(mean(S[idx]))
-            push!(spectra, mean(S[idx]))
-            push!(freqs, mean(k[idx]))
+            push!(spectra, Δk * sum(S[idx]))
+            push!(freqs, (kbins[i]+kbins[i+1])/2)
         end
     end
-    return Spectrum(spectra.*freqs, 2π*freqs)
+    return Spectrum(spectra, 2π*freqs)
 end

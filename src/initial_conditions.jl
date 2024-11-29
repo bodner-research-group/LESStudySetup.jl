@@ -18,6 +18,7 @@ end
     return eddy_tangential_velocity(x, y, z, R, Lf, Le, sin)
 end
 
+@inline minus_sin(θ) = - sin(θ)
 @inline minus_cos(θ) = - cos(θ)
 
 @inline function vᵢ(x, y, z)
@@ -29,47 +30,64 @@ end
 end
 
 @inline function eddy_tangential_velocity(x, y, z, R, Lf, Le, trig)
+    if abs(x - 50e3) > 25e3 && abs(y - 50e3) > 25e3
+        x += x < 25e3 ? 50e3 : -50e3
+        y += y < 25e3 ? 50e3 : -50e3
+    elseif x < 25e3
+        x, y = y, 50e3 - x
+        trig = trig == sin ? cos : sin
+    elseif y < 25e3
+        x, y = 50e3 - y, x
+        trig = trig == sin ? minus_cos : minus_sin
+    elseif x > 75e3
+        x, y = y, 150e3 - x
+        trig = trig == sin ? cos : sin
+    elseif y > 75e3
+        x, y = 150e3 - y, x
+        trig = trig == sin ? minus_cos : minus_sin
+    end
+
     # divide into 4 regions
 
-    # if x < 50e3 && y < 50e3 # Region 1: warm eddy!
-        x′ = x - R
-        y′ = y - R
-        
-        r  = sqrt(x′^2 + y′^2)
-        ξ  = transformR(r, (; R, Le))
-        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u1 = trig(θ) * uθ
+    # Region 1: warm eddy! (x < 50e3 && y < 50e3)
+    x′ = x - R
+    y′ = y - R
     
-    # elseif x < 50e3 && y >= 50e3 # Region 2: cold eddy!
-        x′ = x - R
-        y′ = y - 3R
+    r  = sqrt(x′^2 + y′^2)
+    ξ  = transformR(r, (; R, Le))
+    uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u1 = trig(θ) * uθ
+    
+    # Region 2: cold eddy! (x < 50e3 && y >= 50e3)
+    x′ = x - R
+    y′ = y - 3R
 
-        r  = sqrt(x′^2 + y′^2)
-        ξ  = transformR(r, (; R, Le))
-        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u2 = trig(θ) * uθ
+    r  = sqrt(x′^2 + y′^2)
+    ξ  = transformR(r, (; R, Le))
+    uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u2 = trig(θ) * uθ
 
-    # elseif x >= 50e3 && y < 50e3 # Region 3: cold eddy!
-        x′ = x - 3R
-        y′ = y - R
+    # Region 3: cold eddy! (x >= 50e3 && y < 50e3)
+    x′ = x - 3R
+    y′ = y - R
 
-        r  = sqrt(x′^2 + y′^2)
-        ξ  = transformR(r, (; R, Le))
-        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u3 = trig(θ) * uθ
+    r  = sqrt(x′^2 + y′^2)
+    ξ  = transformR(r, (; R, Le))
+    uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u3 = trig(θ) * uθ
 
-    # else # Region 4: warm eddy!
-        x′ = x - 3R
-        y′ = y - 3R
+    # Region 4: warm eddy! 
+    x′ = x - 3R
+    y′ = y - 3R
 
-        r = sqrt(x′^2 + y′^2)
-        ξ = transformR(r, (; R, Le))
-        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
-        θ  = atan(y′, x′)
-        u4 = trig(θ) * uθ
+    r = sqrt(x′^2 + y′^2)
+    ξ = transformR(r, (; R, Le))
+    uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+    θ  = atan(y′, x′)
+    u4 = trig(θ) * uθ
     
     return u1 + u2 + u3 + u4
 end
@@ -86,7 +104,7 @@ end
         
         r = sqrt(x′^2 + y′^2)
         ξ = transformR(r, (; R, Le))
-        return warm_eddy(ξ, x, z)
+        return warm_eddy(ξ, x, z) + Tᶠ(x, z)
     
     elseif x < 50e3 && y >= 50e3 # Region 2: cold eddy!
         x′ = x - R
@@ -94,7 +112,7 @@ end
 
         r = sqrt(x′^2 + y′^2)
         ξ = transformR(r, (; R, Le))
-        return cold_eddy(ξ, x, z)
+        return cold_eddy(ξ, x, z) + Tᶠ(x, z)
 
     elseif x >= 50e3 && y < 50e3 # Region 3: cold eddy!
         x′ = x - 3R
@@ -102,7 +120,7 @@ end
 
         r = sqrt(x′^2 + y′^2)
         ξ = transformR(r, (; R, Le))
-        return cold_eddy(ξ, x, z)
+        return cold_eddy(ξ, x, z) + Tᶠ(x, z)
 
     else # Region 4: warm eddy!
         x′ = x - 3R
@@ -110,19 +128,11 @@ end
 
         r = sqrt(x′^2 + y′^2)
         ξ = transformR(r, (; R, Le))
-        return warm_eddy(ξ, x, z)
+        return warm_eddy(ξ, x, z) + Tᶠ(x, z)
     end
 end
 
-@inline function T̅(χ) 
-    ΔT = parameters.ΔTᶠ
-    T₀ = parameters.T₀
-    
-    T₃ = 1 - (π - χ - sin(π - χ) * cos(π - χ)) / π
-    Tₘ = Int(χ > 3.1415926535897) + Int(0 < χ < 3.1415926535897) * T₃
-
-    return ΔT * Tₘ + T₀
-end
+@inline T̅(χ) = parameters.T₀
 
 # Mixed layer depth profile
 @inline function h̅⁺(ξ)
@@ -198,30 +208,53 @@ end
     Φ  = parameters.Φ
     R  = 25e3
 
-    if x < 50e3 && y < 50e3 # Region 1: warm eddy!
-        x′  = x - R
-        y′  = y - R
-        sng = 1
+    if abs(x - 50e3) > 25e3 && abs(y - 50e3) > 25e3
+        x += x < 25e3 ? 50e3 : -50e3
+        y += y < 25e3 ? 50e3 : -50e3
+    elseif x < 25e3
+        x, y = y, 50e3 - x
 
-    elseif x < 50e3 && y >= 50e3 # Region 2: cold eddy!
-        x′  = x - R
-        y′  = y - 3R
-        sng = - 1
+    elseif y < 25e3
+        x, y = 50e3 - y, x
 
-    elseif x >= 50e3 && y < 50e3 # Region 3: cold eddy!
-        x′  = x - 3R
-        y′  = y - R
-        sng = - 1
+    elseif x > 75e3
+        x, y = y, 150e3 - x
 
-    else # Region 4: warm eddy!
-        x′  = x - 3R
-        y′  = y - 3R
-        sng = 1
+    elseif y > 75e3
+        x, y = 150e3 - y, x
 
     end
 
-    r  = sqrt(x′^2 + y′^2)
-    return sng * η(r, (; R, Lf, σ², Φ))
+    # divide into 4 regions
+
+    #if x < 50e3 && y < 50e3 # Region 1: warm eddy!
+        x′  = x - R
+        y′  = y - R
+        r  = sqrt(x′^2 + y′^2)
+        η1 = η(r, (; R, Lf, σ², Φ))
+
+    #elseif x < 50e3 && y >= 50e3 # Region 2: cold eddy!
+        x′  = x - R
+        y′  = y - 3R
+        r  = sqrt(x′^2 + y′^2)
+        η2 = - η(r, (; R, Lf, σ², Φ))
+
+    #elseif x >= 50e3 && y < 50e3 # Region 3: cold eddy!
+        x′  = x - 3R
+        y′  = y - R
+        r  = sqrt(x′^2 + y′^2)
+        η3 = - η(r, (; R, Lf, σ², Φ))
+
+    #else # Region 4: warm eddy!
+        x′  = x - 3R
+        y′  = y - 3R
+        r  = sqrt(x′^2 + y′^2)
+        η4 = η(r, (; R, Lf, σ², Φ))
+
+    #end
+
+    
+    return η1 + η2 + η3 + η4
 end
 
 @inline function warm_eddy_velocity(ξ, z, r, R, Lf)
@@ -294,4 +327,54 @@ end
     else
         return (Tˢ - T₀ + a * ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a * ΔT
     end
+end
+
+""" temperature for pure fronts """
+@inline function Tᶠ(x, z)
+
+    Lx  = parameters.Lx
+    Lz  = parameters.Lz
+    Δz  = parameters.Δz
+    Lf  = parameters.Lf * Lx / 45
+    N²s = parameters.N²s
+    N²T = parameters.N²T
+    M²₀ = parameters.M²₀
+    h₀  = parameters.m₀
+    Δh  = parameters.Δmᶠ
+    α   = parameters.α
+    g   = parameters.g
+    
+    ΔTₒ = M²₀ * Lf / (α * g)
+    ΓT = 0.5 / (α * g) * ((N²s+0.1*N²T)*z+Δh*((N²s-N²T)*log(cosh((z+h₀)/Δh)/cosh(h₀/Δh))+0.9*N²T*log(cosh((z+1.5h₀)/Δh)/cosh(1.5h₀/Δh))))
+    if z <= - (Lz - Δz)
+        return ΓT
+    elseif x <= Lx/2
+        return ΔTₒ * 0.25 * (1-tanh(x/(0.5*Lf))+tanh((x-Lx/2)/(0.5*Lf)))*(tanh((z+h₀)/Δh)+1) + ΓT
+    else
+        return ΔTₒ * 0.25 * (tanh((x-Lx/2)/(0.5*Lf))-tanh((x-Lx)/(0.5*Lf))-1)*(tanh((z+h₀)/Δh)+1) + ΓT
+    end
+end
+
+""" velocity for pure fronts """
+@inline function vᶠ(x, y, z)
+
+    Lx  = parameters.Lx
+    Lf  = parameters.Lf * Lx / 45
+    M²₀ = parameters.M²₀
+    h₀  = parameters.m₀
+    Δh  = parameters.Δmᶠ
+    f   = parameters.f
+
+    if z <= -h₀
+        return 0.0
+    elseif x <= Lx/2
+        return M²₀ * 0.5 / f * (sech((x-Lx/2)/(0.5*Lf))^2-sech(x/(0.5*Lf))^2)*(Δh*log(cosh((z+h₀)/Δh))+z+h₀) 
+    else
+        return M²₀ * 0.5 / f * (sech((x-Lx/2)/(0.5*Lf))^2-sech((x-Lx)/(0.5*Lf))^2)*(Δh*log(cosh((z+h₀)/Δh))+z+h₀)
+    end
+end
+
+""" velocity for eddies and fronts """
+@inline function vᵢᶠ(x, y, z)
+    return vᵢ(x, y, z) + vᶠ(x, y, z)
 end

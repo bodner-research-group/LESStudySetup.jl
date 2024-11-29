@@ -7,34 +7,34 @@ using MPI
 MPI.Init()
 using LESStudySetup
 using LESStudySetup.Oceananigans.Units
+using LESStudySetup.Oceananigans.Utils: ConsecutiveIterations
+using LESStudySetup.Oceananigans.OutputWriters: Checkpointer
 using JLD2
 
+proc_max = 32 # Maximum number of GPUs (32 * 32 GPUs == 1024 GPUs) for the large experiment
+proc = 2 # Actually used number of GPUs in each direction
+
+scaling = Int(proc_max / proc)
+
 # Architecture (CPU, GPU, or Distributed)
-arch = Distributed(GPU(), partition = Partition(32, 32))
+arch = Distributed(GPU(), partition = Partition(proc, proc))
 
-# Domain size is 100km x 100km x 250m, the mesh size 100000 / Δh, 100000 / Δh and 250 / Δz
-# Setting some initial values (Q = heat flux in W/m², Δz = vertical spacing)
-set_value!(; # Forcing
-             Q = 50.0, 
-            τw = 0.1, 
-             # Spacing -> BEWARE: this leads to a grid which is 50000 × 50000 × 250 in size!!!!
-            Δh = 4.01875, 
-            Δz = 1.28, 
-             # Initial condition
-           ΔTᶠ = 1.0, 
-           ΔTᵉ = 0.5, 
-             Φ = 0.025, 
-             a = 1, 
-            σ² = 0.15, 
-           Lf  = 0.9)
+# Domain size is 100km x 100km x 250m, 
+# the mesh size 100000 / Δh, 100000 / Δh and 250 / Δz
 
+# Grid size
+Δh = 4.8828125 * scaling
+Δz = 1.28 
+
+LESStudySetup.default_experimental_setup!(; Δh, Δz)
+                  
 # Show all the parameters we are using
 @info "Simulation parameters: " parameters
 
 # Output writer details
 output_frequency = 10minutes
 checkpoint_frequency = 10minutes
-stop_time = 1hour
+stop_time = 10days
 
 background_forcing = true
 restart_file = false
@@ -61,8 +61,7 @@ simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
 simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                         schedule = TimeInterval(checkpoint_frequency),
                                                         prefix = "nonhydrostatic_checkpoint_$(arch.local_rank)",
-                                                        overwrite_existing = true,
-                                                        cleanup = true)
+                                                        overwrite_existing = true)
 
 #####
 ##### Let's run!!!!

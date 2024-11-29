@@ -8,13 +8,18 @@ using JLD2
 architecture = GPU()
 
 function run_experiment(experiment; 
+                        T₀  = 20,
+			            m₀  = 60,
+                        Δmᶠ = 10,
+                        N²s = 5e-7,
+                        N²T = 1e-4,
+                        M²₀ = 5e-7,
                         Q   = 0.0,    # Cooling heat flux in W/m²
                         τw  = 0.0,    # Wind stress in N/m²
                         θ   = 30.0,   # Wind stress angle in degrees (0 correspond to zonal wind stress)
                         Δh  = 250,    # Horizontal resolution [m]
                         Δz  = 2,      # Vertical resolution [m]
                         ΔTᵉ = 0.5,    # Eddy temperature difference
-                        ΔTᶠ = 2.0,    # Meridional temperature difference
                         Φ   = 0.025,  # Barotropic eddy strength
                         a   = 1.2,    # Eddy temperature magnitude
                         Lf  = 0.9,    # Size of temperature front (large numbers correspond to steeper fronts)
@@ -25,7 +30,8 @@ function run_experiment(experiment;
                         background_forcing = true,
                         restart_file = false)
     
-    set_value!(; Q, τw, θ, ΔTᵉ, ΔTᶠ, Δz, a, Lf, σ², Φ, Δh)
+    set_value!(; m₀, T₀, Δmᶠ, N²s, N²T, M²₀, Q, τw, θ, ΔTᵉ, Δz, a, Lf, σ², Φ, Δh)
+
 
     @info "Simulation parameters: " parameters
 
