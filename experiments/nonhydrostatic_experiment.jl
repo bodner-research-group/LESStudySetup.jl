@@ -11,43 +11,30 @@ using LESStudySetup.Oceananigans.Utils: ConsecutiveIterations
 using LESStudySetup.Oceananigans.OutputWriters: Checkpointer
 using JLD2
 
+proc_max = 32 # Maximum number of GPUs (32 * 32 GPUs == 1024 GPUs) for the large experiment
+proc = 2 # Actually used number of GPUs in each direction
+
+scaling = Int(proc_max / proc)
+
 # Architecture (CPU, GPU, or Distributed)
-arch = Distributed(GPU(), partition = Partition(32, 32))
+arch = Distributed(GPU(), partition = Partition(proc, proc))
 
-# Domain size is 100km x 100km x 250m, the mesh size 100000 / Δh, 100000 / Δh and 250 / Δz
-# Setting some initial values (Q = heat flux in W/m², Δz = vertical spacing)
-set_value!(; # Forcing
-             Q = 50.0, 
-            τw = 0.1, 
-             # Spacing -> BEWARE: this leads to a grid which is 50000 × 50000 × 250 in size!!!!
-            Δh = 4.8828125, 
-            Δz = 1.28, 
-            Lz = 252,
-             # Initial condition
-            T₀ = 20,
-            m₀ = 60,
-           Δmᶠ = 10,
-           N²s = 5e-7,
-           N²T = 1e-4,
-           M²₀ = 5e-7,
-           Q   = 40.0,   # Cooling heat flux in W/m²
-           τw  = 0.1,    # Wind stress in N/m²
-           θ   = 30.0,   # Wind stress angle in degrees (0 correspond to zonal wind stress)
-           ΔTᵉ = 0.5,    # Eddy temperature difference
-           Φ   = 0.025,  # Barotropic eddy strength
-           a   = 1.2,    # Eddy temperature magnitude
-           Lf  = 0.9,    # Size of temperature front (large numbers correspond to steeper fronts)
-           σ²  = 0.15)   # Initial spread of the barotropic eddy
+# Domain size is 100km x 100km x 250m, 
+# the mesh size 100000 / Δh, 100000 / Δh and 250 / Δz
 
+# Grid size
+Δh = 4.8828125 * scaling
+Δz = 1.28 * scaling
+
+LESStudySetup.default_experimental_setup!(; Δh, Δz)
                   
-                
 # Show all the parameters we are using
 @info "Simulation parameters: " parameters
 
 # Output writer details
 output_frequency = 10minutes
 checkpoint_frequency = 10minutes
-stop_time = 1hour
+stop_time = 10days
 
 background_forcing = true
 restart_file = false
