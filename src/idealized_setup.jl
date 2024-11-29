@@ -111,6 +111,28 @@ function idealized_setup(arch;
     return simulation
 end
 
+function default_experimental_setup!(Δh, Δz)
+    set_value!(; # Forcing
+              Lz = 252,
+               Q = 40.0,   # Cooling heat flux in W/m²
+              τw = 0.1,    # Wind stress in N/m²
+               # Initial condition
+              T₀ = 20,
+              m₀ = 60,
+             Δmᶠ = 10,
+             N²s = 5e-7,
+             N²T = 1e-4,
+             M²₀ = 5e-7,
+             θ   = 30.0, # Wind stress angle in degrees (0 correspond to zonal wind stress)
+             ΔTᵉ = 0.5,  # Eddy temperature difference
+             Φ   = 0.01, # Barotropic eddy strength
+             a   = 1.2,  # Eddy temperature magnitude
+             Lf  = 0.9,  # Size of temperature front (large numbers correspond to steeper fronts)
+             σ²  = 1.0)
+
+    return nothing
+end
+
 function turbulence_generator_setup(arch; 
                                     stop_time = 10hours,
                                     background_forcing = false)
