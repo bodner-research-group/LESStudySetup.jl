@@ -24,7 +24,7 @@ arch = Distributed(GPU(), partition = Partition(proc, proc))
 
 # Grid size
 Δh = 4.8828125 * scaling
-Δz = 1.28 * scaling
+Δz = 1.28 
 
 LESStudySetup.default_experimental_setup!(; Δh, Δz)
                   
