@@ -111,7 +111,7 @@ function idealized_setup(arch;
     return simulation
 end
 
-function default_experimental_setup!(Δh, Δz)
+function default_experimental_setup!(; Δh=parameters.Δh, Δz=parameters.Δz)
     set_value!(; # Forcing
               Lz = 252,
                Q = 40.0,   # Cooling heat flux in W/m²
