@@ -22,9 +22,9 @@ Finally, a `Simulation` object is created with the model, time step, and stop ti
 """
 function idealized_setup(arch; 
                          stop_time = 100days,
-			 stop_iteration = Inf,
+			             stop_iteration = Inf,
                          hydrostatic_approximation = false,
-                         background_forcing = false)
+                         background_forcing = true) # by default we include the eddies as a background forcing 
     
     # Retrieving the problem constants
     Δh = parameters.Δh 
