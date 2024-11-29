@@ -19,7 +19,6 @@ end
 end
 
 @inline minus_sin(θ) = - sin(θ)
-
 @inline minus_cos(θ) = - cos(θ)
 
 @inline function vᵢ(x, y, z)
