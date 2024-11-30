@@ -34,14 +34,14 @@ end
         x += x < 25e3 ? 50e3 : -50e3
         y += y < 25e3 ? 50e3 : -50e3
     elseif x < 25e3
-        x, y = y, 50e3 - x
-        trig = trig == sin ? cos : sin
+        x, y = 100e3 - y, 50e3 + x
+        trig = trig == sin ? minus_cos : minus_sin
     elseif y < 25e3
         x, y = 50e3 - y, x
         trig = trig == sin ? minus_cos : minus_sin
     elseif x > 75e3
-        x, y = y, 150e3 - x
-        trig = trig == sin ? cos : sin
+        x, y = 100e3 - y, x - 50e3
+        trig = trig == sin ? minus_cos : minus_sin
     elseif y > 75e3
         x, y = 150e3 - y, x
         trig = trig == sin ? minus_cos : minus_sin
@@ -58,7 +58,18 @@ end
     uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
     θ  = atan(y′, x′)
     u1 = trig(θ) * uθ
-    
+
+    for (i, j) in zip([1, 5, 5], [5, 1, 5])
+        x′ = x - i * R
+        y′ = y - j * R
+        
+        r  = sqrt(x′^2 + y′^2)
+        ξ  = transformR(r, (; R, Le))
+        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+        θ  = atan(y′, x′)
+        u1 += trig(θ) * uθ
+    end
+
     # Region 2: cold eddy! (x < 50e3 && y >= 50e3)
     x′ = x - R
     y′ = y - 3R
@@ -68,6 +79,17 @@ end
     uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
     θ  = atan(y′, x′)
     u2 = trig(θ) * uθ
+
+    for (i, j) in zip([1, 5, 5], [-1, 3, -1])
+        x′ = x - i * R
+        y′ = y - j * R
+        
+        r  = sqrt(x′^2 + y′^2)
+        ξ  = transformR(r, (; R, Le))
+        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+        θ  = atan(y′, x′)
+        u2 += trig(θ) * uθ
+    end
 
     # Region 3: cold eddy! (x >= 50e3 && y < 50e3)
     x′ = x - 3R
@@ -79,6 +101,17 @@ end
     θ  = atan(y′, x′)
     u3 = trig(θ) * uθ
 
+    for (i, j) in zip([3, -1, -1], [5, 1, 5])
+        x′ = x - i * R
+        y′ = y - j * R
+        
+        r  = sqrt(x′^2 + y′^2)
+        ξ  = transformR(r, (; R, Le))
+        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+        θ  = atan(y′, x′)
+        u3 += trig(θ) * uθ
+    end
+
     # Region 4: warm eddy! 
     x′ = x - 3R
     y′ = y - 3R
@@ -89,6 +122,17 @@ end
     θ  = atan(y′, x′)
     u4 = trig(θ) * uθ
     
+    for (i, j) in zip([-1, 3, -1], [3, -1, -1])
+        x′ = x - i * R
+        y′ = y - j * R
+        
+        r  = sqrt(x′^2 + y′^2)
+        ξ  = transformR(r, (; R, Le))
+        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+        θ  = atan(y′, x′)
+        u4 += trig(θ) * uθ
+    end
+
     return u1 + u2 + u3 + u4
 end
 
@@ -212,45 +256,72 @@ end
         x += x < 25e3 ? 50e3 : -50e3
         y += y < 25e3 ? 50e3 : -50e3
     elseif x < 25e3
-        x, y = y, 50e3 - x
-
+        x, y = 100e3 - y, 50e3 + x
     elseif y < 25e3
         x, y = 50e3 - y, x
-
     elseif x > 75e3
-        x, y = y, 150e3 - x
-
+        x, y = 100e3 - y, x - 50e3
     elseif y > 75e3
         x, y = 150e3 - y, x
-
     end
 
     # divide into 4 regions
 
     #if x < 50e3 && y < 50e3 # Region 1: warm eddy!
-        x′  = x - R
-        y′  = y - R
+    x′  = x - R
+    y′  = y - R
+    r  = sqrt(x′^2 + y′^2)
+    η1 = η(r, (; R, Lf, σ², Φ))
+
+    for (i, j) in zip([1, 5, 5], [5, 1, 5])
+        x′ = x - i * R
+        y′ = y - j * R
+        
         r  = sqrt(x′^2 + y′^2)
-        η1 = η(r, (; R, Lf, σ², Φ))
+        η1 += η(r, (; R, Lf, σ², Φ))
+    end
 
     #elseif x < 50e3 && y >= 50e3 # Region 2: cold eddy!
-        x′  = x - R
-        y′  = y - 3R
+    x′  = x - R
+    y′  = y - 3R
+    r  = sqrt(x′^2 + y′^2)
+    η2 = - η(r, (; R, Lf, σ², Φ))
+
+    for (i, j) in zip([1, 5, 5], [-1, 3, -1])
+        x′ = x - i * R
+        y′ = y - j * R
+        
         r  = sqrt(x′^2 + y′^2)
-        η2 = - η(r, (; R, Lf, σ², Φ))
+        η2 += - η(r, (; R, Lf, σ², Φ))
+    end
 
     #elseif x >= 50e3 && y < 50e3 # Region 3: cold eddy!
-        x′  = x - 3R
-        y′  = y - R
+    x′  = x - 3R
+    y′  = y - R
+    r  = sqrt(x′^2 + y′^2)
+    η3 = - η(r, (; R, Lf, σ², Φ))
+
+    for (i, j) in zip([3, -1, -1], [5, 1, 5])
+        x′ = x - i * R
+        y′ = y - j * R
+        
         r  = sqrt(x′^2 + y′^2)
-        η3 = - η(r, (; R, Lf, σ², Φ))
+        η3 += - η(r, (; R, Lf, σ², Φ))
+    end
 
     #else # Region 4: warm eddy!
-        x′  = x - 3R
-        y′  = y - 3R
-        r  = sqrt(x′^2 + y′^2)
-        η4 = η(r, (; R, Lf, σ², Φ))
+    x′  = x - 3R
+    y′  = y - 3R
+    r  = sqrt(x′^2 + y′^2)
+    η4 = η(r, (; R, Lf, σ², Φ))
 
+    for (i, j) in zip([-1, 3, -1], [3, -1, -1])
+        x′ = x - i * R
+        y′ = y - j * R
+        
+        r  = sqrt(x′^2 + y′^2)
+        η4 += η(r, (; R, Lf, σ², Φ))
+    end
     #end
 
     
