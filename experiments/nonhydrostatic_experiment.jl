@@ -34,8 +34,8 @@ if arch.local_rank == 0
 end
 
 # Output writer details
-output_frequency = 10minutes
-checkpoint_frequency = 2hours
+output_frequency = 30minutes
+checkpoint_frequency = 1hours
 stop_time = 10days
 
 background_forcing = true
