@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH -C gpu
-#SBATCH -N 1 # 256 
+#SBATCH -N 256 
 #SBATCH -q regular
 #SBATCH --account=m4499
-#SBATCH --time=24:00:00
+#SBATCH --time=10:00:00
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH -c 32
