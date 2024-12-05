@@ -4,7 +4,10 @@ using Oceananigans.Advection:
             _advective_tracer_flux_y,
             _advective_tracer_flux_z,
             ZeroU,
-            required_halo_size
+            required_halo_size_x,
+            required_halo_size_y,
+            required_halo_size_z
+            
 
 using Oceananigans.Fields: ZeroField
 using Oceananigans.Utils: SumOfArrays
@@ -49,7 +52,10 @@ function ForcedAdvection(; scheme,
                          v_background = ZeroField(eltype(scheme)),
                          w_background = ZeroField(eltype(scheme)))
 
-    N  = required_halo_size(scheme)
+    N  = max(required_halo_size_x(scheme),
+             required_halo_size_y(scheme),
+             required_halo_size_z(scheme))
+
     FT = eltype(scheme)
 
     return ForcedAdvection{N, FT}(scheme, u_background, v_background, w_background)
