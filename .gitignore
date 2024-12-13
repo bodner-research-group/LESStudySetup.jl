@@ -1,2 +1,4 @@
 *.jld2
 *.mp4
+*.sh
+LocalPreferences.toml
