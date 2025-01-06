@@ -21,6 +21,15 @@ isforced(model::NonhydrostaticModel) = model.advection isa ForcedAdvection
     end
 end
 
+@kernel function _compute_u_from_continuity!(u, grid, v)
+    j, k = @index(Global, NTuple)
+
+    @inbounds u[1, j, k] = 0
+    for i in 2:size(grid, 2) + 1
+        @inbounds u[i, j, k] = u[i-1, j, k] - Δxᶜᶜᶜ(i-1, j, k, grid) * ∂yᶜᶜᶜ(i-1, j, k, grid, v)
+    end
+end
+
 function model_settings(model_type, grid; background_forcing = false)
     
     advection = WENO(; order = 9)
@@ -35,8 +44,9 @@ function model_settings(model_type, grid; background_forcing = false)
         launch!(architecture(grid), grid, :xz, _compute_v_from_continuity!, v_background, grid, u_background)
         fill_halo_regions!(v_background)
 
+        u_background = XFaceField(grid)
+        launch!(architecture(grid), grid, :yz, _compute_u_from_continuity!, u_background, grid, v_background)
         fill_halo_regions!(u_background)
-        fill_halo_regions!(v_background)
 
         advection = ForcedAdvection(; scheme = advection,
                                       u_background,
