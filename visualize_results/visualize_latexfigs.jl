@@ -14,6 +14,7 @@ using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes,
 using LESStudySetup.Diagnostics: MixedLayerN², MixedLayerDepth
 set_theme!(theme_latexfonts(), fontsize=12,figure_padding = 5)
 shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
+yshift(x) = [x[:, size(x,2)÷2+1:end]; x[:, 1:size(x,2)÷2]]
 
 # Load parameters and simulation results
 α  = parameters.α
@@ -149,17 +150,16 @@ arrows!(ax_a, [50], [50], [-15*sqrt(3)],[-15],arrowcolor =:black)
 save(filesave * "fields_" * fileparams * "_T0T10.pdf", fig)
 
 k = 216
-b = compute!(Field(α * g * T))
-Bₕ = compute!(Field(-(∂x(b)^2 * ∂x(u) + ∂y(b)^2 * ∂y(v))-∂x(b)*∂y(b)*(∂x(v) + ∂y(u))))
-Bᵥ = compute!(Field(-(∂z(b) * (∂x(w) * ∂x(b) + ∂y(w) * ∂y(b)))))
+Bh = compute!(Field(Bₕ(snapshots, snapshot_number)))
+Bv = compute!(Field(Bᵥ(snapshots, snapshot_number)))
 fig = Figure(size = (640, 315))
 gab = fig[1, 1] = GridLayout()
 axis_kwargs1 = (xlabel = "x (km)", ylabel = "y (km)", aspect = 1, limits = ((0, 100), (0, 100)))
 axis_kwargs2 = NamedTuple{(:xlabel,:limits,:aspect)}(axis_kwargs1)
 ax_a = Axis(gab[1,1]; titlealign = :left, title=L"\text{(a)}~10^{16}\mathcal{B}_h~\text{({kg}^2 m^{-8}s^{-1})}", axis_kwargs1...)
 ax_b = Axis(gab[1,2]; titlealign = :left, title=L"\text{(b)}~10^{16}\mathcal{B}_v~\text{({kg}^2 m^{-8}s^{-1})}", axis_kwargs2...)
-hm_a = heatmap!(ax_a, 1e-3xT, 1e-3yT, 1e16*shift(interior(Bₕ,:,:,k)); rasterize = true, colormap = :amp, colorrange = (-0., 1))
-hm_b = heatmap!(ax_b, 1e-3xT, 1e-3yT, 1e16*shift(interior(Bᵥ,:,:,k)); rasterize = true, colormap = :amp, colorrange = (-0., 1))
+hm_a = heatmap!(ax_a, 1e-3xT, 1e-3yT, 1e16*shift(interior(Bh,:,:,k)); rasterize = true, colormap = :amp, colorrange = (-0., 1))
+hm_b = heatmap!(ax_b, 1e-3xT, 1e-3yT, 1e16*shift(interior(Bv,:,:,k)); rasterize = true, colormap = :amp, colorrange = (-0., 1))
 hideydecorations!(ax_b, ticks = false)
 Colorbar(gab[1, 3], hm_b)
 colgap!(gab, 1, 5)
@@ -180,26 +180,30 @@ k = kw
 cmap = :balance
 rmin, rmax = -wbnd,wbnd#Tmin, Tmax
 hcolor = :gray
-fig = Figure(size = (640, 410))
+fig = Figure(size = (640, 800))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((0, 100), (0, 100)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~w,~z=-25.9~\text{m}", axis_kwargs...)
-ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b) Region A}", aspect=1, limits = ((50, 100), (25, 75)))
-ax_c = Axis(gabc[1,3]; titlealign = :left, title=L"\text{(c) Region B}", aspect=1, limits = ((0, 50), (0, 50))) 
-hm_a = heatmap!(ax_a, 1e-3x, 1e-3y, interior(var,:,:,k); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_b = heatmap!(ax_b, 1e-3x, 1e-3y, interior(var,:,:,k); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_c = heatmap!(ax_c, 1e-3x, 1e-3y, interior(var,:,:,k); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-Colorbar(gabc[1,4], hm_c)
+ax_a = Axis(gabc[1,1][1,1]; titlealign = :left, title=L"\text{(a)}~w,~z=-25.9~\text{m}", axis_kwargs...)
+ax_b = Axis(gabc[1,2][1,1]; titlealign = :left, title=L"\text{(b) Region A}", aspect=1, limits = ((0, 50), (25, 75)))
+ax_c = Axis(gabc[2,1][1,1]; titlealign = :left, title=L"\text{(c) Region B}", aspect=1, limits = ((25, 75), (-25,25))) 
+ax_d = Axis(gabc[2,2][1,1]; titlealign = :left, title=L"\text{(d) Region C}", aspect=1, limits = ((50, 100), (25, 75))) 
+hm_a = heatmap!(ax_a, 1e-3x, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_b = heatmap!(ax_b, 1e-3x, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_c = heatmap!(ax_c, 1e-3x, 1e-3y.-50, yshift(shift(interior(var,:,:,k))); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_d = heatmap!(ax_d, 1e-3x, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+Colorbar(gabc[1,2][1,2], hm_b)
+Colorbar(gabc[2,2][1,2], hm_d)
 hidexdecorations!(ax_a, ticks = false)
 hidexdecorations!(ax_b, ticks = false)
 hidexdecorations!(ax_c, ticks = false)
+hidexdecorations!(ax_d, ticks = false)
 hlines!(ax_a, 1e-3*yT[jslices]; color = :black, linewidth = 0.5)
-poly!(ax_a, [Rect(50i, 25i, 50, 50) for i in 0:1], color = (:white, 0.1), strokecolor = :white, strokewidth = 0.5)
-text!(ax_a, 50, 75, text = L"\text{A}", color = :black, align = (:left, :top))
+poly!(ax_a, [Rect(50i, 25, 50, 50) for i in 0:1], color = (:white, 0.1), strokecolor = :white, strokewidth = 0.5)
+text!(ax_a, 0, 75, text = L"\text{A}", color = :black, align = (:left, :top))
 if cmap == :thermal
-    text!(ax_a, 0, 50, text = L"\text{B}", color = :white, align = (:left, :top))
+    text!(ax_a, 50, 75, text = L"\text{B}", color = :white, align = (:left, :top))
 else
-    text!(ax_a, 0, 50, text = L"\text{B}", color = :black, align = (:left, :top))
+    text!(ax_a, 50, 75, text = L"\text{B}", color = :black, align = (:left, :top))
 end
 
 dΔN = 80
