@@ -9,7 +9,15 @@
 
 # Final configuration to use!!! (twin experiment for the nonhydrostatic one)
 #run_experiment("hydrostatic_twin_simulation"; Q = 50.0, τw = 0.1, Δh = 200, ΔTᶠ = 1.0, a = 1, stop_time = 10days)
-run_experiment("hydrostatic_twin_simulation_1sig"; m₀ = 60, T₀ = 20, Δmᶠ = 10, σ²  = 1, N²T = 2e-4, Q = 40, τw = 0.1, Δh = 200, ΔTᵉ = 0.1, ΔTᶠ = 0, a = 1, Φ = 0.01, stop_time = 40days)
+proc_max = 32 # Maximum number of GPUs (32 * 32 GPUs == 1024 GPUs) for the large experiment
+proc = 2 # Actually used number of GPUs in each direction
+
+scaling = Int(proc_max / proc)
+
+# Grid size
+Δh = 4.8828125 * scaling
+Δz = 1.28 
+run_experiment("hydrostatic_twin_simulation"; Δh, Δz)
 
 #include("initial_turbulence_generator.jl")
 #generate_initial_turbulence(;τw  = 0.1, ΔTᵉ = 0.5, output_frequency = 10minutes, stop_time = 10hours)
