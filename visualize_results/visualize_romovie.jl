@@ -47,18 +47,19 @@ function visualize(cooling, wind, dTf, a)
     f = parameters.f
 
     fig = Figure(size = (500, 400))
+    gl = fig[1, 1] = GridLayout()
     axis_kwargs = (xlabel = "x (km)", ylabel = "y (km)",
                 limits = ((0, 100), (0, 100)), aspect = 1)  
 
     n = Observable(1)
-    ax_v = Axis(fig[1, 1][1,1]; 
+    ax_v = Axis(gl[1,1]; 
                 title = @lift("t = " * string(round(times[$n]/3600/24, digits=3)) * " days"),
                 subtitle="ζ/f, z=-25m", axis_kwargs...)  
     v = @lift interior(compute!(Field(ζ(snapshots, $n)/f)),:,:,k)
 
     hm_v = heatmap!(ax_v, 1e-3xT, 1e-3yT, v; rasterize = true, colormap = :balance, colorrange = (-vbnd, vbnd))
-    Colorbar(fig[1, 1][1, 2], hm_v)
-    #Label(fig[1, 1][1,1:2], title, fontsize=15, tellwidth=false)
+    Colorbar(gl[1, 2], hm_v)
+    colgap!(gl, 1, 1)
     frames = 1:2:length(times)
     @info "Making a neat animation of Ro..."
     record(fig, filesave * "ro_" * fileparams * ".mp4", frames, framerate=4) do i
