@@ -38,15 +38,24 @@ function power_cospectrum_1d(var1, var2, x)
     return Spectrum(spectra, freqs)
 end
 
-function isotropic_powerspectrum(var1, var2, x, y)
+function isotropic_powerspectrum(var1, var2, x, y; window = nothing)
 
     Nx, Ny = size(var1)
     
     Δx, Δy = x[2] - x[1], y[2] - y[1]
 
     # Fourier transform
-    v̂1 = (rfft(var1 .- mean(var1))) * Δx * Δy
-    v̂2 = (rfft(var2 .- mean(var2))) * Δx * Δy
+    if isnothing(window)
+        v̂1 = (rfft(var1 .- mean(var1))) * Δx * Δy
+        v̂2 = (rfft(var2 .- mean(var2))) * Δx * Δy
+    else
+        # Hann window
+        wx = sin.(π*(0:Nx-1)/Nx).^2
+        wy = sin.(π*(0:Ny-1)/Ny).^2
+        w = wx.*wy'
+        v̂1 = rfft(w .* (var1 .- mean(var1))) * Δx * Δy
+        v̂2 = rfft(w .* (var2 .- mean(var2))) * Δx * Δy
+    end
     Nfx, Nfy = size(v̂1, 1), size(v̂1, 1)
     v̂1 = v̂1[:,1:Nfx]
     v̂2 = v̂2[:,1:Nfy]
