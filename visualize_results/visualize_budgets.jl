@@ -99,9 +99,12 @@ function kebudgets(snapshot_number; nobudget=false, u0 = 0, v0 = 0)
         ηxᵖ, ηyᵖ = compute!(Field(∂x(η3d))), compute!(Field(∂y(η3d)))
 
         mke1 = compute!(Field(-U * mean(compute!(Field(∂z(w * uᵖ))), dims = (1,2)) - mean(compute!(Field(∂z(w * vᵖ))), dims = (1,2)) * V))
-        mke2 = compute!(Field(U * (Fx - Px) + (Fy - Py) * V))
+        mke2 = compute!(Field(U * (Fx) + (Fy) * V))
+        mke3 = compute!(Field(U * (- Px) + (- Py) * V))
+        mke4 = compute!(Field(B * W))
+        mke5 = compute!(Field(@at (Nothing, Nothing, Center) W * ∂z(mke)))
         println("computed mean KE terms with time $(time()-t0) seconds...")
-        mkeb = [mke1, mke2]
+        mkeb = [mke1, mke2, mke3, mke4, mke5]
         
         ke2 = compute!(Field(mean(compute!(Field(-uᵖ * wᵖ)), dims = (1,2)) * ∂z(U) - mean(compute!(Field(wᵖ * vᵖ)), dims = (1,2)) * ∂z(V)))
         println("compute eddy KE term 2 with time $(time()-t0) seconds...")
@@ -110,8 +113,13 @@ function kebudgets(snapshot_number; nobudget=false, u0 = 0, v0 = 0)
         ke4 = mean(compute!(Field(uᵖ * (fxᵖ - pxᵖ - g * ηxᵖ) + (fyᵖ - pyᵖ - g * ηyᵖ) * vᵖ)), dims = (1,2))
         ke4f = compute!(Field(ke4 + mean(compute!(Field(wᵖ * (fzᵖ - pzᵖ))), dims = (1,2))))
         println("compute eddy KE term 4 with time $(time()-t0) seconds...")
-        ke1 = mean(compute!(Field(((u + u0) * ∂x(ke) + (v + v0) * ∂y(ke)))), dims = (1,2))
-        ke1f = mean(compute!(Field(((u + u0) * ∂x(kef) + (v + v0) * ∂y(kef) + w * ∂z(kef)))), dims = (1,2))
+
+        ue, ve = compute!(Field(ke * (u + u0))), compute!(Field(ke * (v + v0)))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        ke1 = mean(compute!(Field(D + ∂z(w * ke))), dims = (1,2))
+        ue, ve = compute!(Field(kef * (u + u0))), compute!(Field(kef * (v + v0)))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        ke1f = mean(compute!(Field(D + ∂z(w * kef))), dims = (1,2))
         println("compute eddy KE term 1 with time $(time()-t0) seconds...")
         keb = [ke1, ke2, ke3, ke4, ke1f, ke4f]
 
@@ -129,12 +137,15 @@ mke2, ke2, kef2 = kebudgets(snapshot_number+1; nobudget=true)
 # Plot the buoyancy variance terms
 fig = Figure(size = (640, 640))
 gabc= fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = L"z~\text{(m)}",limits = ((-6,6), (-200, 0)))
+axis_kwargs = (ylabel = L"z~\text{(m)}",limits = (nothing, (-200, 0)))
 ax_a = Axis(gabc[1, 1]; xlabel = L"\text{(10^8~m^2 s^{-3})}", titlealign = :left, title=L"\text{(a)}~ \text{Mean KE budget}", axis_kwargs...)
-lines!(ax_a, 1e8*(vec(mke2)-vec(mke))/Δt, zT; label = L"|\langle \mathbf{u} \rangle_t|^2_t/2~\text{(1)}")
-lines!(ax_a, 1e8*vec(mkeb[1]), zT; label = L"-\langle \mathbf{u} \rangle \cdot \langle \nabla \cdot (\mathbf{u} \mathbf{u}^\prime)\rangle~\text{(2)}")
-lines!(ax_a, 1e8*vec(mkeb[2]), zT; label = L"\langle \mathbf{F}- \nabla p \rangle \cdot \langle \mathbf{u} \rangle~\text{(3)}")
-lines!(ax_a, 1e8*((vec(mke2)-vec(mke))/Δt-vec(mkeb[1])-vec(mkeb[2])), zT; label = L"\text(1)-\text(2)-\text(3)", color = :black)
+lines!(ax_a, 1e8*(vec(mke2)-vec(mke))/Δt, zT; label = L"|\langle \mathbf{u} \rangle|^2_t/2~\text{(1)}")
+lines!(ax_a, 1e8*vec(mkeb[5]), zT; label = L"\langle w \rangle  |\langle \mathbf{u} \rangle|^2_z/2~\text{(2)}")
+lines!(ax_a, 1e8*vec(mkeb[1]), zT; label = L"-\langle \mathbf{u} \rangle \cdot \langle \nabla \cdot (\mathbf{u} \mathbf{u}^\prime)\rangle~\text{(3)}")
+lines!(ax_a, 1e8*vec(mkeb[4]), zT; label = L"\langle W \rangle \langle b \rangle~\text{(4)}")
+lines!(ax_a, 1e8*vec(mkeb[2])[1:end-1], zT[1:end-1]; label = L"\langle \mathbf{F} \rangle \cdot \langle \mathbf{u} \rangle~\text{(5)}")
+lines!(ax_a, 1e8*vec(mkeb[3]), zT; label = L"-\langle \nabla p \rangle \cdot \langle \mathbf{u} \rangle~\text{(6)}")
+lines!(ax_a, 1e8*((vec(mke2)-vec(mke))/Δt+vec(mkeb[5])-vec(mkeb[1])-vec(mkeb[2])-vec(mkeb[3])-vec(mkeb[4]))[1:end-1], zT[1:end-1]; label = L"\text(1)+\text(2)-\text(3)-\text(4)-\text(5)-\text(6)", color = :black)
 axislegend(ax_a, labelsize=9,position = :rb)
 ax_b = Axis(gabc[1, 2]; xlabel = L"\text{(10^8~m^2 s^{-3})}", titlealign = :left, title=L"\text{(b)}~ \text{2D TKE budget}", axis_kwargs...)
 hideydecorations!(ax_b, ticks = false)
@@ -178,7 +189,7 @@ N̅² = compute!(Field(N̅²/81))
 Γxz = compute!(Field(@at (Nothing, Nothing, Center) ∂z(Γx)))
 Γyz = compute!(Field(@at (Nothing, Nothing, Center) ∂z(Γy)))
 
-function bvarainces(snapshot_number; budget = false)
+function bvarainces(snapshot_number; budget = false, u0 = 0, v0 = 0)
     α = parameters.α
     g = parameters.g
     T = snapshots[:T][snapshot_number]
@@ -258,10 +269,13 @@ function bvarainces(snapshot_number; budget = false)
         pe4 = mean(compute!(Field(bᵖ * Qᵖ)), dims = (1,2))
         println("compute eddy PE term 4 with time $(time()-t0) seconds...")
 
-        var1 = mean(compute!(Field(((u + u0) * ∂x(b̃ᵖsq) + (v + v0) * ∂y(b̃ᵖsq) + w * ∂z(b̃ᵖsq))/2)), dims = (1,2))
+        uc, vc = compute!(Field(b̃ᵖsq * (u + u0))), compute!(Field(b̃ᵖsq * (v + v0)))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, uc,vc)
+        var1 = mean(compute!(Field((D + ∂z(b̃ᵖsq * w)) / 2)), dims = (1,2))
         println("computed buoyacy variance term 1 with time $(time()-t0) seconds...")
         bvb = [var1, var2, var3, var4]
-        pe1 = mean(compute!(Field((((u + u0) * ∂x(bᵖsq) + (v + v0) * ∂y(bᵖsq) + w * ∂z(bᵖsq))) / 2)), dims = (1,2))
+        uc, vc = compute!(Field(bᵖsq * (u + u0))), compute!(Field(bᵖsq * (v + v0)))
+        pe1 = mean(compute!(Field((D + ∂z(bᵖsq * w)) / 2)), dims = (1,2))
         println("compute eddy PE term 1 with time $(time()-t0) seconds...")
         peb = [pe1, pe2, pe3, pe4]
 
@@ -270,14 +284,14 @@ function bvarainces(snapshot_number; budget = false)
 end
 
 t0 = time()
-b̃ᵖsq, b̄sq, bᵖsq, bvb, mpeb, peb, zT, zw = bvarainces(snapshot_number;budget=true)
+b̃ᵖsq, b̄sq, bᵖsq, bvb, mpeb, peb, zT, zw = bvarainces(snapshot_number;budget=true,u0=u0,v0=v0)
 _, b̃ᵖsq2, b̄sq2, bᵖsq2 = bvarainces(snapshot_number+1)
 Δt = times[snapshot_number+1] - times[snapshot_number]
 
 # Plot the buoyancy variance terms
 fig = Figure(size = (640, 640))
 gabc= fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = L"z~\text{(m)}",limits = ((-2,2), (-200, 0)))
+axis_kwargs = (ylabel = L"z~\text{(m)}",limits = ((-4,4), (-200, 0)))
 ax_a = Axis(gabc[1, 1]; xlabel = L"\text{(10^{13}~m^2 s^{-5})}", titlealign = :left, title=L"\text{(a)}~ \text{Buoyancy variance budget}", axis_kwargs...)
 lines!(ax_a, 1e13*(vec(b̃ᵖsq2)-vec(b̃ᵖsq))/2/Δt, zT; label = L"\langle \tilde{b}^{\prime 2} \rangle_t/2~\text{(1)}")
 lines!(ax_a, 1e13*vec(bvb[1]), zT; label = L"\langle \mathbf{u} \cdot \nabla (\tilde{b}^{\prime 2}/2) \rangle~\text{(2)}")
