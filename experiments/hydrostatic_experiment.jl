@@ -8,30 +8,30 @@ using JLD2
 architecture = GPU()
 
 function run_experiment(experiment; 
-                        T₀  = 20,
-			            m₀  = 60,
-                        Δmᶠ = 10,
-                        N²s = 5e-7,
-                        N²T = 1e-4,
-                        M²₀ = 5e-7,
-                        Q   = 0.0,    # Cooling heat flux in W/m²
-                        τw  = 0.0,    # Wind stress in N/m²
-                        θ   = 30.0,   # Wind stress angle in degrees (0 correspond to zonal wind stress)
+                        # T₀  = 20,
+			            # m₀  = 60,
+                        # Δmᶠ = 10,
+                        # N²s = 5e-7,
+                        # N²T = 1e-4,
+                        # M²₀ = 5e-7,
+                        # Q   = 0.0,    # Cooling heat flux in W/m²
+                        # τw  = 0.0,    # Wind stress in N/m²
+                        # θ   = 30.0,   # Wind stress angle in degrees (0 correspond to zonal wind stress)
                         Δh  = 250,    # Horizontal resolution [m]
                         Δz  = 2,      # Vertical resolution [m]
-                        ΔTᵉ = 0.5,    # Eddy temperature difference
-                        Φ   = 0.025,  # Barotropic eddy strength
-                        a   = 1.2,    # Eddy temperature magnitude
-                        Lf  = 0.9,    # Size of temperature front (large numbers correspond to steeper fronts)
-                        σ²  = 0.15,   # Initial spread of the barotropic eddy
+                        # ΔTᵉ = 0.5,    # Eddy temperature difference
+                        # Φ   = 0.025,  # Barotropic eddy strength
+                        # a   = 1.2,    # Eddy temperature magnitude
+                        # Lf  = 0.9,    # Size of temperature front (large numbers correspond to steeper fronts)
+                        # σ²  = 0.15,   # Initial spread of the barotropic eddy
                         output_frequency = 6hours,
                         checkpoint_frequency = 6hours,
                         stop_time = 20days,
                         background_forcing = true,
                         restart_file = false)
     
-    set_value!(; m₀, T₀, Δmᶠ, N²s, N²T, M²₀, Q, τw, θ, ΔTᵉ, Δz, a, Lf, σ², Φ, Δh)
-
+    #set_value!(; m₀, T₀, Δmᶠ, N²s, N²T, M²₀, Q, τw, θ, ΔTᵉ, Δz, a, Lf, σ², Φ, Δh)
+    LESStudySetup.default_experimental_setup!(; Δh, Δz)
 
     @info "Simulation parameters: " parameters
 
@@ -45,7 +45,7 @@ function run_experiment(experiment;
 
     # Let's attach some outputs
     model         = simulation.model
-    output_fields = merge(model.velocities, model.tracers, model.pressure)
+    output_fields = merge(model.velocities, model.tracers, model.pressure, model.diffusivity_fields)
 
     simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                          schedule = TimeInterval(checkpoint_frequency),
