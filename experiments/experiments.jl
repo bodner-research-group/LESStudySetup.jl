@@ -16,7 +16,8 @@ scaling = Int(proc_max / proc)
 
 # Grid size
 Δh = 4.8828125 * scaling
-Δz = 1.28 
+Δz = 1.125 
+
 run_experiment("hydrostatic_twin_simulation"; Δh, Δz)
 
 #include("initial_turbulence_generator.jl")
