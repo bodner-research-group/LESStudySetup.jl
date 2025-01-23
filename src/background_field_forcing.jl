@@ -4,7 +4,9 @@ using Oceananigans.Advection:
             _advective_tracer_flux_y,
             _advective_tracer_flux_z,
             ZeroU,
-            required_halo_size
+            required_halo_size_x,
+            required_halo_size_y,
+            required_halo_size_z
 
 using Oceananigans.Fields: ZeroField
 using Oceananigans.Utils: SumOfArrays

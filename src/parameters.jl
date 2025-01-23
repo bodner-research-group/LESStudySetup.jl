@@ -50,7 +50,7 @@ A mutable struct representing the constants used in the LES study setup.
     Lf  :: Float64 = 0.9
     Le  :: Float64 = 0.9
     σ²  :: Float64 = 0.15
-     g  :: Float64 = Oceananigans.BuoyancyModels.g_Earth
+     g  :: Float64 = Oceananigans.BuoyancyFormulations.g_Earth
 end
 
 Base.show(io::IO, c::ProblemConstants) =

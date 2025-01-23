@@ -2,8 +2,7 @@ using Oceananigans.Utils
 using Oceananigans.Grids: node, architecture
 using Oceananigans.DistributedComputations
 using Oceananigans.BoundaryConditions
-using Oceananigans.Advection: TracerAdvection
-#using Oceananigans.Advection: FluxFormAdvection
+using Oceananigans.Advection: FluxFormAdvection
 using Oceananigans.TurbulenceClosures.TKEBasedVerticalDiffusivities: CATKEMixingLength, CATKEVerticalDiffusivity
 using Statistics: mean
 using KernelAbstractions: @index, @kernel
@@ -72,7 +71,7 @@ function model_settings(model_type, grid; background_forcing = false)
         tracers = (:T, :e)
 
         free_surface = SplitExplicitFreeSurface(grid; substeps = 75, gravitational_acceleration = parameters.g)
-        @info "running with $(length(free_surface.settings.substepping.averaging_weights)) substeps"
+        #@info "running with $(length(free_surface.settings.substepping.averaging_weights)) substeps"
        
         return (; closure, 
                   tracers, 

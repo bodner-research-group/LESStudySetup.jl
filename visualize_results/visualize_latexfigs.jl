@@ -17,58 +17,6 @@ shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
 yshift(x) = [x[:, size(x,2)÷2+1:end] x[:, 1:size(x,2)÷2]]
 xhift(x) = yshift(shift(x))
 
-# Load parameters and simulation results
-α  = parameters.α
-ρ₀ = parameters.ρ₀
-grid = T.grid
-xT, yT, zT = nodes(T)
-g = parameters.g
-threshold = 3e-4/g*ρ₀
-surface,stratification=false,false
-h    = compute!(MixedLayerDepth(grid, (; T); ΔT = abs(threshold / ρ₀ / α), surface,stratification))
-stratification = true
-Nh² = compute!(MixedLayerN²(grid, (; T); ΔT = abs(threshold / ρ₀ / α), surface,stratification))
-us = sqrt(parameters.τw/ρ₀)
-Qᵘ = parameters.Q/(ρ₀ * parameters.cp) * α * g
-λₛ=compute!(Field(Qᵘ*h/us^3))
-Rₕ=compute!(Field(Nh² * h^2/us^2))
-Rₕw = compute!(Field(Rₕ/λₛ^(2/3)))
-f = parameters.f
-compute!(Field(f/Nh²^0.5))
-
-fig = Figure(size = (640, 560))
-gab = fig[1, 1] = GridLayout()
-axis_kwargs1 = (xlabel = "x (km)", ylabel = "y (km)", aspect = 1,
-            limits = ((0, 100), (0, 100)))
-axis_kwargs2 = NamedTuple{(:xlabel,:limits,:aspect)}(axis_kwargs1)
-
-ax_a = Axis(gab[1,1]; titlealign = :left, title=L"\text{(a)}~\lambda_s=\frac{-B_0 h}{u_*^3}", axis_kwargs1...)
-ax_b = Axis(gab[1,3]; titlealign = :left, title=L"\text{(b)}~R_h=(\frac{N_h h}{u_*})^2", axis_kwargs2...)
-ax_c = Axis(gab[2,1]; titlealign = :left, title=L"\text{(c)}~f/N_h", axis_kwargs1...)
-ax_d = Axis(gab[2,3]; titlealign = :left, title=L"\text{(c)}~R^*_h=(\frac{N_h h}{w_*})^2", axis_kwargs2...)
-
-hidexdecorations!(ax_a, ticks = false)
-hidexdecorations!(ax_b, ticks = false)
-hideydecorations!(ax_b, ticks = false)
-hideydecorations!(ax_d, ticks = false)
-
-k = 1
-hm_a = heatmap!(ax_a, 1e-3xT, 1e-3yT, interior(λₛ,:,:,k); rasterize = true, colormap = :amp, colorscale = log10)
-hm_b = heatmap!(ax_b, 1e-3xT, 1e-3yT, interior(Rₕ,:,:,k); rasterize = true, colormap = :balance, colorrange = (10^(2.27), 10^(3.73)), colorscale = log10)
-hm_c = heatmap!(ax_c, 1e-3xT, 1e-3yT, parameters.f ./ sqrt.(interior(Nh²,:,:,k)); rasterize = true, colormap = Reverse(:balance), colorrange = (10^(-2.11), 10^(-1.39)), colorscale = log10)
-hm_d = heatmap!(ax_d, 1e-3xT, 1e-3yT, interior(Rₕw,:,:,k); rasterize = true, colormap = :balance, colorrange = (10^(2.37), 10^(3.63)),colorscale = log10)
-
-Colorbar(gab[1, 2], hm_a)
-Colorbar(gab[1, 4], hm_b)
-Colorbar(gab[2, 2], hm_c)
-Colorbar(gab[2, 4], hm_d)
-colgap!(gab, 1, 3)
-colgap!(gab, 3, 3)
-colgap!(gab, 2, 5)
-rowgap!(gab, 1, 3)
-
-save("mldassessfields.pdf", fig)
-
 function cumtrapz(X, Y) 
     # Check matching vector length
     @assert length(X) == length(Y)
@@ -138,6 +86,7 @@ Ub = initsnaps[:u][1]
 Vb = initsnaps[:v][1]
 iarrow = 1:32:640
 
+##############################
 T0 = snapshots[:T][1]
 T5 = snapshots[:T][81]
 v0 = snapshots[:v][1]
@@ -211,7 +160,57 @@ end
 resize_to_layout!(fig)
 save(filesave * "Tvfields_" * fileparams * "_d0d5.pdf", fig)
 
+#################
+# Load parameters and simulation results
+T0 = snapshots[:T][1]
+ρ₀ = parameters.ρ₀
+threshold = 3e-4/g*ρ₀
+surface,stratification=false,false
+h    = compute!(MixedLayerDepth(grid, (; T=T0); ΔT = abs(threshold / ρ₀ / α), surface,stratification))
+stratification = true
+Nh² = compute!(MixedLayerN²(grid, (; T=T0); ΔT = abs(threshold / ρ₀ / α), surface,stratification))
+us = sqrt(parameters.τw/ρ₀)
+Qᵘ = parameters.Q/(ρ₀ * parameters.cp) * α * g
+λₛ=compute!(Field(Qᵘ*h/us^3))
+Rₕ=compute!(Field(Nh² * h^2/us^2))
+Rₕw = compute!(Field(Rₕ/λₛ^(2/3)))
+f = parameters.f
+compute!(Field(f/Nh²^0.5))
 
+fig = Figure(size = (640, 560))
+gab = fig[1, 1] = GridLayout()
+axis_kwargs1 = (xlabel = "x (km)", ylabel = "y (km)", aspect = 1,
+            limits = ((0, 100), (0, 100)))
+axis_kwargs2 = NamedTuple{(:xlabel,:limits,:aspect)}(axis_kwargs1)
+
+ax_a = Axis(gab[1,1]; titlealign = :left, title=L"\text{(a)}~\lambda_s=\frac{-B_0 h}{u_*^3}", axis_kwargs1...)
+ax_b = Axis(gab[1,3]; titlealign = :left, title=L"\text{(b)}~R_h=(\frac{N_h h}{u_*})^2", axis_kwargs2...)
+ax_c = Axis(gab[2,1]; titlealign = :left, title=L"\text{(c)}~f/N_h", axis_kwargs1...)
+ax_d = Axis(gab[2,3]; titlealign = :left, title=L"\text{(d)}~R^*_h=(\frac{N_h h}{w_*})^2", axis_kwargs2...)
+
+hidexdecorations!(ax_a, ticks = false)
+hidexdecorations!(ax_b, ticks = false)
+hideydecorations!(ax_b, ticks = false)
+hideydecorations!(ax_d, ticks = false)
+
+k = 1
+hm_a = heatmap!(ax_a, 1e-3xT, 1e-3yT, shift(interior(λₛ,:,:,k)); rasterize = true, colormap = :amp, colorscale = log10)
+hm_b = heatmap!(ax_b, 1e-3xT, 1e-3yT, shift(interior(Rₕ,:,:,k)); rasterize = true, colormap = :balance, colorrange = (10^(2.27), 10^(3.73)), colorscale = log10)
+hm_c = heatmap!(ax_c, 1e-3xT, 1e-3yT, parameters.f ./ sqrt.(shift(interior(Nh²,:,:,k))); rasterize = true, colormap = Reverse(:balance), colorrange = (10^(-2.11), 10^(-1.39)), colorscale = log10)
+hm_d = heatmap!(ax_d, 1e-3xT, 1e-3yT, shift(interior(Rₕw,:,:,k)); rasterize = true, colormap = :balance, colorrange = (10^(2.37), 10^(3.63)),colorscale = log10)
+
+Colorbar(gab[1, 2], hm_a)
+Colorbar(gab[1, 4], hm_b)
+Colorbar(gab[2, 2], hm_c)
+Colorbar(gab[2, 4], hm_d)
+colgap!(gab, 1, 3)
+colgap!(gab, 3, 3)
+colgap!(gab, 2, 5)
+rowgap!(gab, 1, 3)
+
+save(filesave * "fields_" * fileparams * "_mldass_d0.pdf", fig)
+
+#################
 k = 216
 Bh = compute!(Field(Bₕ(snapshots, snapshot_number)))
 Bv = compute!(Field(Bᵥ(snapshots, snapshot_number)))
@@ -229,26 +228,27 @@ colgap!(gab, 1, 5)
 colgap!(gab, 2, 3)
 save(filesave * "fields_" * fileparams * "_BhBv_day10.pdf", fig)
 
+###################
 # Plot the fields
 ΔN = 160
 kT, ks, kw = 222, 222, 202
 jslices = [2]*ΔN
 Tmin, Tmax = minimum(interior(T,:,:,kT)), maximum(interior(T,:,:,kT))
-vbnd, wbnd = maximum(abs, interior(v)), 0.005
+vbnd, wbnd = maximum(abs, interior(v)), 5
 
 #####################################
-var = T
+var = compute!(Field(1e3 * w))
 x, y, z = nodes(var)
-k = kT
-cmap = :thermal
-rmin, rmax = Tmin, Tmax
-hcolor = :white
-fig = Figure(size = (640, 800))
+k = kw
+cmap = :balance
+rmin, rmax = -wbnd, wbnd
+hcolor = :grey
+fig = Figure(size = (640, 785))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (0, 100)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~T~\text{({^\circ}C)},~z=-25.9~\text{m}", axis_kwargs...)
+ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~w~\text{(10^3 m~s^{-1})},~z=-25.9~\text{m}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", aspect=1, limits = ((-50, 0), (25, 75)))
-ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Region B}", aspect=1, limits = ((-25, 25), (-25,25))) 
+ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Region B}", ylabel = "y (km)", aspect=1, limits = ((-25, 25), (-25,25))) 
 ax_d = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(d)~Region C}", aspect=1, limits = ((0, 50), (25, 75))) 
 hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x.-50, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
@@ -256,7 +256,11 @@ hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-50, xhift(interior(var,:,:,k)); rasteriz
 hm_d = heatmap!(ax_d, 1e-3x.-50, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 Colorbar(gabc[1,3], hm_b)
 Colorbar(gabc[3,3], hm_d)
-hlines!(ax_a, 1e-3*yT[jslices]; color = :black, linestyle = :dash)
+hidexdecorations!(ax_a, ticks = false)
+hidexdecorations!(ax_b, ticks = false)
+hidexdecorations!(ax_c, ticks = false)
+hidexdecorations!(ax_d, ticks = false)
+hlines!(ax_a, 1e-3*yT[jslices]; color = :black, linestyle = :dash, linewidth = 0.8)
 poly!(ax_a, [Rect(-50i, 25, 50, 50) for i in 0:1], color = (:white, 0.1), strokecolor = :white, strokewidth = 0.5)
 poly!(ax_a, [Rect(-25, 75i, 50, 25) for i in 0:1], color = (:white, 0.1), strokewidth = 0.)
 vlines!(ax_a, [-25, 25]; ymin = 0.75, color = :white, linewidth = 0.5)
@@ -271,38 +275,43 @@ end
 
 dΔN = 80
 jslices = dΔN * [0] .+ 2ΔN
-hlines!(ax_b, 1e-3*yv[jslices]; color = :black, linestyle = :dash)
-hlines!(ax_d, 1e-3*yv[jslices]; color = :black, linestyle = :dash)
-hlines!(ax_c, 0; color = :black, linestyle = :dash)
+hlines!(ax_b, 1e-3*yv[jslices].-10; color = :black, linestyle = :dash, linewidth = 0.8)
+hlines!(ax_d, 1e-3*yv[jslices].-10; color = :black, linestyle = :dash, linewidth = 0.8)
+hlines!(ax_c, 0; color = :black, linestyle = :dash, linewidth = 0.8)
 
 zmin = -100
 ΔN = 160
 ja = 2ΔN
+Δj = -64
 kz = findlast(zw .< zmin)
 Nz = length(zT)
 axis_kwargs0 = (xlabel = "x (km)", ylabel = "z (m)", limits = ((-50, 50), (zmin, 0)))
 axis_kwargs1 = NamedTuple{(:xlabel,:ylabel)}(axis_kwargs0)
 ax_a = Axis(gabc[2,1]; titlealign = :left, title=L"y=50~\text{km}", axis_kwargs0...)
-ax_b = Axis(gabc[2,2]; titlealign = :left, title=L"y=50~\text{km}", xlabel = "x (km)", limits = ((-50, 0), (zmin, 0)))
+ax_b = Axis(gabc[2,2]; titlealign = :left, title=L"y=40~\text{km}", xlabel = "x (km)", limits = ((-50, 0), (zmin, 0)))
 ax_c = Axis(gabc[4,1]; titlealign = :left, title=L"y=0~\text{km}", limits = ((-25, 25), (zmin, 0)), axis_kwargs1...)
-ax_d = Axis(gabc[4,2]; titlealign = :left, title=L"y=50~\text{km}", xlabel = "x (km)", limits = ((0, 50), (zmin, 0)))
+ax_d = Axis(gabc[4,2]; titlealign = :left, title=L"y=40~\text{km}", xlabel = "x (km)", limits = ((0, 50), (zmin, 0)))
 if cmap == :thermal
     vmin, vmax = minimum(interior(var,:,:,kz:Nz)), maximum(interior(var,:,:,kz:Nz))
 else
     vmin, vmax = rmin, rmax
 end
 hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
-hm_b = heatmap!(ax_b, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
+hm_b = heatmap!(ax_b, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja+Δj,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
 hm_c = heatmap!(ax_c, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,1,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
-hm_d = heatmap!(ax_d, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
+hm_d = heatmap!(ax_d, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja+Δj,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
 hideydecorations!(ax_b, ticks = false)
 hideydecorations!(ax_d, ticks = false)
 Colorbar(gabc[2,3], hm_b)
 Colorbar(gabc[4,3], hm_d)
+hlines!(ax_a, z[k]; color = :black, linestyle = :dash, linewidth = 0.8)
+hlines!(ax_b, z[k]; color = :black, linestyle = :dash, linewidth = 0.8)
+hlines!(ax_c, z[k]; color = :black, linestyle = :dash, linewidth = 0.8)
+hlines!(ax_d, z[k]; color = :black, linestyle = :dash, linewidth = 0.8)
 lines!(ax_a, 1e-3x.-50, -vec(shift(interior(h,:,ja))); color = hcolor, linewidth = 0.8)
-lines!(ax_b, 1e-3x.-50, -vec(shift(interior(h,:,ja))); color = hcolor, linewidth = 0.8)
+lines!(ax_b, 1e-3x.-50, -vec(shift(interior(h,:,ja+Δj))); color = hcolor, linewidth = 0.8)
 lines!(ax_c, 1e-3x.-50, -vec(shift(interior(h,:,1))); color = hcolor, linewidth = 0.8)
-lines!(ax_d, 1e-3x.-50, -vec(shift(interior(h,:,ja))); color = hcolor, linewidth = 0.8)
+lines!(ax_d, 1e-3x.-50, -vec(shift(interior(h,:,ja+Δj))); color = hcolor, linewidth = 0.8)
 rowgap!(gabc, 3)
 colgap!(gabc, 1, 15)
 colgap!(gabc, 2, 3)
@@ -310,7 +319,7 @@ for row = [2,4]
     rowsize!(gabc, row, Relative(0.1))
 end
 resize_to_layout!(fig)
-save(filesave * "Tfields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
+save(filesave * "wfields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 println("Finished plotting fields, wall time: $((now() - t0).value/1e3) seconds.")
 
 #####################
@@ -372,19 +381,19 @@ axis_kwargs3 = NamedTuple{(:ylabel,:xscale,:yscale,:limits,:xgridvisible,:ygridv
 axis_kwargs4 = NamedTuple{(:xscale,:yscale,:limits,:xgridvisible,:ygridvisible,:xminorticks,:xminorticksvisible)}(axis_kwargs1)
 Nr = length(xv) ÷ 2
 
-fig = Figure(size = (640, 660))
+fig = Figure(size = (640, 800))
 g33 = fig[1, 1] = GridLayout()
 S0s = []
 alphabet = [letter for letter in 'a':'z']
 for (i,klev) in enumerate([222, 202, 171])
     println("Plotting spectra at z = $(zT[klev])m...")
     if i == 3
-        ax = Axis(g33[i, 1]; titlealign = :left, title=L"\text{(g)}~z=-60~\text{m}", axis_kwargs1...)
+        ax = Axis(g33[1, i]; titlealign = :left, title=L"\text{(c)}~z=-60~\text{m}", axis_kwargs1...)
     else
         if i == 2
-            ax = Axis(g33[i, 1]; titlealign = :left, title=L"\text{(d)}~z=-25~\text{m}", axis_kwargs3...)
+            ax = Axis(g33[1, i]; titlealign = :left, title=L"\text{(b)}~z=-25~\text{m}", axis_kwargs3...)
         else
-            ax = Axis(g33[i, 1]; titlealign = :left, title=L"\text{(a)}~z=-2.8~\text{m}", axis_kwargs3...)
+            ax = Axis(g33[1, 1]; titlealign = :left, title=L"\text{(a)}~z=-2.8~\text{m}", axis_kwargs3...)
         end
         hidexdecorations!(ax, ticks = false)
     end
@@ -402,12 +411,12 @@ for (i,klev) in enumerate([222, 202, 171])
     idx = Su.freq .> 0
     lines!(ax, Su.freq[idx], (10^-6.5)Su.freq[idx].^-2, linestyle = :dash, color = :black)
     text!(ax, 10^-3, 0.7; text = L"k^{-2}")
-    idxf = 0 .< Su.freq .<= 1e-3
+    idxf = idx#0 .< Su.freq .<= 1e-3
     lines!(ax, Su.freq[idxf], 1e-13Su.freq[idxf].^-3, linestyle = :dash, color = :gray)
     text!(ax, 10^-4, 1e-3; text = L"k^{-3}")
-    idxf = Su.freq .> 1e-3
-    lines!(ax, Su.freq[idxf], 1e-9Su.freq[idxf].^(-5/3), linestyle = :dash, color = :gray)
-    text!(ax, 10^-3, 10^-5.5; text = L"k^{-5/3}")
+    #idxf = Su.freq .> 1e-3
+    #lines!(ax, Su.freq[idxf], 1e-9Su.freq[idxf].^(-5/3), linestyle = :dash, color = :gray)
+    #text!(ax, 10^-3, 10^-5.5; text = L"k^{-5/3}")
     lines!(ax, St.freq[idx], Real.(St.spec[idx]./St0.spec[idx][1]), color = :red, label = L"E_T")
     lines!(ax, Su.freq[idx], Real.(Su.spec[idx]./Sv0.spec[idx][1]), color = :blue, label = L"E_u")
     lines!(ax, Sv.freq[idx], Real.(Sv.spec[idx]./Sv0.spec[idx][1]), color = :green, label = L"E_v")
@@ -419,34 +428,41 @@ for (i,klev) in enumerate([222, 202, 171])
                    padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
     end
 
-    for j = 0:1
+    yup(x) = [x[:, size(x,2)÷4+1:end] x[:, 1:size(x,2)÷4]]
+    for j = 1:3
         println([i,j])
+        uk = yup(shift(interior(u, :, :, klev)))
+        vk = yup(shift(interior(v, :, :, klev)))
+        wk = yup((shift(interior(w, :, :, klev))+shift(interior(w, :, :, klev+1)))/2)
+        Tk = yup(shift(interior(T, :, :, klev)))
         window = 1
-        nalpha = j+2+(i-1)*3
-        title = "("*alphabet[nalpha]*") Region " * uppercase(alphabet[j+1])
-        if i == 3
-            ax = Axis(g33[i, j+2]; titlealign = :left, title=title, titlefont=texfont(),axis_kwargs2...)
-        else
-            ax = Axis(g33[i, j+2]; titlealign = :left, title=title, titlefont=texfont(),axis_kwargs4...)
-            hidexdecorations!(ax, ticks = false)
+        nalpha = j*3+i
+        title = "("*alphabet[nalpha]*") Region " * uppercase(alphabet[j])
+
+        ax = Axis(g33[2j+1, i]; titlealign = :left, title=title, titlefont=texfont(),axis_kwargs4...)
+        hidexdecorations!(ax, ticks = false)
+
+        if i > 1
+            hideydecorations!(ax, ticks = false)
         end
-        hideydecorations!(ax, ticks = false)
         jr = 1-j
-        Su = isotropic_powerspectrum(interior(u, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), interior(u, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), xu[1+jr*Nr:(jr+1)*Nr], yu[1+jr*Nr÷2:(jr+2)*Nr÷2];window)
-        Sv = isotropic_powerspectrum(interior(v, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), interior(v, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), xv[1+jr*Nr:(jr+1)*Nr], yv[1+jr*Nr÷2:(jr+2)*Nr÷2];window)
-        wk = (interior(w, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev)+interior(w, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev+1))/2
-        Sw = isotropic_powerspectrum(wk, wk, xw[1+jr*Nr:(jr+1)*Nr], yw[1+jr*Nr÷2:(jr+2)*Nr÷2];window)
-        St = isotropic_powerspectrum(interior(T, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), interior(T, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), xT[1+jr*Nr:(jr+1)*Nr], yT[1+jr*Nr÷2:(jr+2)*Nr÷2];window)
+        xrange = 1+(j-1)*Nr÷2:(j-1)*Nr÷2+Nr
+        yrange = j == 2 ? (1:Nr) : (1+Nr:2Nr)
+        Su = isotropic_powerspectrum(interior(u, xrange, yrange, klev), interior(u, xrange, yrange, klev), xu[xrange], yu[yrange];window)
+        Sv = isotropic_powerspectrum(interior(v, xrange, yrange, klev), interior(v, xrange, yrange, klev), xv[xrange], yv[yrange];window)
+        wk = (interior(w, xrange, yrange, klev)+interior(w, xrange, yrange, klev+1))/2
+        Sw = isotropic_powerspectrum(wk, wk, xw[xrange], yw[yrange];window)
+        St = isotropic_powerspectrum(interior(T, xrange, yrange, klev), interior(T, xrange, yrange, klev), xT[xrange], yT[yrange];window)
 
         idx = Su.freq .> 0
         if i == 1
             push!(S0s, [St.spec[idx][1], Sv.spec[idx][1]])
         end
         lines!(ax, Su.freq[idx], (10^-6.5)Su.freq[idx].^-2, linestyle = :dash, color = :black)
-        idxf = 0 .< Su.freq .<= 1e-3
+        idxf = idx#0 .< Su.freq .<= 1e-3
         lines!(ax, Su.freq[idxf], 1e-13Su.freq[idxf].^-3, linestyle = :dash, color = :gray)
-        idxf = Su.freq .> 1e-3
-        lines!(ax, Su.freq[idxf], 1e-9Su.freq[idxf].^(-5/3), linestyle = :dash, color = :gray)
+        #idxf = Su.freq .> 1e-3
+        #lines!(ax, Su.freq[idxf], 1e-9Su.freq[idxf].^(-5/3), linestyle = :dash, color = :gray)
         lines!(ax, St.freq[idx], Real.(St.spec[idx]./(S0s[j+1][1])), color = :red, label = L"E_T")
         lines!(ax, Su.freq[idx], Real.(Su.spec[idx]./(S0s[j+1][2])), color = :blue, label = L"E_u")
         lines!(ax, Sv.freq[idx], Real.(Sv.spec[idx]./(S0s[j+1][2])), color = :green, label = L"E_v")
@@ -454,6 +470,7 @@ for (i,klev) in enumerate([222, 202, 171])
         xlims!(ax, (4e-5, 3.5e-2))
         ylims!(ax, (1e-9, 1e1))
     end
+
 end
 rowgap!(g33, 3)
 resize_to_layout!(fig)
@@ -507,7 +524,7 @@ for (i, dvar) in enumerate([∇b, ro, rd])
         end
 
         jr = 1-j
-        hm = heatmap!(ax, 1e-3x[1+jr*Nr:(jr+1)*Nr], 1e-3y[1+jr*Nr÷2:(jr+2)*Nr÷2], a*interior(dvar,1+jr*Nr:(jr+1)*Nr,1+jr*Nr÷2:(jr+2)*Nr÷2,k); rasterize = true, colormap = cmaps[i], colorrange = cranges[i])
+        hm = heatmap!(ax, 1e-3x[xrange], 1e-3y[yrange], a*interior(dvar,xrange,yrange,k); rasterize = true, colormap = cmaps[i], colorrange = cranges[i])
     end
     Colorbar(gabc[i, 4], hm)
 end
@@ -587,9 +604,9 @@ for (i,klev) in enumerate([222, 202, 171])
         end
         hideydecorations!(ax, ticks = false)
         jr = 1-j
-        Sro = isotropic_powerspectrum(interior(ro, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), interior(ro, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), x[1+jr*Nr:(jr+1)*Nr], y[1+jr*Nr÷2:(jr+2)*Nr÷2];window)
-        Srd = isotropic_powerspectrum(interior(rd, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), interior(rd, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), x[1+jr*Nr:(jr+1)*Nr], y[1+jr*Nr÷2:(jr+2)*Nr÷2];window)
-        Sdb = isotropic_powerspectrum(interior(∇b, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), interior(∇b, 1+jr*Nr:(jr+1)*Nr, 1+jr*Nr÷2:(jr+2)*Nr÷2, klev), x[1+jr*Nr:(jr+1)*Nr], y[1+jr*Nr÷2:(jr+2)*Nr÷2];window)
+        Sro = isotropic_powerspectrum(interior(ro, xrange, yrange, klev), interior(ro, xrange, yrange, klev), x[xrange], y[yrange];window)
+        Srd = isotropic_powerspectrum(interior(rd, xrange, yrange, klev), interior(rd, xrange, yrange, klev), x[xrange], y[yrange];window)
+        Sdb = isotropic_powerspectrum(interior(∇b, xrange, yrange, klev), interior(∇b, xrange, yrange, klev), x[xrange], y[yrange];window)
 
         idx = Sro.freq .> 0
         if i == 1
