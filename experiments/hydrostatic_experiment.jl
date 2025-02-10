@@ -5,7 +5,7 @@ using LESStudySetup.Oceananigans.OutputWriters: Checkpointer
 using JLD2 
 
 # Architecture (CPU, GPU, or Distributed)
-architecture = GPU()
+architecture = CPU()
 
 function run_experiment(experiment; 
                         # T₀  = 20,
@@ -45,7 +45,13 @@ function run_experiment(experiment;
 
     # Let's attach some outputs
     model         = simulation.model
-    output_fields = merge(model.velocities, model.tracers, model.pressure, model.diffusivity_fields)
+    output_fields = merge(model.velocities, 
+                          model.tracers, 
+                          model.pressure,
+                          (; κu = model.diffusivity_fields.κu,
+                             κc = model.diffusivity_fields.κc,
+                             κe = model.diffusivity_fields.κe)
+                          )
 
     simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                          schedule = TimeInterval(checkpoint_frequency),
