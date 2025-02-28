@@ -51,6 +51,7 @@ end
 filehead = "/orcd/data/abodner/001/shirui/LESStudySetup.jl/"
 filename = filehead * "hydrostatic_snapshots_" * fileparams * ".jld2"
 metadata = filehead * "experiment_" * fileparams * "_metadata.jld2"
+freename = filehead * "hydrostatic_free_surface_" * fileparams * ".jld2"
 #fileparams = "nonhydrostatic"
 #filename = filehead * fileparams * "_snapshots_0.jld2"
 #metadata = filehead * fileparams * "_experiment_metadata.jld2"
@@ -58,7 +59,7 @@ filesave = filehead * "results/"
 
 # load all the data!!
 println("Loading data from $filename...")
-snapshots = load_snapshots(filename; metadata)
+snapshots = load_snapshots(filename; metadata,variables = (:u, :v, :w, :T,:pHY′))
 
 # Let's pick the last snapshot!
 times = snapshots[:T].times
@@ -234,6 +235,20 @@ colgap!(gab, 2, 3)
 save(filesave * "fields_" * fileparams * "_BhBv_day10.pdf", fig)
 
 ###################
+p = snapshots[:pHY′][snapshot_number]
+η = FieldTimeSeries(freename, string(:η); architecture=CPU(), backend = OnDisk())[snapshot_number]
+f = parameters.f
+vgᵖ = compute!(Field(∂x(p)/f))
+vgᴮ = compute!(Field(∂x(g * η)/f))
+vg = YFaceField(v.grid)
+set!(vg, interior(vgᵖ) .+ interior(vgᴮ))
+fill_halo_regions!(vg)
+ugᵖ = compute!(Field(-∂y(p)/f))
+ugᴮ = compute!(Field(-∂y(g * η)/f))
+ug = XFaceField(u.grid)
+set!(ug, interior(ugᵖ) .+ interior(ugᴮ))
+fill_halo_regions!(ug)
+
 # Plot the fields
 ΔN = 160
 kT, ks, kw = 222, 222, 202
@@ -242,14 +257,13 @@ Tmin, Tmax = minimum(interior(T,:,:,kT)), maximum(interior(T,:,:,kT))
 vbnd, wbnd = maximum(abs, interior(v)), 5
 lA, lB, lC = 40, 40, 40
 pA, pB, pC = (-45, 70), (-20, 15), (10, 70)
-
 #####################################
-var = T#compute!(Field(1e3*w))
+var = T#compute!(Field(1e3 * w))
 x, y, z = nodes(var)
 k = kT
 cmap = :thermal
-rmin, rmax = Tmin, Tmax
-hcolor = :white
+rmin, rmax = Tmin-0.2, Tmax
+hcolor, scolor = :white, :black
 fig = Figure(size = (640, 785))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (0, 100)))
@@ -268,17 +282,17 @@ hidexdecorations!(ax_b, ticks = false)
 hidexdecorations!(ax_c, ticks = false)
 hidexdecorations!(ax_d, ticks = false)
 hlines!(ax_a, 1e-3*yT[jslices]; color = :black, linestyle = :dash, linewidth = 0.8)
-poly!(ax_a, Rect(pA[1], pA[2]-lA, lA, lA), color = (:white, 0.1), strokecolor = :black, strokewidth = 0.5)
-poly!(ax_a, Rect(pC[1], pC[2]-lC, lC, lC), color = (:white, 0.1), strokecolor = :white, strokewidth = 0.5)
+poly!(ax_a, Rect(pA[1], pA[2]-lA, lA, lA), color = (:white, 0.1), strokecolor = scolor, strokewidth = 0.5)
+poly!(ax_a, Rect(pC[1], pC[2]-lC, lC, lC), color = (:white, 0.1), strokecolor = scolor, strokewidth = 0.5)
 poly!(ax_a, Rect(pB[1], 75, lB, lB-pB[2]), color = (:white, 0.1), strokewidth = 0.)
 poly!(ax_a, Rect(pB[1], 0, lB, pB[2]), color = (:white, 0.1), strokewidth = 0.)
-vlines!(ax_a, [pB[1], pB[1]+lB]; ymin = 0.75, color = :white, linewidth = 0.5)
-vlines!(ax_a, [pB[1], pB[1]+lB]; ymax = 0.15, color = :white, linewidth = 0.5)
-hlines!(ax_a, [pB[2], 75]; xmin = 0.3, xmax = 0.7, color = :white, linewidth = 0.5)
+vlines!(ax_a, [pB[1], pB[1]+lB]; ymin = 0.75, color = scolor, linewidth = 0.5)
+vlines!(ax_a, [pB[1], pB[1]+lB]; ymax = 0.15, color = scolor, linewidth = 0.5)
+hlines!(ax_a, [pB[2], 75]; xmin = 0.3, xmax = 0.7, color = scolor, linewidth = 0.5)
 text!(ax_a, pA[1], pA[2], text = L"\text{A}", color = :black, align = (:left, :top))
 text!(ax_a, pB[1], pB[2], text = L"\text{B}", color = :black, align = (:left, :top))
 if cmap == :thermal
-    text!(ax_a, pC[1], pC[2], text = L"\text{C}", color = :white, align = (:left, :top))
+    text!(ax_a, pC[1], pC[2], text = L"\text{C}", color = :black, align = (:left, :top))
 else
     text!(ax_a, pC[1], pC[2], text = L"\text{C}", color = :black, align = (:left, :top))
 end
@@ -502,7 +516,6 @@ println("Finished plotting spectra, wall time: $((now() - t0).value/1e3) seconds
 
 ###################################
 # Plot x-y slices of ζ/f and δ/f Bh
-Bh = compute!(Field(Bₕ(snapshots, snapshot_number)))
 #title=L"\text{(a)}~10^{16}\mathcal{B}_h~\text{({kg}^2 m^{-8}s^{-1})}", axis_kwargs1...)
 f = parameters.f
 u̅  = XFaceField(u.grid)
@@ -522,6 +535,14 @@ M²₀ = parameters.M²₀
 b̅ = CenterField(T.grid)
 coarse_graining!(compute!(Field(α * g * T)), b̅; cutoff)
 fill_halo_regions!(b̅)
+∇b̅ = compute!(Field((∂x(b̅)^2 + ∂y(b̅)^2)^0.5))
+
+B̅h = compute!(Field(-(∂x(b̅)^2 * ∂x(u̅) + ∂y(b̅)^2 * ∂y(v̅))-∂x(b̅)*∂y(b̅)*(∂x(v̅) + ∂y(u̅))))
+Bh = compute!(Field(Bₕ(snapshots, snapshot_number)))
+
+θ, τ, ρ₀=parameters.θ,parameters.τ,parameters.ρ₀
+τx,τy=-τ*sind(θ)s,τ*cosd(30.)
+EBF = compute!(Field((τx * ∂x(b̅) + τy * ∂y(b̅))/f/ρ₀))
 w̅  = ZFaceField(w.grid)
 coarse_graining!(w , w̅ ; cutoff)
 fill_halo_regions!(w̅)
@@ -529,44 +550,42 @@ fill_halo_regions!(w̅)
 ωx = ∂y(w̅) - ∂z(v̅)
 ωy = ∂z(u̅) - ∂x(w̅)
 PV = compute!(Field(ωx * ∂x(b̅) + ωy * ∂y(b̅) + ωz * ∂z(b̅)))
-θ, τ, ρ₀=parameters.θ,parameters.τ,parameters.ρ₀
-τx,τy=-τ*sind(θ),τ*cosd(30.)
-EBF = compute!(Field((τx * ∂x(b̅) + τy * ∂y(b̅))/f/ρ₀))
-B̅h = compute!(Field(-(∂x(b̅)^2 * ∂x(u̅) + ∂y(b̅)^2 * ∂y(v̅))-∂x(b̅)*∂y(b̅)*(∂x(v̅) + ∂y(u̅))))
-∇b̅ = compute!(Field((∂x(b̅)^2 + ∂y(b̅)^2)^0.5))
 
-var = PV#B̅h
+ro = compute!(Field(ζ(snapshots, snapshot_number)/f));
+rd = compute!(Field(δ(snapshots, snapshot_number)/f));
+
+var,scale = ro,1 #B̅h
 x, y, z = nodes(var)
-cmap = :balance #Reverse(:grays)
-rmin, rmax = -1, 1
+cmap = :balance#Reverse(:grays)
+rmin, rmax = -2, 2
 fig = Figure(size = (640, 610))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (0, 100)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{q}~\text{(10^{-8} s^{-3})},~z=-2.8~\text{m}", axis_kwargs...)
-ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", aspect=1, limits = ((-50, 0), (25, 75)))
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = "x (km)", ylabel = "y (km)", aspect=1, limits = ((-25, 25), (-25,25))) 
-ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = "x (km)", aspect=1, limits = ((0, 50), (25, 75))) 
-hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y, 1e8shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_b = heatmap!(ax_b, 1e-3x.-50, 1e-3y, 1e8shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-75, 1e8xhift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_d = heatmap!(ax_d, 1e-3x.-50, 1e-3y, 1e8shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{\zeta}/f,~z=-2.8~\text{m}", axis_kwargs...)
+ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", aspect=1, limits = ((pA[1], pA[1]+lA), (pA[2]-lA, pA[2])))
+ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = "x (km)", ylabel = "y (km)", aspect=1, limits = ((pB[1], pB[1]+lB), (pB[2]-lB,pB[2]))) 
+ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = "x (km)", aspect=1, limits = ((pC[1], pC[1]+lC), (pC[2]-lC, pC[2]))) 
+hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y, scale*shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_b = heatmap!(ax_b, 1e-3x.-50, 1e-3y, scale*shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-25, scale*xhift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_d = heatmap!(ax_d, 1e-3x.-50, 1e-3y, scale*shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 Colorbar(gabc[1,3], hm_b)
 Colorbar(gabc[2,3], hm_d)
-poly!(ax_a, [Rect(-50i, 25, 50, 50) for i in 0:1], color = (:white, 0.1), strokecolor = :black, strokewidth = 0.5)
-poly!(ax_a, [Rect(-25, 75i, 50, 25) for i in 0:1], color = (:white, 0.1), strokewidth = 0.)
-vlines!(ax_a, [-25, 25]; ymin = 0.75, color = :black, linewidth = 0.5)
-vlines!(ax_a, [-25, 25]; ymax = 0.25, color = :black, linewidth = 0.5)
-text!(ax_a, -50, 75, text = L"\text{A}", color = :black, align = (:left, :top))
-text!(ax_a, -25, 25, text = L"\text{B}", color = :black, align = (:left, :top))
-text!(ax_a, 0, 75, text = L"\text{C}", color = :black, align = (:left, :top))
+poly!(ax_a, Rect(pA[1], pA[2]-lA, lA, lA), color = (:white, 0.1), strokecolor = scolor, strokewidth = 0.5)
+poly!(ax_a, Rect(pC[1], pC[2]-lC, lC, lC), color = (:white, 0.1), strokecolor = scolor, strokewidth = 0.5)
+poly!(ax_a, Rect(pB[1], 75, lB, lB-pB[2]), color = (:white, 0.1), strokewidth = 0.)
+poly!(ax_a, Rect(pB[1], 0, lB, pB[2]), color = (:white, 0.1), strokewidth = 0.)
+vlines!(ax_a, [pB[1], pB[1]+lB]; ymin = 0.75, color = scolor, linewidth = 0.5)
+vlines!(ax_a, [pB[1], pB[1]+lB]; ymax = 0.15, color = scolor, linewidth = 0.5)
+hlines!(ax_a, [pB[2], 75]; xmin = 0.3, xmax = 0.7, color = scolor, linewidth = 0.5)
+text!(ax_a, pA[1], pA[2], text = L"\text{A}", color = :black, align = (:left, :top))
+text!(ax_a, pB[1], pB[2], text = L"\text{B}", color = :black, align = (:left, :top))
+text!(ax_a, pC[1], pC[2], text = L"\text{C}", color = :black, align = (:left, :top))
 rowgap!(gabc, 3)
 colgap!(gabc, 1, 15)
 colgap!(gabc, 2, 5)
 resize_to_layout!(fig)
-save(filesave * "PVfields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
-
-ro = compute!(Field(ζ(snapshots, snapshot_number)/f));
-rd = compute!(Field(δ(snapshots, snapshot_number)/f));
+save(filesave * "ro0fields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 
 # Reduced Major Axis Regression (through the origin)
 function rma_slope(X::AbstractVector, Y::AbstractVector)
