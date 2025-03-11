@@ -33,6 +33,26 @@ function cumtrapz(X, Y)
     out
 end
 
+# Reduced Major Axis Regression (through the origin)
+function rma_slope(X::AbstractVector, Y::AbstractVector)
+    # Check that X and Y have the same length
+    if length(X) != length(Y)
+        error("Vectors X and Y must have the same length.")
+    end
+
+    # Compute sum of squares of X and Y
+    sumX2 = sum(x -> x^2, X)
+    sumY2 = sum(y -> y^2, Y)
+    
+    # Compute the dot product
+    dotXY = sum(x * y for (x, y) in zip(X, Y))
+    
+    # Calculate the slope using the RMA formula for a line through the origin
+    k = sign(dotXY) * sqrt(sumY2 / sumX2)
+    
+    return k
+end
+
 cooling, wind, dTf,a = 50, 0.1, -1,1.0
 # Examples! (fill in the correct filename and metadata filename)
 # cooling, wind, dTf = 25, 0.02, -1
@@ -59,7 +79,7 @@ filesave = filehead * "results/"
 
 # load all the data!!
 println("Loading data from $filename...")
-snapshots = load_snapshots(filename; metadata,variables = (:u, :v, :w, :T,:pHY′))
+snapshots = load_snapshots(filename; metadata)#,variables = (:u, :v, :w, :T,:pHY′))
 
 # Let's pick the last snapshot!
 times = snapshots[:T].times
@@ -70,10 +90,10 @@ t0 = now()
 
 α = parameters.α
 g = parameters.g
-T = snapshots[:T][snapshot_number]
-u = snapshots[:u][snapshot_number]
-v = snapshots[:v][snapshot_number]
-w = snapshots[:w][snapshot_number]
+T = snapshots[:T][snapshot_number];
+u = snapshots[:u][snapshot_number];
+v = snapshots[:v][snapshot_number];
+w = snapshots[:w][snapshot_number];
 h = compute!(MLD(snapshots,snapshot_number; threshold = 0.03))
 println("Loading fields wall time: $((now() - t0).value/1e3) seconds.")
 println("mean MLD: $(mean(interior(h)))m")
@@ -480,7 +500,7 @@ for (i,klev) in enumerate([222, 202, 171])
         else
             ax.ylabel = L"E_i(k)/E_{T,v}(k_{\min},z=-2.8~\text{m})"
         end
-        jr = 1-j
+        #jr = 1-j
         xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
         yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
         #xrange = 1+(j-1)*Nr÷2:(j-1)*Nr÷2+Nr
@@ -518,6 +538,7 @@ println("Finished plotting spectra, wall time: $((now() - t0).value/1e3) seconds
 # Plot x-y slices of ζ/f and δ/f Bh
 #title=L"\text{(a)}~10^{16}\mathcal{B}_h~\text{({kg}^2 m^{-8}s^{-1})}", axis_kwargs1...)
 f = parameters.f
+M²₀ = parameters.M²₀
 u̅  = XFaceField(u.grid)
 v̅  = YFaceField(v.grid)
 cutoff = 300/2.4*2*π #785.40
@@ -527,21 +548,20 @@ fill_halo_regions!(u̅)
 fill_halo_regions!(v̅)
 R̅o = compute!(Field((∂x(v̅) - ∂y(u̅))/f))
 D̅ = compute!(Field(KernelFunctionOperation{Center, Center, Center}(div_xyᶜᶜᶜ, grid, u̅, v̅)/f))
-alphabet = [letter for letter in 'a':'z'];
-∇b = compute!(Field(α * g * (∂x(T)^2 + ∂y(T)^2)^0.5))
-k = 222
-rbnd,dbnd = 2,1
-M²₀ = parameters.M²₀
-b̅ = CenterField(T.grid)
+ro = compute!(Field(ζ(snapshots, snapshot_number)/f));
+rd = compute!(Field(δ(snapshots, snapshot_number)/f));
+
+b̅ = CenterField(T.grid,Float32);
 coarse_graining!(compute!(Field(α * g * T)), b̅; cutoff)
 fill_halo_regions!(b̅)
-∇b̅ = compute!(Field((∂x(b̅)^2 + ∂y(b̅)^2)^0.5))
+∇b̅ = compute!(Field((∂x(b̅)^2 + ∂y(b̅)^2)^0.5));
+∇b = compute!(Field(α * g * (∂x(T)^2 + ∂y(T)^2)^0.5));
 
 B̅h = compute!(Field(-(∂x(b̅)^2 * ∂x(u̅) + ∂y(b̅)^2 * ∂y(v̅))-∂x(b̅)*∂y(b̅)*(∂x(v̅) + ∂y(u̅))))
 Bh = compute!(Field(Bₕ(snapshots, snapshot_number)))
 
-θ, τ, ρ₀=parameters.θ,parameters.τ,parameters.ρ₀
-τx,τy=-τ*sind(θ)s,τ*cosd(30.)
+θ, τ, ρ₀=parameters.θ,parameters.τw,parameters.ρ₀
+τx,τy=-τ*sind(θ),τ*cosd(θ)
 EBF = compute!(Field((τx * ∂x(b̅) + τy * ∂y(b̅))/f/ρ₀))
 w̅  = ZFaceField(w.grid)
 coarse_graining!(w , w̅ ; cutoff)
@@ -551,17 +571,70 @@ fill_halo_regions!(w̅)
 ωy = ∂z(u̅) - ∂x(w̅)
 PV = compute!(Field(ωx * ∂x(b̅) + ωy * ∂y(b̅) + ωz * ∂z(b̅)))
 
-ro = compute!(Field(ζ(snapshots, snapshot_number)/f));
-rd = compute!(Field(δ(snapshots, snapshot_number)/f));
+# Compute the coarse-grained cross-scale fluxes 
+l0 = 2
+_, _, _, τuu, τvv, _, Πhl, _, _, _ = coarse_grained_fluxes(snapshots, snapshot_number; cutoff = l0*1kilometer);
+E⁴ = compute!(Field((τuu + τvv)/2))
+δ̅⁴ = CenterField(T.grid,Float32)
+coarse_graining!(compute!(Field(δ(snapshots, snapshot_number))), δ̅⁴; cutoff=l0*1kilometer)
 
-var,scale = ro,1 #B̅h
+∇b̅f = 4e-7
+Π⁴f = zeros(4,length(zT));
+δ̅⁴f = zeros(4,length(zT));
+E⁴f = zeros(4,length(zT));
+for k = 1:length(zT)
+    println("k = $k")
+    data = xhift(interior(∇b̅, :, :, k));
+    data[data .> ∇b̅f] .= 1
+    data[data .<= ∇b̅f] .= 0
+    Π⁴k = xhift(interior(Πhl,:,:,k))
+    δ̅⁴k = xhift(interior(δ̅⁴ ,:,:,k)) 
+    E⁴k = xhift(interior(E⁴ ,:,:,k))
+    Π⁴f[1,k] = mean(Π⁴k .* data)
+    δ̅⁴f[1,k] = mean(δ̅⁴k .* data)
+    E⁴f[1,k] = mean(E⁴k .* data)
+    for j = 1:3
+        xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
+        yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
+        Π⁴f[j+1,k] = mean((Π⁴k .* data)[xrange,yrange])
+        δ̅⁴f[j+1,k] = mean((δ̅⁴k .* data)[xrange,yrange])
+        E⁴f[j+1,k] = mean((E⁴k .* data)[xrange,yrange])
+    end
+end
+
+kidx = zT .> -100;
+fig = Figure(size = (640, 300))
+g1 = fig[1, 1] = GridLayout()
+ax_a = Axis(g1[1,1]; titlealign = :left, title=L"\text{(a) Full domain}", xlabel = L"-10^{11}\overline{\delta}^4_{fronts}\mathcal{E}^{\prime 4}_{fronts}", ylabel = L"10^{10}\Pi^4_{h,fronts}")
+ax_b = Axis(g1[1,2]; titlealign = :left, title=L"\text{(b) Region A}", xlabel = L"-10^{11}\overline{\delta}^4_{fronts}\mathcal{E}^{\prime 4}_{fronts}")
+ax_c = Axis(g1[1,3]; titlealign = :left, title=L"\text{(c) Region B}", xlabel = L"-10^{11}\overline{\delta}^4_{fronts}\mathcal{E}^{\prime 4}_{fronts}")
+for (i, ax) in enumerate([ax_a, ax_b, ax_c])
+    varx, vary = -1e11*E⁴f[i,kidx].*δ̅⁴f[i,kidx], 1e10*Π⁴f[i,kidx]
+    scatter!(ax, varx, vary, color = -zT[kidx], colormap = :deep, markersize = 10)
+    slope = rma_slope(vec(varx), vec(vary))
+    lines!(ax, sort(varx), slope*sort(varx), color = :black, linestyle = :dash, linewidth = 1, label = "y = "*string(round(slope, sigdigits=2))*"x")
+    axislegend(ax, labelsize=9, framevisible = false, font = texfont(), position = :lt,patchsize = (15, 1), 
+    padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
+end
+colgap!(g1, 3)
+save(filesave * "Pif_DfEf_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
+
+k = 222
+rbnd,dbnd = 2,1
+lA, lB, lC = 40, 40, 40
+pA, pB, pC = (-45, 70), (-20, 15), (10, 70)
+l3 = [lA, lB, lC]
+p3 = [pA, pB, pC]
+var,scale = compute!(Field(-δ̅⁴ * E⁴)),1e7
 x, y, z = nodes(var)
-cmap = :balance#Reverse(:grays)
+cmap = :balance #Reverse(:grays)
 rmin, rmax = -2, 2
+scolor = :black
+alphabet = [letter for letter in 'a':'z'];
 fig = Figure(size = (640, 610))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (0, 100)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{\zeta}/f,~z=-2.8~\text{m}", axis_kwargs...)
+ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~-\overline{\delta}^4\mathcal{E}^{\prime 4}~\text{(10^{-7}m^2 s^{-3})},~z=-2.8~\text{m}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", aspect=1, limits = ((pA[1], pA[1]+lA), (pA[2]-lA, pA[2])))
 ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = "x (km)", ylabel = "y (km)", aspect=1, limits = ((pB[1], pB[1]+lB), (pB[2]-lB,pB[2]))) 
 ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = "x (km)", aspect=1, limits = ((pC[1], pC[1]+lC), (pC[2]-lC, pC[2]))) 
@@ -585,29 +658,12 @@ rowgap!(gabc, 3)
 colgap!(gabc, 1, 15)
 colgap!(gabc, 2, 5)
 resize_to_layout!(fig)
-save(filesave * "ro0fields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
+save(filesave * "dv4E4fields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 
-# Reduced Major Axis Regression (through the origin)
-function rma_slope(X::AbstractVector, Y::AbstractVector)
-    # Check that X and Y have the same length
-    if length(X) != length(Y)
-        error("Vectors X and Y must have the same length.")
-    end
+#################################
+l3 = [lA, lB, lC]
+p3 = [pA, pB, pC]
 
-    # Compute sum of squares of X and Y
-    sumX2 = sum(x -> x^2, X)
-    sumY2 = sum(y -> y^2, Y)
-    
-    # Compute the dot product
-    dotXY = sum(x * y for (x, y) in zip(X, Y))
-    
-    # Calculate the slope using the RMA formula for a line through the origin
-    k = sign(dotXY) * sqrt(sumY2 / sumX2)
-    
-    return k
-end
-
-Nr = length(xv) ÷ 2
 fig = Figure(size = (560, 570))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (xgridvisible = false, ygridvisible = false,limits = ((-7, 20), (-7, 20)))
@@ -615,16 +671,16 @@ ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~z=-2.8~\text{m}", 
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", axis_kwargs...) 
 ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = L"-| \nabla_h \overline{b}|^2 \delta/(M_0^4 f)", ylabel = L"\tilde{\mathcal{B}}_h/(M_0^4 f)", axis_kwargs...) 
 ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = L"-| \nabla_h \overline{b}|^2 \delta/(M_0^4 f)", axis_kwargs...) 
-vary = (xhift(interior(B̅h, :, :, k)))/(f*M²₀^2)
-varx = -xhift(interior(D̅ , :, :, k) .* interior(∇b̅, :, :, k).^2)/(M²₀^2)
+vary = (xhift(interior(Bh, :, :, k)))/(f*M²₀^2)
+varx = -xhift(interior(rd , :, :, k) .* interior(∇b, :, :, k).^2)/(M²₀^2)
 scatter!(ax_a, vec(varx), vec(vary); markersize = 5, color = :blue, rasterize = true, label = L"\text{data}")
 slope = rma_slope(vec(varx), vec(vary))# vec(varx)' * vec(vary)/(vec(varx)' * vec(varx))
 lines!(ax_a, [-5, 25], slope*[-5, 25]; color = :red, linewidth = 1, label = "y = "*string(round(slope, sigdigits=2))*"x")
 axislegend(ax_a, labelsize=9, framevisible = false, font = texfont(), position = :lt,patchsize = (15, 1), 
 padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
 for (j,ax) in enumerate([ax_b,ax_c,ax_d])
-    xrange = 1+(j-1)*Nr÷2:(j-1)*Nr÷2+Nr
-    yrange = j != 2 ? (1:Nr) : (1+Nr:2Nr)
+    xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
+    yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
     scatter!(ax, vec(varx[xrange,yrange]), vec(vary[xrange,yrange]); markersize = 5, color = :blue, rasterize = true, label = L"\text{data}")
     slope = rma_slope(vec(varx[xrange,yrange]), vec(vary[xrange,yrange]))#vec(varx[xrange,yrange])' * vec(vary[xrange,yrange])/(vec(varx[xrange,yrange])' * vec(varx[xrange,yrange]))
     lines!(ax, [-5, 25], slope*[-5, 25]; color = :red, linewidth = 1, label = "y = "*string(round(slope, sigdigits=2))*"x")
@@ -638,7 +694,7 @@ hideydecorations!(ax_d, ticks = false)
 rowgap!(gabc, 3)
 colgap!(gabc, 1, 15)
 resize_to_layout!(fig)
-save(filesave * "Bh_Dbd_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
+save(filesave * "Bh0_Dbd0_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 
 #####################
 # Compute the horizontal spectrum of ro, rd, Db
@@ -650,7 +706,6 @@ axis_kwargs1 = (xlabel = L"\text{Wavenumber (rad m^{-1})}", xgridvisible = false
 axis_kwargs2 = NamedTuple{(:xlabel,:xscale,:yscale,:limits,:xgridvisible,:ygridvisible,:xminorticks,:xminorticksvisible)}(axis_kwargs1)
 axis_kwargs3 = NamedTuple{(:ylabel,:xscale,:yscale,:limits,:xgridvisible,:ygridvisible,:xminorticks,:xminorticksvisible)}(axis_kwargs1)
 axis_kwargs4 = NamedTuple{(:xscale,:yscale,:limits,:xgridvisible,:ygridvisible,:xminorticks,:xminorticksvisible)}(axis_kwargs1)
-Nr = length(xv) ÷ 2
 
 fig = Figure(size = (640, 800))
 g33 = fig[1, 1] = GridLayout()
@@ -667,6 +722,7 @@ for (i,klev) in enumerate([222, 202, 171])
             hideydecorations!(ax, ticks = false)
         else
             ax = Axis(g33[1, 1]; titlealign = :left, title=L"\text{(a)}~z=-2.8~\text{m}", axis_kwargs3...)
+            vlines!(ax, 1/300; color = :black, linewidth = 0.8)
         end
     end
 
@@ -688,9 +744,10 @@ for (i,klev) in enumerate([222, 202, 171])
     idxf = Sro.freq .> 0
     lines!(ax, Sro.freq[idxf], 2e-2Sro.freq[idxf].^-1, linestyle = :dash, color = :gray)
     text!(ax, 5e-4, 1e2; text = L"k^{-1}",align = (:left, :bottom))
-    lines!(ax, Sdb.freq[idx], Real.(Sd̅b.spec[idx]./Sb0.spec[idx][1]), color = :red, label = L"E_{|\nabla_h \overline{b}|}")
-    lines!(ax, Sro.freq[idx], Real.(SR̅o.spec[idx]./So0.spec[idx][1]), color = :blue, label = L"E_{\tilde{\zeta}}")
-    lines!(ax, Srd.freq[idx], Real.(SD̅d.spec[idx]./Sd0.spec[idx][1]), color = :green, label = L"E_{\tilde{\delta}}")
+    idxf = 0 .< Sro.freq .<= 1/300
+    lines!(ax, Sdb.freq[idxf], Real.(Sd̅b.spec[idxf]./Sb0.spec[idx][1]), color = :red, label = L"E_{|\nabla_h \overline{b}|}")
+    lines!(ax, Sro.freq[idxf], Real.(SR̅o.spec[idxf]./So0.spec[idx][1]), color = :blue, label = L"E_{\tilde{\zeta}}")
+    lines!(ax, Srd.freq[idxf], Real.(SD̅d.spec[idxf]./Sd0.spec[idx][1]), color = :green, label = L"E_{\tilde{\delta}}")
     lines!(ax, Sdb.freq[idx], Real.(Sdb.spec[idx]./Sb0.spec[idx][1]), color = :red,  linestyle = :dash, label = L"E_{|\nabla_h b|}")
     lines!(ax, Sro.freq[idx], Real.(Sro.spec[idx]./So0.spec[idx][1]), color = :blue, linestyle = :dash, label = L"E_{\zeta}")
     lines!(ax, Srd.freq[idx], Real.(Srd.spec[idx]./Sd0.spec[idx][1]), color = :green, linestyle = :dash, label = L"E_{\delta}")
@@ -724,8 +781,8 @@ for (i,klev) in enumerate([222, 202, 171])
             ax.ylabel = L"E_i(k)/E_{T,v}(k_{\min},z=-2.8~\text{m})"
         end
 
-        xrange = 1+(j-1)*Nr÷2:(j-1)*Nr÷2+Nr
-        yrange = j != 2 ? (1:Nr) : (1+Nr:2Nr)
+        xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
+        yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
         Sdb = isotropic_powerspectrum(dbk[xrange,yrange], dbk[xrange,yrange], x[xrange], y[yrange];window)
         Sro = isotropic_powerspectrum(rok[xrange,yrange], rok[xrange,yrange], x[xrange], y[yrange];window)
         Srd = isotropic_powerspectrum(rdk[xrange,yrange], rdk[xrange,yrange], x[xrange], y[yrange];window)
@@ -742,9 +799,10 @@ for (i,klev) in enumerate([222, 202, 171])
         idxf = Sro.freq .> 0
         lines!(ax, Sro.freq[idxf], 2e-2Sro.freq[idxf].^-1, linestyle = :dash, color = :gray)
         text!(ax, 5e-4, 1e2; text = L"k^{-1}",align = (:left, :bottom))
-        lines!(ax, Sdb.freq[idx], Real.(Sd̅b.spec[idx]./S0s[j][1]), color = :red, label = L"E_{|\nabla_h b|}")
-        lines!(ax, Sro.freq[idx], Real.(SR̅o.spec[idx]./S0s[j][2]), color = :blue, label = L"E_{\tilde{\zeta}}")
-        lines!(ax, Srd.freq[idx], Real.(SD̅d.spec[idx]./S0s[j][3]), color = :green, label = L"E_{\tilde{\delta}}")
+        idxf = 0 .< Sro.freq .<= 1/300
+        lines!(ax, Sdb.freq[idxf], Real.(Sd̅b.spec[idxf]./S0s[j][1]), color = :red, label = L"E_{|\nabla_h b|}")
+        lines!(ax, Sro.freq[idxf], Real.(SR̅o.spec[idxf]./S0s[j][2]), color = :blue, label = L"E_{\tilde{\zeta}}")
+        lines!(ax, Srd.freq[idxf], Real.(SD̅d.spec[idxf]./S0s[j][3]), color = :green, label = L"E_{\tilde{\delta}}")
         lines!(ax, Sdb.freq[idx], Real.(Sdb.spec[idx]./S0s[j][1]), color = :red, linestyle = :dash)
         lines!(ax, Sro.freq[idx], Real.(Sro.spec[idx]./S0s[j][2]), color = :blue, linestyle = :dash)
         lines!(ax, Srd.freq[idx], Real.(Srd.spec[idx]./S0s[j][3]), color = :green, linestyle = :dash)
@@ -767,8 +825,8 @@ wc1 = (xhift(interior(wc, :, :, 1)))
 b1 = (xhift(interior(b, :, :, 1)))
 SCs = []
 for j = 1:3
-    xrange = 1+(j-1)*Nr÷2:(j-1)*Nr÷2+Nr
-    yrange = j != 2 ? (1:Nr) : (1+Nr:2Nr)
+    xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
+    yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
     SCj = isotropic_powerspectrum(b1[xrange,yrange], wc1[xrange,yrange], xT[xrange], yT[yrange];window=1)
     push!(SCs, SCj)
 end
@@ -783,8 +841,8 @@ for k = 2:Nz
     wck = (xhift(interior(wc, :, :, k)))
     bk = (xhift(interior(b, :, :, k)))
     for j = 1:3
-        xrange = 1+(j-1)*Nr÷2:(j-1)*Nr÷2+Nr
-        yrange = j != 2 ? (1:Nr) : (1+Nr:2Nr)
+        xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
+        yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
         SCj = isotropic_powerspectrum(bk[xrange,yrange], wck[xrange,yrange], xT[xrange], yT[yrange];window=1)
         Csub[j, k, :] = real.(SCj.spec) 
     end
@@ -816,71 +874,19 @@ resize_to_layout!(fig)
 save(filesave * "spectral_vertical_boyancy_flux_d$(nday).pdf", fig; pt_per_unit = 1)
 
 ####################################
-# Plot x-y slices of KE and Π
-
-# Compute the coarse-grained cross-scale fluxes 
-l0 = 4
-u̅l, v̅l, w̅l, τ̅uul, τ̅vvl, τ̅wwl, Πhl, Πδl, Πvl, Πgl = coarse_grained_fluxes(snapshots, snapshot_number; cutoff = l0*1kilometer)
-#Πhl = compute!(Field(Πhl))
-#Πvl = compute!(Field(Πvl))
-
-ke = compute!(Field(0.5 * (u^2 + v^2)))
-kτ = compute!(Field(0.5 * (τ̅uul + τ̅vvl)))
-#k̅e = compute!(Field(0.5 * (u̅l^2 + v̅l^2 + w̅l^2)))
-# Coordinate arrays
-x, y, z = nodes(ke)
-
-# Fh = compute!(Field(-((u+u0) * ∂x(ke) + (v+v0) * ∂y(ke))))
-# Fv = compute!(Field(-(w * ∂z(ke))))
-# Fb = compute!(Field(w*(α * g * T)))
-
-k = 222
-var = Πhl
-x, y, z = nodes(var)
-cmap = :balance
-rmin, rmax = -2, 2
-fig = Figure(size = (640, 600))
-gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (0, 100)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~10^9 \Pi_h^4~\text{(m^2 s^{-3})},~z=-2.8~\text{m}", axis_kwargs...)
-ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", aspect=1, limits = ((-50, 0), (25, 75)))
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = "x (km)", ylabel = "y (km)", aspect=1, limits = ((-25, 25), (-25,25))) 
-ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = "x (km)", aspect=1, limits = ((0, 50), (25, 75))) 
-hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y, 1e9shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_b = heatmap!(ax_b, 1e-3x.-50, 1e-3y, 1e9shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-75, 1e9xhift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_d = heatmap!(ax_d, 1e-3x.-50, 1e-3y, 1e9shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-Colorbar(gabc[1,3], hm_b)
-Colorbar(gabc[2,3], hm_d)
-poly!(ax_a, [Rect(-50i, 25, 50, 50) for i in 0:1], color = (:white, 0.1), strokecolor = :black, strokewidth = 0.5)
-poly!(ax_a, [Rect(-25, 75i, 50, 25) for i in 0:1], color = (:white, 0.1), strokewidth = 0.)
-vlines!(ax_a, [-25, 25]; ymin = 0.75, color = :black, linewidth = 0.5)
-vlines!(ax_a, [-25, 25]; ymax = 0.25, color = :black, linewidth = 0.5)
-text!(ax_a, -50, 75, text = L"\text{A}", color = :black, align = (:left, :top))
-text!(ax_a, -25, 25, text = L"\text{B}", color = :black, align = (:left, :top))
-if cmap == :thermal
-    text!(ax_a, 0, 75, text = L"\text{C}", color = :white, align = (:left, :top))
-else
-    text!(ax_a, 0, 75, text = L"\text{C}", color = :black, align = (:left, :top))
-end
-rowgap!(gabc, 3)
-colgap!(gabc, 1, 15)
-colgap!(gabc, 2, 5)
-resize_to_layout!(fig)
-save(filesave * "Pifields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
-
 using JLD2 
 cgfilename = filesave * "cgfluxes_" * fileparams * "_d$(nday).jld2"
 Δh = parameters.Δh/1e3
-Nr = length(xu) ÷ 2
-ls = [Δh/4:Δh/4:5Δh; 4:10; 12:2:30; 40:10:60]
+l3 = [lA, lB, lC]
+p3 = [pA, pB, pC]
+ls = [Δh:Δh:20Δh; 4:10; 12:2:30; 40:10:60]
 Πhls = zeros(4,length(ls), length(zu));
 Πδls = zeros(4,length(ls), length(zu));
 Πvls = zeros(4,length(ls), length(zu));
 Πgls = zeros(4,length(ls), length(zu));
 for (i, l) in enumerate(ls)
     if l>1.5Δh
-        u̅l, v̅l, w̅l, τ̅uul, τ̅vvl, τ̅wwl, Πhl, Πδl, Πvl, Πgl = coarse_grained_fluxes(snapshots, snapshot_number; cutoff = l*1kilometer)
+        _, _, _, _, _, _, Πhl, Πδl, Πvl, Πgl = coarse_grained_fluxes(snapshots, snapshot_number; cutoff = l*1kilometer)
         Πhls[1,i, :] = mean(interior(Πhl, :, :, :), dims = (1,2))
         Πδls[1,i, :] = mean(interior(Πδl, :, :, :), dims = (1,2))
         Πvls[1,i, :] = mean(interior(Πvl, :, :, :), dims = (1,2))
@@ -891,8 +897,8 @@ for (i, l) in enumerate(ls)
             Πvk = xhift(interior(Πvl, :, :, k))
             Πgk = xhift(interior(Πgl, :, :, k))
             for j = 1:3
-                xrange = 1+(j-1)*Nr÷2:(j-1)*Nr÷2+Nr
-                yrange = j != 2 ? (1:Nr) : (1+Nr:2Nr)
+                xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
+                yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
                 Πhls[j+1,i,k] = mean(Πhk[xrange,yrange])
                 Πδls[j+1,i,k] = mean(Πδk[xrange,yrange])
                 Πvls[j+1,i,k] = mean(Πvk[xrange,yrange])
@@ -919,35 +925,35 @@ axis_kwargs = (limits = ((1/60, 1/0.15), (-100, 0)), xgridvisible = false, ygrid
 axis_kwargs1 = NamedTuple{(:xscale,:xticks,:xminorticks,:xminorticksvisible, :ygridvisible,:titlealign)}(axis_kwargs)
 fig = Figure(size = (640, 350))
 gab = fig[1, 1] = GridLayout()
-axlimits = ((1/60, 1/0.15), (-0.3,0.4))
-ax = Axis(gab[1,1]; limits = axlimits, title=L"\text{(a)}", ylabel = L"\text{(10^{11} m^2 s^{-2})}", axis_kwargs1...)
-ax_b = Axis(gab[2,1]; title=L"\Pi_H~\text{(10^{11} m^2 s^{-2})}",  xlabel = L"l^{-1}~\text{(km^{-1})}", axis_kwargs...)
+axlimits = ((1/60, 1/0.15), (-1.5,3.5))
+ax = Axis(gab[1,1]; limits = axlimits, title=L"\text{(a)}", ylabel = L" \text{(10^{-9} m^2 s^{-2})}", axis_kwargs1...)
+ax_b = Axis(gab[2,1]; title=L"\langle \Pi_h\rangle^{xy}~\text{(10^{-9} m^2 s^{-2})}",  xlabel = L"l^{-1}~\text{(km^{-1})}", axis_kwargs...)
 #ax_c = Axis(gab[3,1]; title=L"10^9\Pi_V", xlabel = L"l^{-1}~\text{(km^{-1})}", axis_kwargs...)
 #ax_c = Axis(gab[1,3]; titlealign = :left, limits = ((1/55, 2), (-100, 0)), title=L"\text{(c)}~10^8\Pi_vg^l", axis_kwargs2...)
 
-hm_b = heatmap!(ax_b, ls.^(-1), z, 1e11Πhls[1,:,:]; rasterize = true, colormap = :balance, colorrange = (-3, 3))
+hm_b = heatmap!(ax_b, ls.^(-1), z, 1e9Πhls[1,:,:]; rasterize = true, colormap = :balance, colorrange = (-3, 3))
 hidexdecorations!(ax, ticks = false)
 #Colorbar(gab[2, 2], hm_b)
 #Colorbar(gab[3, 2], hm_c)
 
 #lines!(ax, ls.^(-1), 1e9vec(mean((Πhs+Πvs)[1,:,z.>=-60],dims=2)), label = L"\Pi", color = :black)
-lines!(ax, ls.^(-1), 1e11vec(mean(Πhls[1,:,z.>=-60],dims=2)), label = L"\Pi_H", color = :blue)
-lines!(ax, ls.^(-1), 1e11vec(mean((Πhls-Πδls)[1,:,z.>=-60],dims=2)), label = L"\Pi_\alpha", color = :orange)
-lines!(ax, ls.^(-1), 1e11vec(mean(Πδls[1,:,z.>=-60],dims=2)), label = L"\Pi_\delta", color = :green)
+lines!(ax, ls.^(-1), 1e9vec(mean(Πhls[1,:,z.>=-60],dims=2)), label = L"\langle \Pi_h \rangle^{xyz}", color = :blue)
+lines!(ax, ls.^(-1), 1e9vec(mean((Πhls-Πδls)[1,:,z.>=-60],dims=2)), label = L"\langle\Pi_\alpha \rangle^{xyz}", color = :orange)
+lines!(ax, ls.^(-1), 1e9vec(mean(Πδls[1,:,z.>=-60],dims=2)), label = L"\langle \Pi_\delta \rangle^{xyz}", color = :green)
 hlines!(ax, 0, color = :black, linestyle = :dash)
 axislegend(ax, position = :lt, patchsize = (15, 1), framevisible = false, fontsize = 9,
 padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
 
-alphabet = [letter for letter in 'a':'z']
+alphabet = [letter for letter in 'a':'z'];
 for i = 1:3
     nalpha = i+1
     title = "("*alphabet[nalpha]*") Region " * uppercase(alphabet[i])
     ax = Axis(gab[1,i+1]; limits = axlimits, title=title, titlefont=texfont(), axis_kwargs1...)
-    ax_b = Axis(gab[2,i+1]; title=L"\Pi_H~\text{(10^{11} m^2 s^{-2})}", xlabel = L"l^{-1}~\text{(km^{-1})}", axis_kwargs...)
+    ax_b = Axis(gab[2,i+1]; title=L"\langle \Pi_h\rangle^{xy}~\text{(10^{-9} m^2 s^{-2})}", xlabel = L"l^{-1}~\text{(km^{-1})}", axis_kwargs...)
     #ax_c = Axis(gab[3,i+1]; title=L"10^8\Pi_V", xlabel = L"l^{-1}~\text{(km^{-1})}", axis_kwargs...)
     #ax_c = Axis(gab[1,3]; titlealign = :left, limits = ((1/55, 2), (-100, 0)), title=L"\text{(c)}~10^8\Pi_vg^l", axis_kwargs2...)
 
-    hm_b = heatmap!(ax_b, ls.^(-1), z, 1e11Πhls[i+1,:,:]; rasterize = true, colormap = :balance, colorrange = (-3, 3))
+    hm_b = heatmap!(ax_b, ls.^(-1), z, 1e9Πhls[i+1,:,:]; rasterize = true, colormap = :balance, colorrange = (-3, 3))
     #hm_c = heatmap!(ax_c, ls.^(-1), z, 1e9Πvs[i,:,:]; rasterize = true, colormap = :balance, colorrange = (-3, 3))
     #hm_c = heatmap!(ax_c, ls.^(-1), zu, 1e8Πgls; rasterize = true, colormap = :balance, colorrange = (-3, 3))
     #hidexdecorations!(ax_b, ticks = false)
@@ -957,9 +963,9 @@ for i = 1:3
     hideydecorations!(ax_b, ticks = false)
 
     #lines!(ax, ls.^(-1), 1e8vec(mean((Πhs+Πvs)[1+i,:,z.>=-50],dims=2)), label = L"\Pi", color = :black)
-    lines!(ax, ls.^(-1), 1e11vec(mean(Πhls[1+i,:,z.>=-60],dims=2)), label = L"\Pi_H", color = :blue)
-    lines!(ax, ls.^(-1), 1e11vec(mean((Πhls-Πδls)[1+i,:,z.>=-50],dims=2)), label = L"\Pi_\alpha", color = :orange)
-    lines!(ax, ls.^(-1), 1e11vec(mean(Πδls[1+i,:,z.>=-60],dims=2)), label = L"\Pi_\delta", color = :green)
+    lines!(ax, ls.^(-1), 1e9vec(mean(Πhls[1+i,:,z.>=-60],dims=2)), label = L"\Pi_H", color = :blue)
+    lines!(ax, ls.^(-1), 1e9vec(mean((Πhls-Πδls)[1+i,:,z.>=-50],dims=2)), label = L"\Pi_\alpha", color = :orange)
+    lines!(ax, ls.^(-1), 1e9vec(mean(Πδls[1+i,:,z.>=-60],dims=2)), label = L"\Pi_\delta", color = :green)
     #lines!(ax, ls.^(-1), 1e8vec(mean(Πvs[1+i,:,z.>=-50],dims=2)), label = L"\Pi_V", color = :red)
     #lines!(ax, ls.^(-1), 1e8vec(mean(Πgls[:,zu.>=-50],dims=2)), color = :green)
     hlines!(ax, 0, color = :black, linestyle = :dash)
