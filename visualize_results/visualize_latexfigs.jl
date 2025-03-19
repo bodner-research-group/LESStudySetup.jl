@@ -90,10 +90,13 @@ t0 = now()
 
 α = parameters.α
 g = parameters.g
-T = snapshots[:T][snapshot_number];
+T0 = snapshots[:T][snapshot_number];
 u = snapshots[:u][snapshot_number];
 v = snapshots[:v][snapshot_number];
 w = snapshots[:w][snapshot_number];
+T = CenterField(T0.grid,Float32);
+set!(T, interior(T0))
+fill_halo_regions!(T)
 h = compute!(MLD(snapshots,snapshot_number; threshold = 0.03))
 println("Loading fields wall time: $((now() - t0).value/1e3) seconds.")
 println("mean MLD: $(mean(interior(h)))m")
