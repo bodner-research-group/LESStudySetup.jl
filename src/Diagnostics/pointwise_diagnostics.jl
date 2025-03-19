@@ -285,9 +285,15 @@ end
 
 """ horizontal divergence """
 function δ(snapshots, i; U=0, V=0)
-    u = compute!(Field(snapshots[:u][i] + U))
-    v = compute!(Field(snapshots[:v][i] + V))
-
+    u0 = compute!(Field(snapshots[:u][i] + U))
+    v0 = compute!(Field(snapshots[:v][i] + V))
+    u = XFaceField(u0.grid,Float32)
+    v = YFaceField(v0.grid,Float32)
+    set!(u, interior(u0))
+    set!(v, interior(v0))
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    
     grid = u.grid
     return KernelFunctionOperation{Center, Center, Center}(div_xyᶜᶜᶜ, grid, u, v)
 end
@@ -486,10 +492,22 @@ function coarse_grained_fluxes(snapshots, i; kernel=:tophat, cutoff=4kilometer)
     t0 = time()
 
     # Extract snapshot fields.
-    u = snapshots[:u][i]
-    v = snapshots[:v][i]
-    w = snapshots[:w][i]
-    T = snapshots[:T][i]
+    u0 = snapshots[:u][i]
+    v0 = snapshots[:v][i]
+    w0 = snapshots[:w][i]
+    T0 = snapshots[:T][i]
+    u = XFaceField(u0.grid,Float32)
+    v = YFaceField(v0.grid,Float32)
+    w = ZFaceField(w0.grid,Float32)
+    T = CenterField(T0.grid,Float32)
+    set!(u, interior(u0))
+    set!(v, interior(v0))
+    set!(w, interior(w0))
+    set!(T, interior(T0))
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    fill_halo_regions!(w)
+    fill_halo_regions!(T)
     _, _, zT = nodes(T)
     kT = length(zT)
     k0 = findlast(zT .< -60)
