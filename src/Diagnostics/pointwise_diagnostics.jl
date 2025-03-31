@@ -852,3 +852,30 @@ function Ψz(snapshots, i)
     launch!(arch, grid, :xy, _zstreamfunction!, ψ, v, grid)
     return ψ
 end
+
+""" mixed layer average kernel """
+@kernel function _zMLaverage!(ψ, v, h, z, grid)
+    i, j = @index(Global, NTuple)   
+
+    @inbounds ψ[i, j, 1] = 0
+    k0 = findfirst(z .> -h[i,j,1] + Δzᶜᶠᶜ(i, j, 1, grid)/2)
+    for k in k0-1:grid.Nz
+        if k == k0-1
+            @inbounds ψ[i, j, 1] = v[i, j, k] * (Δzᶜᶠᶜ(i, j, k, grid)/2 + z[k] + h[i,j,1])
+        else
+            @inbounds ψ[i, j, 1] = ψ[i, j, 1] + v[i, j, k] * Δzᶜᶠᶜ(i, j, k, grid)
+        end
+    end
+    @inbounds ψ[i, j, 1] = h[i,j,1] > 0 ? ψ[i, j, 1]/h[i,j,1] : 0
+end
+
+""" mixed layer average function """
+function MLaverage(snapshots, i, v)
+    _, _, z = nodes(v)
+    h = compute!(MLD(snapshots,i; threshold = 0.03))
+    grid = v.grid
+    ψ = Field{Center, Center, Nothing}(grid)
+    arch = architecture(grid)
+    launch!(arch, grid, :xy, _zMLaverage!, ψ, v, h, z, grid)
+    return ψ
+end
