@@ -22,12 +22,15 @@ Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 SixelTerm = "65edfddc-f399-4499-8369-a1bd38eee2ea"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+GPUArrays = "0c68f7d7-f131-5f86-a1c3-88cf8149b2d7"
 
 [compat]
 GPUArrays = "10.3.0"
 MathTeXEngine = "0.6.2"
 Oceananigans = "0.95.7"
 julia = "1"
+Oceananigans = "0.95.6"
+GPUArrays = "10.3.0"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

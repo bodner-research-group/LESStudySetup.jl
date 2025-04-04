@@ -125,7 +125,7 @@ function w²_filtered(snapshots, i; cutoff = 20kilometer)
     w = snapshots[:w][i]
     wl, wh = symmetric_filtering(w; cutoff)
 
-    w² = (w - mean(w,dims=(1,2)))^2
+    w²  = (w - mean(w,dims=(1,2)))^2
     wl² = (wl - mean(wl,dims=(1,2)))^2
     wh² = (wh - mean(wh,dims=(1,2)))^2
 
@@ -155,23 +155,34 @@ function vb(snapshots, i)
 end
 
 """ vertical buoyancy flux """
-function wb(snapshots, i)
+function wb(snapshots, i=nothing)
     α = parameters.α
     g = parameters.g
 
-    w = snapshots[:w][i]
-    T = snapshots[:T][i]
+    w = snapshots[:w]
+    T = snapshots[:T]
+
+    if !isnothing(i)
+      w = w[i]
+      T = T[i]
+    end
 
     return α * g * T * w
 end
 
 """ filtered zonal buoyancy flux """
-function ub_filtered(snapshots, i; cutoff = 20kilometer)
+function ub_filtered(snapshots, i=nothing; cutoff = 20kilometer)
     α = parameters.α
     g = parameters.g
 
-    u = snapshots[:u][i]
-    b = α * g * snapshots[:T][i]
+    u = snapshots[:u]
+    b = α * g * snapshots[:T]
+
+    if !isnothing(i)
+      u = u[i]
+      b = b[i]
+    end
+
     ul, uh = symmetric_filtering(u; cutoff)
     bl, bh = symmetric_filtering(b; cutoff)
 
@@ -183,12 +194,18 @@ function ub_filtered(snapshots, i; cutoff = 20kilometer)
 end
 
 """ filtered meridional buoyancy flux """
-function vb_filtered(snapshots, i; cutoff = 20kilometer)
+function vb_filtered(snapshots, i=nothing; cutoff = 20kilometer)
     α = parameters.α
     g = parameters.g
 
-    v = snapshots[:v][i]
-    b = α * g * snapshots[:T][i]
+    v = snapshots[:v]
+    b = α * g * snapshots[:T]
+
+    if !isnothing(i)
+      v = v[i]
+      b = b[i]
+    end
+
     vl, vh = symmetric_filtering(v; cutoff)
     bl, bh = symmetric_filtering(b; cutoff)
 
@@ -200,12 +217,18 @@ function vb_filtered(snapshots, i; cutoff = 20kilometer)
 end
 
 """ filtered vertical buoyancy flux """
-function wb_filtered(snapshots, i; cutoff = 20kilometer)
+function wb_filtered(snapshots, i=nothing; cutoff = 20kilometer)
     α = parameters.α
     g = parameters.g
 
-    w = snapshots[:w][i]
-    b = α * g * snapshots[:T][i]
+    w = snapshots[:w]
+    b = α * g * snapshots[:T]
+    
+    if !isnothing(i)
+      w = w[i]
+      b = b[i]
+    end
+
     wl, wh = symmetric_filtering(w; cutoff)
     bl, bh = symmetric_filtering(b; cutoff)
 
@@ -216,19 +239,25 @@ function wb_filtered(snapshots, i; cutoff = 20kilometer)
     return wb, wlbl, whwh
 end
 
-""" horizontal KE """
-function KE(snapshots, i)
-    u = snapshots[:u][i]
-    v = snapshots[:v][i]
+""" horizontal kinetic energy """
+function KE(snapshots, i=nothing)
+    u = snapshots[:u]
+    v = snapshots[:v]
+    
+    if !isnothing(i)
+      u = u[i]
+      v = v[i]
+    end
 
     return 0.5 * (u^2 + v^2)
 end
 
 """ mixed layer depth """
-function MLD(snapshots, i; threshold = 0.03, surface = false)
+function MLD(snapshots, i=nothing; threshold = 0.03, surface = false)
     α  = parameters.α
     ρ₀ = parameters.ρ₀
-    T    = snapshots[:T][i]
+    T  = snapshots[:T][i]
+    T  = isnothing(i) ? T : T[i]
     grid = T.grid
     h    = MixedLayerDepth(grid, (; T); ΔT = abs(threshold / ρ₀ / α), surface)
     return h
@@ -276,9 +305,12 @@ function M²(snapshots, i)
 end
 
 """ vertical vorticity """
-function ζ(snapshots, i; U=0, V=0)
-    u = compute!(Field(snapshots[:u][i] + U))
-    v = compute!(Field(snapshots[:v][i] + V))
+function ζ(snapshots, i=nothing; u0=0, v0=0)
+    ui = isnothing(i) ? snapshots[:u] : snapshots[:u][i]
+    vi = isnothing(i) ? snapshots[:v] : snapshots[:v][i]
+
+    u = ui + u0
+    v = vi + v0
 
     return ∂x(v) - ∂y(u)
 end
