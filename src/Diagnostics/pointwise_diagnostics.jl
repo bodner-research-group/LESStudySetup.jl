@@ -316,13 +316,16 @@ function ζ(snapshots, i=nothing; u0=0, v0=0)
 end
 
 """ horizontal divergence """
-function δ(snapshots, i=nothing; u0=0, v0=0)
-    ui = isnothing(i) ? snapshots[:u] : snapshots[:u][i]
-    vi = isnothing(i) ? snapshots[:v] : snapshots[:v][i]
-
-    u = ui + u0
-    v = vi + v0
-
+function δ(snapshots, i; U=0, V=0)
+    u0 = compute!(Field(snapshots[:u][i] + U))
+    v0 = compute!(Field(snapshots[:v][i] + V))
+    u = XFaceField(u0.grid,Float32)
+    v = YFaceField(v0.grid,Float32)
+    set!(u, interior(u0))
+    set!(v, interior(v0))
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    
     grid = u.grid
     return KernelFunctionOperation{Center, Center, Center}(div_xyᶜᶜᶜ, grid, u, v)
 end
@@ -349,8 +352,35 @@ function PV(snapshots, i)
     return ωx * bx + ωy * by + ωz * bz
 end
 
+""" horizontal frontogenesis """
+function Bₕ(snapshots, i)
+    u = snapshots[:u][i]
+    v = snapshots[:v][i]
+    T = snapshots[:T][i]
+
+    α = parameters.α
+    g = parameters.g
+
+    b = compute!(Field(α * g * T))
+
+    return -(∂x(b)^2 * ∂x(u) + ∂y(b)^2 * ∂y(v))-∂x(b)*∂y(b)*(∂x(v) + ∂y(u))
+end
+
+""" vertical frontogenesis """
+function Bᵥ(snapshots, i)
+    w = snapshots[:w][i]
+    T = snapshots[:T][i]
+
+    α = parameters.α
+    g = parameters.g
+
+    b = compute!(Field(α * g * T))
+
+    return -(∂z(b) * (∂x(w) * ∂x(b) + ∂y(w) * ∂y(b)))
+end
+
 """ spectral horizontal advection """
-function Ah(snapshots, i; u0=0, v0=0, nfactor=100)
+function Ah(snapshots, i; U=0, V=0)
     u = snapshots[:u][i] 
     v = snapshots[:v][i]
     #KE = 0.5 * (u^2 + v^2)
@@ -361,8 +391,8 @@ function Ah(snapshots, i; u0=0, v0=0, nfactor=100)
 
     #Au = compute!(Field(- ∂x(KE) + v * ζ))
     #Av = compute!(Field(- ∂y(KE) - u * ζ))
-    Au = compute!(Field(- (u + u0) * ∂x(u) - (v + v0) * ∂y(u)))
-    Av = compute!(Field(- (u + u0) * ∂x(v) - (v + v0) * ∂y(v)))
+    Au = compute!(Field(- (u + U) * ∂x(u) - (v + V) * ∂y(u)))
+    Av = compute!(Field(- (u + U) * ∂x(v) - (v + V) * ∂y(v)))
 
     # Fourier transform
     Au1 = isotropic_powerspectrum(interior(u, :, :, 1), interior(Au, :, :, 1), xu, yu)
@@ -403,8 +433,8 @@ function Av(snapshots, i)
 
 end
 
-""" spectral convertion of potential to kinetic energy """
-function Ac(snapshots, i; nfactor=100)
+""" spectral convertion of potential to KE """
+function Ac(snapshots, i)
     w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
     T = snapshots[:T][i]
 
@@ -426,7 +456,7 @@ function Ac(snapshots, i; nfactor=100)
 end
 
 """ spectral 3D pressure work """
-function Ap(snapshots, i; nfactor=100)
+function Ap(snapshots, i)
     u = snapshots[:u][i]
     v = snapshots[:v][i]
     w = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
@@ -459,69 +489,360 @@ function Ap(snapshots, i; nfactor=100)
     return A, zu, Au1.freq
 end
 
-""" coarse-grained velocities and fluxes """
-function subfilter_stress!(τ, u, v, u̅, v̅; kernel = :tophat, cutoff = 4kilometer)
-    coarse_graining!(compute!(Field(u*v)), τ; kernel, cutoff)
-    set!(τ, interior(compute!(Field(τ - u̅ * v̅)),:,:,:))
+"""
+    subfilter_stress!(τ, u, v, u̅, v̅; kernel=:tophat, cutoff=4kilometer)
+
+Compute the subfilter stress (residual stress) field τ from fields `u` and `v` 
+given their coarse-grained versions `u̅` and `v̅`. The subfilter stress is defined as 
+τ = coarse_graining(u*v) - u̅ * v̅.
+"""
+function subfilter_stress!(τ, u, v, u̅, v̅; kernel=:tophat, cutoff=4kilometer)
+    # Compute the product field (u*v) on the fly.
+    product_field = compute!(Field(u * v))
+    # Coarse-grain the product field and store the result in τ.
+    coarse_graining!(product_field, τ; kernel=kernel, cutoff=cutoff)
+
+    # Compute the product of the filtered fields and subtract.
+    # We assume that the multiplication is elementwise.
+    stress = compute!(Field(τ - (u̅ * v̅)))
+    # Replace the interior of τ with the computed stress.
+    set!(τ, interior(stress))
+    fill_halo_regions!(τ)
     return nothing
 end
 
-function coarse_grained_fluxes(snapshots, i; u0=0, v0=0, kernel = :tophat, cutoff = 4kilometer)
+"""
+    coarse_grained_fluxes(snapshots, i; kernel=:tophat, cutoff=4kilometer)
+
+Compute the coarse-grained velocities and cross-scale fluxes (i.e. residual stresses and
+transfer terms) from a snapshot indexed by `i` in `snapshots`. The function uses a
+coarse-graining (filtering) procedure based on a specified kernel and cutoff. It assumes
+periodic boundary conditions (so that FFTs can be used) and the use of Oceananigans Field
+types.
+"""
+function coarse_grained_fluxes(snapshots, i; kernel=:tophat, cutoff=4kilometer)
+    t0 = time()
+
+    # Extract snapshot fields.
+    u0 = snapshots[:u][i]
+    v0 = snapshots[:v][i]
+    w0 = snapshots[:w][i]
+    T0 = snapshots[:T][i]
+    u = XFaceField(u0.grid,Float32)
+    v = YFaceField(v0.grid,Float32)
+    w = ZFaceField(w0.grid,Float32)
+    T = CenterField(T0.grid,Float32)
+    set!(u, interior(u0))
+    set!(v, interior(v0))
+    set!(w, interior(w0))
+    set!(T, interior(T0))
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    fill_halo_regions!(w)
+    fill_halo_regions!(T)
+    _, _, zT = nodes(T)
+    kT = length(zT)
+    k0 = findlast(zT .< -60)
+
+    # Retrieve physical parameters.
+    α = parameters.α
+    g = parameters.g
+    f = parameters.f
+
+    # Compute the buoyancy field B = α*g*T.
+    B = compute!(Field(α * g * T))
+
+    # Allocate filtered velocity and buoyancy fields.
+    u̅ = XFaceField(u.grid,Float32)
+    v̅ = YFaceField(v.grid,Float32)
+    w̅ = ZFaceField(w.grid,Float32)
+    B̅ = CenterField(B.grid,Float32)
+
+    # --- Coarse-grain (filter) the primary fields. ---
+    for (orig, filt) in ((u, u̅), (v, v̅), (w, w̅), (B, B̅))
+        coarse_graining!(orig, filt; kernel=kernel, cutoff=cutoff)
+    end
+    println("Computed filtered fields at $(time() - t0)s...")
+
+    # --- Compute subfilter stresses ---
+    # First set: fluxes associated with the u-momentum.
+    τuu = XFaceField(u.grid,Float32)
+    τuv = YFaceField(v.grid,Float32)
+    τuw = ZFaceField(w.grid,Float32)
+    subfilter_stress!(τuu, u, u, u̅, u̅; kernel=kernel, cutoff=cutoff)
+    subfilter_stress!(τuv, v, u, v̅, u̅; kernel=kernel, cutoff=cutoff)
+    subfilter_stress!(τuw, w, u, w̅, u̅; kernel=kernel, cutoff=cutoff)
+
+    # Second set: fluxes associated with the v-momentum.
+    τvv = YFaceField(v.grid,Float32)
+    τvu = XFaceField(u.grid,Float32)
+    τvw = ZFaceField(w.grid,Float32)
+    subfilter_stress!(τvv, v, v, v̅, v̅; kernel=kernel, cutoff=cutoff)
+    subfilter_stress!(τvu, u, v, u̅, v̅; kernel=kernel, cutoff=cutoff)
+    subfilter_stress!(τvw, w, v, w̅, v̅; kernel=kernel, cutoff=cutoff)
+    println("Mean surface τvv is $(mean(interior(τvv, :, :, kT)))")
+
+    # Third set: fluxes associated with the w-momentum.
+    τww = ZFaceField(w.grid,Float32)
+    subfilter_stress!(τww, w, w, w̅, w̅; kernel=kernel, cutoff=cutoff)
+    println("Computed residual stress terms at $(time() - t0)s...")
+
+    # --- Compute transfer (flux) terms using derivatives ---
+    # Note: The derivative operators (∂x, ∂y, ∂z) are assumed to be available.
+    # Πₕ: Horizontal transfer term.
+    Πₕ = compute!(Field(-(τuu * ∂x(u̅) +
+                           τvv * ∂y(v̅) +
+                           τuv * ∂y(u̅) +
+                           τvu * ∂x(v̅))))
+    println("Transfer term Πₕ done at $(time() - t0)s, ML-average $(mean(interior(Πₕ, :, :,k0:kT)))")
+
+    # Πδ: Diagonal (divergence-related) transfer term.
+    Πδ = compute!(Field(-(τuu + τvv) * (∂x(u̅) + ∂y(v̅)) / 2))
+    println("Transfer term Πδ done at $(time() - t0)s")
+
+    # Πᵥ: Vertical transfer term.
+    Πᵥ = compute!(Field(@at (Center, Center, Center) -(τuw * ∂z(u̅) +
+                                                         τvw * ∂z(v̅))))
+    println("Transfer term Πᵥ done at $(time() - t0)s")
+
+    # Πvgl: Flux transfer term associated with buoyancy gradients, scaled by 1/f.
+    Πvgl = compute!(Field(@at (Center, Center, Center) -(τuw * ∂z(-∂y(B̅)) +
+                                                          τvw * ∂z(∂x(B̅))) / f))
+    println("Transfer term Πvgl done at $(time() - t0)s")
+
+    return u̅, v̅, w̅, τuu, τvv, τww, Πₕ, Πδ, Πᵥ, Πvgl
+end
+
+
+""" filtered energy budgets """
+function filtered_budgets(snapshots, i; budget=true, U=0, V=0, kernel = :tophat, cutoff = 25kilometer)
+    t0 = time()
     u = snapshots[:u][i]
     v = snapshots[:v][i]
     w = snapshots[:w][i]
     T = snapshots[:T][i]
+    p = snapshots[:pHY′][i]
+    κu = snapshots[:κu][i]
+    κc = snapshots[:κc][i]
+    grid = u.grid
+    _, _, zT = nodes(T)
     α = parameters.α
     g = parameters.g
-    f = parameters.f
-    B = compute!(Field(α * g * T))
+    Au = compute!(Field(U * ∂x(u) + V * ∂y(u)))
+    Av = compute!(Field(V * ∂y(v) + U * ∂x(v)))
+    b = compute!(Field(α * g * T))
+    Ab = compute!(Field(U * ∂x(b) + V * ∂y(b)))
+    Fx, Fy = compute!(Field(∂z(κu * ∂z(u)))), compute!(Field(∂z(κu * ∂z(v))))
+    Q = compute!(Field(∂z(κc * ∂z(b))))
 
-    u̅l = XFaceField(u.grid)
-    v̅l = YFaceField(v.grid)
-    w̅l = ZFaceField(w.grid)
-    B̅l = CenterField(B.grid)
-    u̅0l = XFaceField(u.grid)
-    v̅0l = YFaceField(v.grid)
+    u̅ = XFaceField(u.grid)
+    v̅ = YFaceField(v.grid)
+    w̅ = ZFaceField(w.grid)
+    b̅ = CenterField(b.grid)
+    E̅ₚ = CenterField(b.grid)
+    # U̅ = XFaceField(u.grid)
+    # V̅ = YFaceField(v.grid)
+    p̅ = CenterField(p.grid)
+    F̅x, F̅y = XFaceField(Fx.grid), YFaceField(Fy.grid)
+    A̅u, A̅v = XFaceField(Au.grid), YFaceField(Av.grid)
+    A̅b = XFaceField(Ab.grid)
+    Q̅ = CenterField(Q.grid)
 
-    coarse_graining!(u, u̅l; kernel, cutoff)
-    coarse_graining!(v, v̅l; kernel, cutoff)
-    coarse_graining!(w, w̅l; kernel, cutoff)
-    coarse_graining!(B, B̅l; kernel, cutoff)
-    coarse_graining!(u0, u̅0l; kernel, cutoff)
-    coarse_graining!(v0, v̅0l; kernel, cutoff)
+    println("computing filtered fields at $(time()-t0)s...")
+    coarse_graining!(u, u̅; kernel, cutoff)
+    coarse_graining!(v, v̅; kernel, cutoff)
+    coarse_graining!(w, w̅; kernel, cutoff)
+    coarse_graining!(b, b̅; kernel, cutoff)
+    # coarse_graining!(U, U̅; kernel, cutoff)
+    # coarse_graining!(V, V̅; kernel, cutoff)
+    coarse_graining!(p, p̅; kernel, cutoff)
+    coarse_graining!(Fx, F̅x; kernel, cutoff)
+    coarse_graining!(Fy, F̅y; kernel, cutoff)
+    coarse_graining!(Au, A̅u; kernel, cutoff)
+    coarse_graining!(Av, A̅v; kernel, cutoff)
+    coarse_graining!(Ab, A̅b; kernel, cutoff)
+    coarse_graining!(Q, Q̅; kernel, cutoff)
+    set!(E̅ₚ, interior(b̅,:,:,:).*reshape(-zT,(1,1,:)))
 
-    τ̅uu0l = XFaceField(u.grid)
-    τ̅uv0l = XFaceField(u.grid)
-    τ̅uwl  = XFaceField(u.grid)
-    subfilter_stress!(τ̅uu0l,u,u+u0,u̅l,u̅l+u̅0l; kernel, cutoff)
-    subfilter_stress!(τ̅uv0l,u,v+v0,u̅l,v̅l+v̅0l; kernel, cutoff)
-    subfilter_stress!(τ̅uwl ,u,w,u̅l,w̅l; kernel, cutoff)
+    println("computing finescale fields at $(time()-t0)s...")
+    uᵖ = compute!(Field(u - u̅))
+    vᵖ = compute!(Field(v - v̅))
+    # Uᵖ = compute!(Field(U - U̅))
+    # Vᵖ = compute!(Field(V - V̅))
+    wᵖ = compute!(Field(w - w̅))
+    bᵖ = compute!(Field(b - b̅))
+    pᵖ = compute!(Field(p - p̅))
+    Fxᵖ = compute!(Field(Fx - F̅x))
+    Fyᵖ = compute!(Field(Fy - F̅y))
+    Auᵖ = compute!(Field(Au - A̅u))
+    Avᵖ = compute!(Field(Av - A̅v))
+    Abᵖ = compute!(Field(Ab - A̅b))
+    Qᵖ = compute!(Field(Q - Q̅))
+    Eₚᵖ = CenterField(b.grid)
+    set!(Eₚᵖ, interior(bᵖ,:,:,:).*reshape(-zT,(1,1,:)))
+
+    E̅ₖ = compute!(Field((u̅^2 + v̅^2)/2))
+    Eₖᵖ = compute!(Field((uᵖ^2 + vᵖ^2)/2))
+    Σ̅b = compute!(Field(b̅^2 / 2))
+    Σbᵖ = compute!(Field(bᵖ^2 / 2))
+
+    havg(x) = vec(mean(x, dims = (1,2)))
+    if !budget
+        return havg(E̅ₚ), havg(E̅ₖ), havg(Eₚᵖ), havg(Eₖᵖ), havg(Σ̅b), havg(Σbᵖ)
+    else
+
+        println("computing residual stress terms at $(time()-t0)s...")
+        τuu = XFaceField(u.grid)
+        τuv = YFaceField(v.grid)
+        τuw = ZFaceField(w.grid)
+        subfilter_stress!(τuu,u,u,u̅,u̅; kernel, cutoff)
+        subfilter_stress!(τuv,v,u,v̅,u̅; kernel, cutoff)
+        subfilter_stress!(τuw,w,u,w̅,u̅; kernel, cutoff)
+        
+        τvv = YFaceField(v.grid)
+        τvu = XFaceField(u.grid)
+        τvw = ZFaceField(w.grid)
+        subfilter_stress!(τvv,v,v,v̅,v̅; kernel, cutoff)
+        subfilter_stress!(τvu,u,v,u̅,v̅; kernel, cutoff)
+        subfilter_stress!(τvw,w,v,w̅,v̅; kernel, cutoff)
+
+        println("computing KE terms at $(time()-t0)s...")
+        ue, ve = compute!(Field(u̅ * E̅ₖ)), compute!(Field(v̅ * E̅ₖ))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        T1 = compute!(Field(D + ∂z(w̅ * E̅ₖ)))
+        println("mean KE term 1 done at $(time()-t0)s")
+        up, vp = compute!(Field(u̅ * p̅)), compute!(Field(v̅ * p̅))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, up,vp)
+        T2 = compute!(Field(D + ∂z(w̅ * p̅)))
+        println("mean KE term 2 done at $(time()-t0)s")
+        uτx = compute!(Field(τuu * u̅ + τvu * v̅))
+        uτy = compute!(Field(τuv * u̅ + τvv * v̅))
+        uτz = compute!(Field(τuw * u̅ + τvw * v̅))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, uτx,uτy)
+        T3 = compute!(Field(D + ∂z(uτz)))
+        println("mean KE term 3 done at $(time()-t0)s")
+
+        B̅ = compute!(Field(b̅ * w̅)) 
+        println("mean KE term B̅ done at $(time()-t0)s")
+        uF̅ = compute!(Field(u̅ * F̅x + v̅ * F̅y))
+        println("mean KE term uF̅ done at $(time()-t0)s")
+        uA̅ = compute!(Field(u̅ * A̅u + v̅ * A̅v))
+        println("mean KE term uA̅ done at $(time()-t0)s")
+
+        Πₕ = compute!(Field(-(τuu * ∂x(u̅) + τvv * ∂y(v̅) + τuv * ∂y(u̅) + τvu * ∂x(v̅))))
+        println("mean KE term Πₕ done at $(time()-t0)s")
+        #Πδ = compute!(Field(-(τuU + τvV) * (∂x(u̅) + ∂y(v̅))/2))
+        #println("mean KE term Πδ done at $(time()-t0)s")
+        Πᵥ = compute!(Field(@at (Center, Center, Center) -(τuw * ∂z(u̅) + τvw * ∂z(v̅))))
+        println("mean KE term Πᵥ done at $(time()-t0)s")
+        mke = [havg(T1), havg(T2), havg(T3), havg(uA̅), havg(B̅), havg(uF̅), havg(Πₕ), havg(Πᵥ)]
+
+        ue, ve = compute!(Field(u * Eₖᵖ)), compute!(Field(v * Eₖᵖ))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        T1 = compute!(Field(D + ∂z(w * Eₖᵖ)))
+        println("finescale KE term 1 done at $(time()-t0)s")
+        up, vp = compute!(Field(uᵖ * pᵖ)), compute!(Field(vᵖ * pᵖ))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, up,vp)
+        T2 = compute!(Field(D + ∂z(wᵖ * pᵖ)))
+        println("finescale KE term 2 done at $(time()-t0)s")
+        uτx = compute!(Field(τuu * uᵖ + τvu * vᵖ))
+        uτy = compute!(Field(τuv * uᵖ + τvv * vᵖ))
+        uτz = compute!(Field(τuw * uᵖ + τvw * vᵖ))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, uτx,uτy)
+        T3 = compute!(Field(D + ∂z(uτz)))
+        println("finescale KE term 3 done at $(time()-t0)s")
+
+        Bᵖ  = compute!(Field(bᵖ * wᵖ))
+        println("finescale KE term Bᵖ done at $(time()-t0)s")
+        uFᵖ = compute!(Field(uᵖ * Fxᵖ + vᵖ * Fyᵖ))
+        println("finescale KE term uFᵖ done at $(time()-t0)s")
+        uAᵖ = compute!(Field(uᵖ * Auᵖ + vᵖ * Avᵖ))
+        println("finescale KE term uAᵖ done at $(time()-t0)s")
+
+        Trₕ = compute!(Field(-(uᵖ * (uᵖ * ∂x(u̅) + vᵖ * ∂y(u̅)) + vᵖ * (uᵖ * ∂x(v̅) + vᵖ * ∂y(v̅)))))
+        println("finescale KE term Trₕ done at $(time()-t0)s")
+        Trᵥ = compute!(Field(-(uᵖ * ∂z(u̅) + vᵖ * ∂z(v̅)) * wᵖ))
+        println("finescale KE term Trᵥ done at $(time()-t0)s")
+
+        Pₕ = compute!(Field(-(τuu * ∂x(uᵖ) + τvv * ∂y(vᵖ) + τuv * ∂y(uᵖ) + τvu * ∂x(vᵖ))))
+        println("finescale KE term Pₕ done at $(time()-t0)s")
+        Pᵥ = compute!(Field(@at (Center, Center, Center) -(τuw * ∂z(uᵖ) + τvw * ∂z(vᵖ))))
+        println("finescale KE term Pᵥ done at $(time()-t0)s")
+        fke = [havg(T1), havg(T2), havg(T3), havg(uAᵖ), havg(uFᵖ), havg(Bᵖ), havg(Trₕ), havg(Trᵥ), havg(Pₕ), havg(Pᵥ)]
+
+        println("computing residual heat fluxes at $(time()-t0)s...")
+        qub = XFaceField(u.grid)
+        qvb = YFaceField(v.grid)
+        qwb = ZFaceField(w.grid)
+        subfilter_stress!(qub,u,b,u̅,b̅; kernel, cutoff)
+        subfilter_stress!(qvb,v,b,v̅,b̅; kernel, cutoff)
+        subfilter_stress!(qwb,w,b,w̅,b̅; kernel, cutoff)
     
-    τ̅vv0l = YFaceField(v.grid)
-    τ̅vu0l = YFaceField(v.grid)
-    τ̅vwl  = YFaceField(v.grid)
-    subfilter_stress!(τ̅vv0l,v,v+v0,v̅l,v̅l+v̅0l; kernel, cutoff)
-    subfilter_stress!(τ̅vu0l,v,u+u0,v̅l,u̅l+u̅0l; kernel, cutoff)
-    subfilter_stress!(τ̅vwl ,v,w,v̅l,w̅l; kernel, cutoff)
+        println("computing PE terms at $(time()-t0)s...")
+        ue, ve = compute!(Field(u̅ * E̅ₚ)), compute!(Field(v̅ * E̅ₚ))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        T1 = compute!(Field(D + ∂z(w̅ * E̅ₚ)))
+        println("mean PE term 1 done at $(time()-t0)s")
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, qub,qvb)
+        Dq = compute!(Field(D + ∂z(qwb)))
+        T2 = CenterField(b.grid)
+        set!(T2, interior(Dq,:,:,:).*reshape(zT,(1,1,:))) 
+        println("mean PE term 2 done at $(time()-t0)s")
+        T3 = CenterField(b.grid)
+        set!(T3, interior(Q̅, :,:,:).*reshape(-zT,(1,1,:)))
+        println("mean PE term 3 done at $(time()-t0)s")
+        bA̅ = XFaceField(u.grid)
+        set!(bA̅, interior(A̅b, :,:,:).*reshape(-zT,(1,1,:)))
+        println("mean PE term bA̅ done at $(time()-t0)s")
+        mpe = [havg(T1), havg(bA̅), havg(T2), havg(T3)]
 
-    τ̅wwl = ZFaceField(w.grid)
-    subfilter_stress!(τ̅wwl,w,w,w̅l,w̅l; kernel, cutoff)
+        ue, ve = compute!(Field(u * Eₚᵖ)), compute!(Field(v * Eₚᵖ))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        T1 = compute!(Field(D + ∂z(w * Eₚᵖ)))
+        println("finescale PE term 1 done at $(time()-t0)s")
+        ub, vb = compute!(Field(uᵖ * b̅)), compute!(Field(vᵖ * b̅))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ub,vb)
+        Dub = compute!(Field(D + ∂z(wᵖ * b̅)))
+        T2 = CenterField(b.grid)
+        set!(T2, interior(Dub,:,:,:).*reshape(zT,(1,1,:)))
+        println("finescale PE term 2 done at $(time()-t0)s")
+        T3 = CenterField(b.grid)
+        set!(T3, interior(Qᵖ, :,:,:).*reshape(-zT,(1,1,:)))
+        println("finescale PE term 3 done at $(time()-t0)s")
+        bAᵖ = XFaceField(u.grid)
+        set!(bAᵖ, interior(Abᵖ, :,:,:).*reshape(-zT,(1,1,:)))
+        println("finescale PE term bAᵖ done at $(time()-t0)s")
+        fpe = [havg(T1), havg(bAᵖ), havg(T2), havg(T3)]
 
-    Πhl = -(τ̅uu0l * ∂x(u̅l) + τ̅vv0l * ∂y(v̅l) + τ̅uv0l * ∂y(u̅l) + τ̅vu0l * ∂x(v̅l))
-    Πδl = -(τ̅uu0l + τ̅vv0l) * (∂x(u̅l) + ∂y(v̅l))/2
-    # -(τ̅uu0l * ∂x(u̅l) + τ̅vv0l * ∂y(v̅l) + τ̅uv0l * ∂y(u̅l) + τ̅vu0l * ∂x(v̅l)
-    # + τ̅wu0l * ∂x(w̅l) + τ̅wv0l * ∂y(w̅l))
-    Πvl = -(τ̅uwl * ∂z(u̅l) + τ̅vwl * ∂z(v̅l))
-    # -(τ̅wwl * ∂z(w̅l)  + τ̅uwl * ∂z(u̅l) + τ̅vwl * ∂z(v̅l))
+        ue, ve = compute!(Field(u̅ * Σ̅b)), compute!(Field(v̅ * Σ̅b))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        T1 = compute!(Field(D + ∂z(w̅ * Σ̅b)))
+        println("mean BV term 1 done at $(time()-t0)s")
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, qub,qvb)
+        T2 = compute!(Field(-Dq * b̅))
+        println("mean BV term 2 done at $(time()-t0)s")
+        T3 = compute!(Field(Q̅ * b̅))
+        println("mean BV term 3 done at $(time()-t0)s")
+        bA̅ = compute!(Field(A̅b * b̅))
+        println("mean BV term bA̅ done at $(time()-t0)s")
+        mbv = [havg(T1), havg(bA̅), havg(T2), havg(T3)]
 
-    τ̅uul = XFaceField(u.grid)
-    τ̅vvl = YFaceField(v.grid)
-    subfilter_stress!(τ̅uul,u,u,u̅l,u̅l; kernel, cutoff)
-    subfilter_stress!(τ̅vvl,v,v,v̅l,v̅l; kernel, cutoff)
-
-    Πvgl = -(τ̅uwl * ∂z(-∂y(B̅l)) + τ̅vwl * ∂z(∂x(B̅l)))/f
-
-    return u̅l, v̅l, w̅l, τ̅uul, τ̅vvl, τ̅wwl, Πhl, Πδl, Πvl, Πvgl
+        ue, ve = compute!(Field(u * Σbᵖ)), compute!(Field(v * Σbᵖ))
+        D = KernelFunctionOperation{Center, Center, Center}(Oceananigans.Operators.div_xyᶜᶜᶜ, grid, ue,ve)
+        T1 = compute!(Field(D + ∂z(w * Σbᵖ)))
+        println("finescale BV term 1 done at $(time()-t0)s")
+        T2 = compute!(Field(-Dub * bᵖ))
+        println("finescale BV term 2 done at $(time()-t0)s")
+        T3 = compute!(Field(-Dq * bᵖ))
+        println("finescale BV term 3 done at $(time()-t0)s")
+        T4 = compute!(Field(Qᵖ * bᵖ))
+        println("finescale BV term 4 done at $(time()-t0)s")
+        bAᵖ = compute!(Field(Abᵖ * bᵖ))
+        println("finescale BV term bAᵖ done at $(time()-t0)s")
+        fbv = [havg(T1), havg(bAᵖ), havg(T2), havg(T3), havg(T4)]
+             
+        return E̅ₖ, Eₖᵖ, mke, fke, E̅ₚ, Eₚᵖ, mpe, fpe, Σ̅b, Σbᵖ, mbv, fbv
+    end
 end
 
 """ streamfunction computation kernel """
@@ -561,5 +882,32 @@ function Ψz(snapshots, i)
     ψ = Field{Center, Face, Face}(grid)
     arch = architecture(grid)
     launch!(arch, grid, :xy, _zstreamfunction!, ψ, v, grid)
+    return ψ
+end
+
+""" mixed layer average kernel """
+@kernel function _zMLaverage!(ψ, v, h, z, grid)
+    i, j = @index(Global, NTuple)   
+
+    @inbounds ψ[i, j, 1] = 0
+    k0 = findfirst(z .> -h[i,j,1] + Δzᶜᶠᶜ(i, j, 1, grid)/2)
+    for k in k0-1:grid.Nz
+        if k == k0-1
+            @inbounds ψ[i, j, 1] = v[i, j, k] * (Δzᶜᶠᶜ(i, j, k, grid)/2 + z[k] + h[i,j,1])
+        else
+            @inbounds ψ[i, j, 1] = ψ[i, j, 1] + v[i, j, k] * Δzᶜᶠᶜ(i, j, k, grid)
+        end
+    end
+    @inbounds ψ[i, j, 1] = h[i,j,1] > 0 ? ψ[i, j, 1]/h[i,j,1] : 0
+end
+
+""" mixed layer average function """
+function MLaverage(snapshots, i, v)
+    _, _, z = nodes(v)
+    h = compute!(MLD(snapshots,i; threshold = 0.03))
+    grid = v.grid
+    ψ = Field{Center, Center, Nothing}(grid)
+    arch = architecture(grid)
+    launch!(arch, grid, :xy, _zMLaverage!, ψ, v, h, z, grid)
     return ψ
 end

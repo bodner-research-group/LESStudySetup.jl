@@ -39,7 +39,7 @@ checkpoint_frequency = 1hours
 stop_time = 10days
 
 background_forcing = true
-restart_file = "nonhydrostatic_checkpoint_$(arch.local_rank)_iteration5212.jld2"
+restart_file = false #"nonhydrostatic_checkpoint_$(arch.local_rank)_iteration5212.jld2"
 
 # Let's start with an nonhydrostatic setup running for 30 days
 simulation = idealized_setup(arch; stop_time, background_forcing)

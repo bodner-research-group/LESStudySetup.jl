@@ -47,10 +47,11 @@ end
     end
 end
 
-function model_settings(model_type, grid; background_forcing = false)
+function model_settings(model_type, grid; 
+                        background_forcing = false, 
+                        advection = WENO(; order = 9), 
+                        nonhydrostatic_closure = nothing)
     
-    advection = WENO(; order = 9)
-
     if background_forcing
         u_background = XFaceField(grid)
         v_background = YFaceField(grid)
@@ -71,7 +72,7 @@ function model_settings(model_type, grid; background_forcing = false)
         tracers = (:T, :e)
 
         free_surface = SplitExplicitFreeSurface(grid; substeps = 75, gravitational_acceleration = parameters.g)
-        @info "running with $(length(free_surface.settings.substepping.averaging_weights)) substeps"
+        #@info "running with $(length(free_surface.settings.substepping.averaging_weights)) substeps"
        
         return (; closure, 
                   tracers, 
@@ -82,6 +83,7 @@ function model_settings(model_type, grid; background_forcing = false)
         return (; tracers = :T, 
                   timestepper = :RungeKutta3,
                   hydrostatic_pressure_anomaly = CenterField(grid),
+                  closure = nonhydrostatic_closure,
                   advection)
     end
 end

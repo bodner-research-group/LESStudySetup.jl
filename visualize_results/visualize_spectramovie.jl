@@ -53,11 +53,11 @@ function visualize(cooling, wind, dTf, a)
 
     # Compute the horizontal spectrum of T, u, v, w 
     axis_kwargs = (xlabel = "Wavenumber (rad⋅m⁻¹)", 
-                   ylabel = L"E_i(k)/E_{T,v}(k_{min},z=-3~m)",
+                   ylabel = L"E_i(k)/E_{T,v}(k_{min},z=-2.8~m)",
                    xscale = log10, yscale = log10,
                    limits = ((8e-5, 4e-2), (1e-11,7)))
-    fig = Figure(size = (400, 300))
-    klev = 113
+    fig = Figure(size = (500, 400))
+    klev = 222
     println("Plotting spectra at z = $(zT[klev])m...")
 
     n = Observable(2)
@@ -81,7 +81,7 @@ function visualize(cooling, wind, dTf, a)
     lines!(ax, @lift($Sw.freq), @lift(Real.($Sw.spec./$Sv.spec[1])), color = :black, label = L"E_w")
     axislegend(ax, labelsize=10, patchsize = (20, 5))
 
-    frames = 2:2:length(times)
+    frames = 3:2:length(times)
     @info "Making a neat animation of spectra..."
     record(fig, filesave * "spectra_" * fileparams * ".mp4", frames, framerate=4) do i
         println("Loading fields $i day $(round(times[i]/3600/24, digits=2)) wall time: $((now() - t0).value/1e3) seconds.")

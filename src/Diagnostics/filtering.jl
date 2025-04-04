@@ -5,6 +5,7 @@ using Oceananigans.BoundaryConditions
 using Oceananigans.Operators
 using Oceananigans.Fields: instantiated_location
 using KernelAbstractions: @kernel, @index
+using ImageFiltering
 
 @kernel function _horizontal_box_filter!(new_field, grid, field)
     i, j, k = @index(Global, NTuple)
@@ -203,39 +204,149 @@ function symmetric_filtering(u::Field; cutoff = 20kilometer)
     return u̅l, u̅h
 end
 
-function coarse_graining!(u::Field, u̅l::Field; kernel = :tophat, cutoff = 20kilometer)
+using FFTW
+using ImageFiltering
+using Base.Threads
 
+# --- Helper Functions ---
+
+# Computes the periodic distance between two coordinates.
+function periodic_distance(x, y, Lx, Ly)
+    dx = abs(x)
+    dx = dx > Lx/2 ? Lx - dx : dx
+    dy = abs(y)
+    dy = dy > Ly/2 ? Ly - dy : dy
+    return sqrt(dx^2 + dy^2)
+end
+
+"""
+    build_tophat_kernel(grid_info, cutoff; Lx, Ly, method=:spectral)
+
+Builds a normalized tophat kernel based on a given grid and cutoff length.
+- If `method == :spectral`, the kernel is built on the full grid using vectorized operations  
+  (suitable for FFT-based convolution).
+- If `method == :physical`, the kernel is built only over its nonzero support (which is more  
+  efficient for direct physical-space convolution).
+
+The returned kernel is normalized to sum to one.
+"""
+function build_tophat_kernel(grid_info, cutoff; Lx, Ly, method=:physical)
+    if method == :spectral
+        # Extract grid dimensions and construct node vectors.
+        Nx, Ny = grid_info.Nx, grid_info.Ny
+        # Here we assume that the grid spans [0, Lx] and [0, Ly].
+        xu = range(0, Lx, length=Nx)
+        yu = range(0, Ly, length=Ny)
+        # Allocate the full-grid kernel.
+        kernel = zeros(Float32, Nx, Ny)
+        # Use broadcasting to assign 1.0 where the periodic distance is less than cutoff/2.
+        @. kernel = Float32(periodic_distance(xu, yu', Lx, Ly) < cutoff/2)
+        return kernel / sum(kernel)
+    elseif method == :physical
+        # For a compact kernel, compute grid spacings.
+        Nx, Ny = grid_info.Nx, grid_info.Ny
+        dx = Lx / Nx
+        dy = Ly / Ny
+        # Determine half-widths in grid cells.
+        half_width_x = floor(Int, (cutoff/2) / dx)
+        half_width_y = floor(Int, (cutoff/2) / dy)
+        # Allocate a kernel array covering only the nonzero support.
+        kernel = zeros(Float32, 2 * half_width_x + 1, 2 * half_width_y + 1)
+        for j in 1:size(kernel, 2), i in 1:size(kernel, 1)
+            # Compute the physical distance from the kernel center.
+            x = (i - half_width_x - 1) * dx
+            y = (j - half_width_y - 1) * dy
+            kernel[i, j] = (sqrt(x^2 + y^2) <= cutoff/2) ? 1.0f0 : 0.0f0
+        end
+        return kernel / sum(kernel)
+    else
+        throw(ArgumentError("Invalid method: $method. Use :spectral or :physical"))
+    end
+end
+
+# --- Main Coarse-Graining Function ---
+
+"""
+    coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilometer,
+                     method=:fft, kernel_build_method=:spectral)
+
+Computes a coarse-grained (filtered) field `u̅l` from the field `u` using a specified 
+kernel and cutoff. Two convolution methods are available:
+  - `method = :fft`: FFT-based convolution (assumes periodic boundaries).
+  - `method = :physical`: Direct physical-space convolution via ImageFiltering.jl 
+    (with periodic/circular padding).
+
+A separate helper (`build_tophat_kernel`) builds the tophat kernel. The parameter 
+`kernel_build_method` selects whether to build the full-grid (:spectral) or compact (:physical)
+kernel. If the cutoff is no greater than the grid spacing, the original field is returned.
+"""
+function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilometer,
+                           method=:physical)
+    # Extract interior data and grid nodes.
     d = interior(u)
-
     xu, yu, _ = nodes(u)
     Nx, Ny, Nz = size(d)
-    Lx = parameters.Lx 
-    Ly = parameters.Ly 
+    Lx = parameters.Lx
+    Ly = parameters.Ly
+    Δh = parameters.Δh
     
-    Gl = zeros(Float32, Nx, Ny)
-    dl = zeros(Float32, Nx, Ny, Nz)
-    if kernel == :tophat
-        xG, yG = repeat(xu, 1, Ny), repeat(yu', Nx, 1)
-        rG1 = sqrt.(xG.^2 + yG.^2)
-        rG2 = sqrt.((xG.-Lx).^2 + yG.^2)   
-        rG3 = sqrt.(xG.^2 + (yG.-Ly).^2)
-        rG4 = sqrt.((xG.-Lx).^2 + (yG.-Ly).^2)
-        Gl[rG1 .< cutoff/2] .= 1
-        Gl[rG2 .< cutoff/2] .= 1
-        Gl[rG3 .< cutoff/2] .= 1
-        Gl[rG4 .< cutoff/2] .= 1
+    # Early exit: if cutoff is no greater than the grid spacing, return the original field.
+    if cutoff < 2Δh
+        println("Return the original field due to small cutoff!")
+        set!(u̅l, d)
+        fill_halo_regions!(u̅l)
+        return nothing
     end
-    Ĝl = rfft(Gl/sum(Gl))
 
-    # Fourier transform for convolution
-    for iz = 1:Nz
-        
-        # Inverse Fourier transform
-        dl[:, :, iz] = irfft(Ĝl .* (rfft(d[:,:,iz])), Nx) 
+    # Allocate the output array.
+    dl = similar(d)
+
+    # Currently, only the :tophat kernel is implemented.
+    if kernel == :tophat
+        grid_info = (; Nx=Nx, Ny=Ny)
+        Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
+    else
+        error("Kernel $(kernel) not implemented.")
     end
-    
+
+    # Decide on the convolution method based on the kernel's nonzero fraction relative to the full grid.
+    nonzero_fraction = count(!iszero, Gl) / prod(size(d))
+    if method == :physical && nonzero_fraction > 0.2
+        @info "Kernel is large (nonzero fraction = $(nonzero_fraction)); switching to FFT method."
+        method = :spectral
+        Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
+    end
+
+    if method != :physical && method != :spectral
+        error("Method $(method) not recognized. Use :spectral or :physical.")
+    end
+
+    if method == :physical
+        t0 = time()
+        for iz in 1:Nz
+            dl[:, :, iz] .= imfilter(d[:, :, iz], centered(Gl), Pad(:circular))
+            if time()-t0 > 10
+                println(":physical is slow (>10s); switching to FFT method.")
+                method = :spectral
+                Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
+                break
+            end
+            #println("$(time()-t0)s")
+        end
+    end
+
+    if method == :spectral
+        # Precompute the FFT of the kernel.
+        Ĝl = rfft(Gl)
+        for iz in 1:Nz
+            d_slice = d[:, :, iz]
+            d_hat = rfft(d_slice)
+            filtered_hat = Ĝl .* d_hat
+            dl[:, :, iz] .= irfft(filtered_hat, Nx)
+        end
+    end
+
     set!(u̅l, dl)
     fill_halo_regions!(u̅l)
-
     return nothing
 end
