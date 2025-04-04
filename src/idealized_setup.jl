@@ -23,6 +23,8 @@ Finally, a `Simulation` object is created with the model, time step, and stop ti
 function idealized_setup(arch; 
                          stop_time = 100days,
 			             stop_iteration = Inf,
+                         advection_scheme = WENO(order=9),
+                         nonhydrostatic_closure = nothing, 
                          hydrostatic_approximation = false,
                          background_forcing = true) # by default we include the eddies as a background forcing 
     
@@ -57,7 +59,7 @@ function idealized_setup(arch;
 
     # ModelType can be either a `HydrostaticFreeSurfaceModel` or a `NonhydrostaticModel`
     ModelType = model_type(Val(hydrostatic_approximation))
-    settings  = model_settings(ModelType, grid; background_forcing)
+    settings  = model_settings(ModelType, grid; background_forcing, advection_scheme, nonhydrostatic_closure)
 
     coriolis = FPlane(; f)
     buoyancy = SeawaterBuoyancy(; equation_of_state = LinearEquationOfState(thermal_expansion = α), 
