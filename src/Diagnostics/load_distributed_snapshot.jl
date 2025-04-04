@@ -8,26 +8,26 @@ function load_distributed_checkpoint(filename, iteration;
 
     file = jldopen(filename * "0_iteration$(iteration).jld2")
 
-    Px = file["grid"].architecture.partition.x
-    Py = file["grid"].architecture.partition.y
+    Px = file["NonhydrostaticModel/grid"].architecture.partition.x
+    Py = file["NonhydrostaticModel/grid"].architecture.partition.y
 
-    nx = file["grid"].Nx
-    ny = file["grid"].Ny
-    Nz = file["grid"].Nz
+    nx = file["NonhydrostaticModel/grid"].Nx
+    ny = file["NonhydrostaticModel/grid"].Ny
+    Nz = file["NonhydrostaticModel/grid"].Nz
 
-    Hx = file["grid"].Hx
-    Hy = file["grid"].Hy
-    Hz = file["grid"].Hz
+    Hx = file["NonhydrostaticModel/grid"].Hx
+    Hy = file["NonhydrostaticModel/grid"].Hy
+    Hz = file["NonhydrostaticModel/grid"].Hz
 
     Nx = nx * Px
     Ny = ny * Py
 
-    Lx = file["grid"].Lx * Px
-    Ly = file["grid"].Ly * Py
-    Lz = file["grid"].Lz
+    Lx = file["NonhydrostaticModel/grid"].Lx * Px
+    Ly = file["NonhydrostaticModel/grid"].Ly * Py
+    Lz = file["NonhydrostaticModel/grid"].Lz
 
     grid = RectilinearGrid(architecture; size = (Nx, Ny, Nz), extent = (Lx, Ly, Lz))
-        
+
     indices = isnothing(level) ? (Colon(), Colon(), Colon()) : (Colon(), Colon(), UnitRange(level, level))
 
     u = XFaceField(grid; indices)
@@ -42,13 +42,13 @@ function load_distributed_checkpoint(filename, iteration;
 
         file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
 
-        Rx = file["grid"].architecture.local_index[1]
-        Ry = file["grid"].architecture.local_index[2]
+        Rx = file["NonhydrostaticModel/grid"].architecture.local_index[1]
+        Ry = file["NonhydrostaticModel/grid"].architecture.local_index[2]
 
-        udata = file["u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-        vdata = file["v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-        wdata = file["w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-        Tdata = file["T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+        udata = file["NonhydrostaticModel/u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+        vdata = file["NonhydrostaticModel/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+        wdata = file["NonhydrostaticModel/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+        Tdata = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
         
         irange = 1 + (Rx - 1) * nx : Rx * nx
         jrange = 1 + (Ry - 1) * ny : Ry * ny
