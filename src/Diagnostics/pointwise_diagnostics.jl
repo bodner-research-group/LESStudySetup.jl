@@ -879,3 +879,25 @@ function MLaverage(snapshots, i, v)
     launch!(arch, grid, :xy, _zMLaverage!, ψ, v, h, z, grid)
     return ψ
 end
+
+""" mixed layer instability """
+function MLI(snapshots, i; smooth=false, scale=20kilometer, cg=true, cutoff=300/2.4*2*π)
+    α = parameters.α
+    g = parameters.g
+    f = parameters.f
+
+    h = compute!(MLD(snapshots,i; threshold = 0.03))
+    Ti = snapshots[:T][i]
+    if smooth
+        T = spatial_filtering(Ti; smoothing_range = scale)
+    end
+    if cg
+        T = CenterField(Ti.grid)
+        coarse_graining!(Ti, T; cutoff)
+    else
+        T = Ti
+    end
+    ∇b = compute!(Field(@at (Center, Center, Center) α * g * (∂x(T)^2 + ∂y(T)^2)^0.5))
+
+    return MLaverage(snapshots,i,∇b)^2 * h^2 / f
+end
