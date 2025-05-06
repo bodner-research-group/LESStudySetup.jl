@@ -870,34 +870,38 @@ end
 end
 
 """ mixed layer average function """
-function MLaverage(snapshots, i, v)
+function MLaverage(snapshots, i, v; kernel=:tophat, scale=20kilometer)
     _, _, z = nodes(v)
     h = compute!(MLD(snapshots,i; threshold = 0.03))
     grid = v.grid
+    H = Field{Center, Center, Nothing}(grid)
+    coarse_graining!(h, H; kernel, cutoff = scale)
     ψ = Field{Center, Center, Nothing}(grid)
     arch = architecture(grid)
-    launch!(arch, grid, :xy, _zMLaverage!, ψ, v, h, z, grid)
+    launch!(arch, grid, :xy, _zMLaverage!, ψ, v, H, z, grid)
     return ψ
 end
 
 """ mixed layer instability """
-function MLI(snapshots, i; smooth=false, scale=20kilometer, cg=true, cutoff=300/2.4*2*π)
+function MLI(snapshots, i; kernel=:tophat, scale=20kilometer)
     α = parameters.α
     g = parameters.g
     f = parameters.f
-
-    h = compute!(MLD(snapshots,i; threshold = 0.03))
     Ti = snapshots[:T][i]
-    if smooth
-        T = spatial_filtering(Ti; smoothing_range = scale)
-    end
-    if cg
-        T = CenterField(Ti.grid)
-        coarse_graining!(Ti, T; cutoff)
-    else
-        T = Ti
-    end
-    ∇b = compute!(Field(@at (Center, Center, Center) α * g * (∂x(T)^2 + ∂y(T)^2)^0.5))
+    h = compute!(MLD(snapshots,i; threshold = 0.03))
 
-    return MLaverage(snapshots,i,∇b)^2 * h^2 / f
+    H = Field{Center, Center, Nothing}(Ti.grid)
+    T = CenterField(Ti.grid)
+    coarse_graining!(h, H; kernel, cutoff = scale)
+    coarse_graining!(Ti, T; kernel, cutoff = scale)
+
+    ∇b = compute!(Field(α * g * (∂x(T)^2 + ∂y(T)^2)^0.5))
+
+    μ = CenterField(Ti.grid)
+    _,_,z = nodes(Ti)
+    data = 2 * reshape(z, (1, 1, :)) ./ interior(H, :,:,1)
+    set!(μ, (1 .- (data .+ 1).^2) .* (1 .+ 5/21 * (data .+ 1).^2))
+    fill_halo_regions!(μ)
+
+    return MLaverage(snapshots,i,compute!(Field(μ * ∇b^2)); kernel, scale) * H^2 / f
 end
