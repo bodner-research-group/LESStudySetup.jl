@@ -474,7 +474,7 @@ for (i,klev) in enumerate([222, 202, 171])
     Tk = (xhift(interior(T, :, :, klev)))
     for j = 1:3
         println([i,j])
-        window = 1
+        window = :hann
         nalpha = 1+j+(i-1)*4
         title = "("*alphabet[nalpha]*") Region " * uppercase(alphabet[j])
 
@@ -808,66 +808,6 @@ rowgap!(g33, 3)
 resize_to_layout!(fig)
 save(filesave * "dspectra_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 println("Finished plotting spectra, wall time: $((now() - t0).value/1e3) seconds.")
-
-###############################
-# Compute spectral vertical boyancy flux 
-Nz = length(zT)
-wc = compute!(Field(@at (Center, Center, Center) snapshots[:w][snapshot_number]))
-b = compute!(Field(α * g * T))
-C1 = isotropic_powerspectrum(interior(b, :, :, 1), interior(wc, :, :, 1), xT, yT)
-C = zeros(Nz, length(C1.spec))
-C[1, :] = real.(C1.spec)
-wc1 = (xhift(interior(wc, :, :, 1)))
-b1 = (xhift(interior(b, :, :, 1)))
-SCs = []
-for j = 1:3
-    xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
-    yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
-    SCj = isotropic_powerspectrum(b1[xrange,yrange], wc1[xrange,yrange], xT[xrange], yT[yrange];window=1)
-    push!(SCs, SCj)
-end
-Csub = zeros(3, Nz, length(SCs[1].spec))
-for j = 1:3
-    Csub[j, 1, :] = real.(SCs[j].spec)
-end
-println("level 1 done.")
-for k = 2:Nz
-    Ck = isotropic_powerspectrum(interior(b, :, :, k), interior(wc, :, :, k), xT, yT)
-    C[k,:] = real.(Ck.spec)
-    wck = (xhift(interior(wc, :, :, k)))
-    bk = (xhift(interior(b, :, :, k)))
-    for j = 1:3
-        xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
-        yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
-        SCj = isotropic_powerspectrum(bk[xrange,yrange], wck[xrange,yrange], xT[xrange], yT[yrange];window=1)
-        Csub[j, k, :] = real.(SCj.spec) 
-    end
-    println("level $k done.")
-end
-
-fig = Figure(size = (640, 300))
-g4 = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = L"z~\text{(m)}", xlabel = L"\text{Wavenumber (rad m^{-1})}",xscale = log10, ygridvisible = false, 
-               limits = ((6e-5, 0.8e-2), (-150,0)),xticks = ([1e-4,1e-3], [L"10^{-4}",L"10^{-3}"]), xgridvisible = false,
-               xminorticks = [4e-5:1e-5:9e-5; 2e-4:1e-4:9e-4; 2e-3:1e-3:9e-3],xminorticksvisible = true)
-ax_a = Axis(g4[1,1]; titlealign = :left, title=L"\text{(a)}~\hat{w}\hat{b}~\text{(10^5 m^3 s^{-3})}", axis_kwargs...)
-ax_b = Axis(g4[1,2]; titlealign = :left, title=L"\text{(b) Region A,}~5\times", axis_kwargs...)
-ax_c = Axis(g4[1,3]; titlealign = :left, title=L"\text{(c) Region B,}~5\times", axis_kwargs...)
-ax_d = Axis(g4[1,4]; titlealign = :left, title=L"\text{(d) Region C,}~5\times", axis_kwargs...)
-hideydecorations!(ax_b, ticks = false)
-hideydecorations!(ax_c, ticks = false)
-hideydecorations!(ax_d, ticks = false)
-hm_a = heatmap!(ax_a, C1.freq, zT, 1e-5*C'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-hm_b = heatmap!(ax_b, SCs[1].freq, zT, 5e-5*Csub[1,:,:]'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-hm_c = heatmap!(ax_c, SCs[2].freq, zT, 5e-5*Csub[2,:,:]'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-hm_d = heatmap!(ax_d, SCs[3].freq, zT, 5e-5*Csub[3,:,:]'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-Colorbar(g4[1, 5], hm_a)
-for i = 1:3
-    colgap!(g4, i, 5)
-end
-colgap!(g4, 4, 1)
-resize_to_layout!(fig)
-save(filesave * "spectral_vertical_boyancy_flux_d$(nday).pdf", fig; pt_per_unit = 1)
 
 ####################################
 using JLD2 
