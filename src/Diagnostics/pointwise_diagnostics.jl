@@ -235,21 +235,11 @@ function MLD(snapshots, i; threshold = 0.03, surface = false)
 end
 
 """ boundary layer depth """
-function BLD1D(snapshots, i; threshold = 0.3)
-    α  = parameters.α
-    g  = parameters.g
-    T  = snapshots[:T][i]
-    B  = mean(compute!(Field(α * g * T)), dims = (1, 2))
-    uc = snapshots[:u][i]
-    vc = snapshots[:v][i]
-    wc = compute!(Field(@at (Center, Center, Center) snapshots[:w][i]))
-    Uₜ² = (var(uc,dims=(1, 2))+var(vc,dims=(1, 2))+var(wc,dims=(1, 2)))/3
-    uc = mean(uc, dims = (1, 2))
-    vc = mean(vc, dims = (1, 2))
-    wc = mean(wc, dims = (1, 2))
+function BLD(snapshots, i; threshold = 1e-5)
+    κ  = snapshots[:κu][i]
     
-    grid = B.grid
-    h    = BoundaryLayerDepth(grid, (; B, uc, vc, wc, Uₜ²); Ric = threshold)
+    grid = κ.grid
+    h    = BoundaryLayerDepth(grid, (; κ); κc = threshold)
     return h
 end
 
