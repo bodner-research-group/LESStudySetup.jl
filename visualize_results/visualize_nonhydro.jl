@@ -7,13 +7,13 @@ using LESStudySetup.Diagnostics: load_distributed_checkpoint
 set_theme!(theme_latexfonts(), fontsize=12,figure_padding = 5)
 
 filename = "../nonhydro1024gpus/nonhydrostatic_checkpoint_"
-iteration = 520
-level = 224
+iteration = 32207
+level = 216
 
-snapshot = load_distributed_checkpoint(filename, iteration; level)
+snapshot = load_distributed_checkpoint(filename, iteration; level);
 
 rmin, rmax = -0.4,0.4
-x, y, z = nodes(snapshot[:T])
+x, y, z = nodes(snapshot[:T]);
 fig = Figure(size = (750, 660))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=1)
@@ -38,10 +38,10 @@ colgap!(gabc, 1, 3)
 colgap!(gabc, 2, 10)
 colgap!(gabc, 3, 3)
 resize_to_layout!(fig)
-save("Tuvw1h_nonhydro_1024gpus.pdf", fig; pt_per_unit = 1)
+save("Tuvw24h_nonhydro_1024gpus_k216.pdf", fig; pt_per_unit = 1)
 
 #############################
-for rank in 272:299
+for rank in 256:287
     @info "loading rank $rank of $(Px * Py - 1)"
 
     file = jldopen(filename * "$(rank).jld2")
