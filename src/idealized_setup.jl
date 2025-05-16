@@ -65,8 +65,19 @@ function idealized_setup(arch;
     
     # # Cooling in the middle of the domain and heating outside?
     # @inline Qtop(x, y, t, p) = - p.Q / p.ρ₀ / p.cₚ * cos(2π * x / p.Lx)
+    # # Current feedback on stress
+    # ρₐ = 1.225 # kg/m³
+    # cd = 0.001 # Drag coefficient
+    # Uₐ = sqrt(τw / (ρₐ * cd)) # Wind speed at the surface
+    # Uₐx, Uₐy = Uₐ * cosd(θ), Uₐ * sind(θ) # Wind speed at the surface
+    # τ  = ρₐ * cd * |U̲ₐ - u̲|(U̲ₐ - u̲) # Stress at the surface
+    # U̲ₐ - u̲ = (Uₐx + u, Uₐy + v)
+    # @inline feedback_stressx(x, y, t, u, v, p) = p.p1 * (p.Uₐx + u) * sqrt((p.Uₐx + u)^2 + (p.Uₐy + v)^2)
+    # @inline feedback_stressy(x, y, t, u, v, p) = p.p1 * (p.Uₐy + v) * sqrt((p.Uₐx + u)^2 + (p.Uₐy + v)^2)
+    # v_top = FluxBoundaryCondition(feedback_stressy, field_dependencies=(:u, :v), parameters=(p1=ρₐ*cd/ρ₀, Uₐx=Uₐ*cosd(θ), Uₐy=Uₐ*sind(θ)))
+    # u_top = FluxBoundaryCondition(feedback_stressx, field_dependencies=(:u, :v), parameters=(p1=ρₐ*cd/ρ₀, Uₐx=Uₐ*cosd(θ), Uₐy=Uₐ*sind(θ)))
 
-    u_top = FluxBoundaryCondition(τw * cosd(θ) / ρ₀)
+    u_top = FluxBoundaryCondition(τw * cosd(θ) / ρ₀) # Positive fluxes point to negative directions in Oceananigans
     v_top = FluxBoundaryCondition(τw * sind(θ) / ρ₀)
     T_top = FluxBoundaryCondition(Q / ρ₀ / cₚ) # Positive fluxes at the top are cooling in Oceananigans
 
