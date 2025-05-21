@@ -9,12 +9,12 @@ using Statistics: mean, std, median
 #using StatsBase: mode, Histogram, fit
 using LESStudySetup.Diagnostics
 using LESStudySetup.Oceananigans.Units
-using LESStudySetup.Diagnostics: N², M², Bₕ, wb
+using LESStudySetup.Diagnostics: N², M², Bₕ, wb, calculate_instability_categories_2d
 using LESStudySetup.Diagnostics: load_snapshots, MLD, MLaverage, BLD
 using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes, δ
 using LESStudySetup.Diagnostics: MixedLayerN², MixedLayerDepth, MLI, spatial_filtering
 using LESStudySetup.Diagnostics: subfilter_stress!, coarse_graining!, _horizontal_gauss_filter!
-using LESStudySetup.Diagnostics: build_lanczos_kernel, build_tophat_kernel
+using LESStudySetup.Diagnostics: build_lanczos_kernel, build_tophat_kernel, classify_instability
 using MathTeXEngine,GibbsSeaWater
 set_theme!(theme_latexfonts(), fontsize=12,figure_padding = 10)
 
@@ -80,7 +80,7 @@ println("Plotting snapshot $i on day $(nday)...")
 t0 = now();
 wi,Ti = snapshots[:w][i],snapshots[:T][i];
 ui,vi,κi = snapshots[:u][i],snapshots[:v][i],snapshots[:κu][i];
-hi = compute!(MLD(snapshots,i; threshold = 0.09));
+#hi = compute!(MLD(snapshots,i; threshold = 0.09));
 h0 = compute!(MLD(snapshots,i; threshold = 0.09));
 h1 = compute!(BLD(snapshots,i));
 
@@ -97,27 +97,7 @@ fill_halo_regions!(T̃i)
 fill_halo_regions!(ũi)
 fill_halo_regions!(ṽi)
 fill_halo_regions!(w̃i)
-ωz = compute!(Field(∂x(ṽi) - ∂y(ũi) + f));
-ωx = compute!(Field(∂y(w̃i) - ∂z(ṽi)));
-ωy = compute!(Field(∂z(ũi) - ∂x(w̃i)));
-b̃i = compute!(Field(α * g * T̃i))
-
-∇b̃ = compute!(Field((∂x(b̃i)^2 + ∂y(b̃i)^2)^0.5));
-q̃i = compute!(Field(ωx * ∂x(b̃i) + ωy * ∂y(b̃i) + ωz * ∂z(b̃i)));
-R̃i = compute!(Field(∂z(b̃i)/(∂z(ũi)^2 + ∂z(ṽi)^2)));
-θ, τ, ρ₀=parameters.θ,parameters.τw,parameters.ρ₀
-τ̅x,τ̅y=-τ*sind(θ),-τ*cosd(θ)
-EBFτ̅ = compute!(Field(@at (Center, Center, Face) (τ̅y * ∂x(b̃i) - τ̅x * ∂y(b̃i))/f/ρ₀))
-
-# Current feedback on stress
-ρₐ = 1.225; # kg/m³
-cd = 0.001; # Drag coefficient
-Uₐ = sqrt(τ / (ρₐ * cd)); # Wind speed at the surface
-Uₐx, Uₐy = Uₐ * cosd(θ), Uₐ * sind(θ) # Wind speed at the surface
-Unorm = compute!(Field(sqrt((Uₐx + ũi)^2 + (Uₐy + ṽi)^2))); # Wind speed at the surface
-τx = compute!(Field(- ρₐ * cd * Unorm * (Uₐx + ũi)));
-τy = compute!(Field(- ρₐ * cd * Unorm * (Uₐy + ṽi)));
-EBFτ′ = compute!(Field(-EBFτ̅ + (τy * ∂x(b̃i) - τx * ∂y(b̃i))/f/ρ₀))
+b̃i = compute!(Field(α * g * T̃i));
 
 # Plot the fields
 pB, pC = (-20, 0), (30, -25)
@@ -129,6 +109,8 @@ shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
 yshift(x) = [x[:, size(x,2)÷2+1:end] x[:, 1:size(x,2)÷2]]
 xhift(x) = yshift(shift(x))
 ##################################### 
+# derivative fields
+∇b̃ = compute!(Field((∂x(b̃i)^2 + ∂y(b̃i)^2)^0.5));
 var,scale = ∇b̃, 1/M²₀;
 x, y, z = nodes(var);
 k = 202
@@ -202,15 +184,16 @@ resize_to_layout!(fig)
 save(filesave * "Dbhfields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
 
 ######################
+# anomaly fields
 b′ = compute!(Field(b̃i - mean(b̃i, dims = (1,2))));
 u′ = compute!(Field(ũi - mean(ũi, dims = (1,2))));
 v′ = compute!(Field(ṽi - mean(ṽi, dims = (1,2))));
 w′ = compute!(Field(w̃i - mean(w̃i, dims = (1,2))));
-Uₓ = compute!(Field(∂x(U)))
+Uₓ = compute!(Field(∂x(U)));
 x, y, z = nodes(Ti);
 k = 202;
 bmap, vmap = :diff,:delta
-fig = Figure(size = (640, 900))
+fig = Figure(size = (640, 920))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{b}\prime~\text{(10^{-3}m s^{-2})}", axis_kwargs...)
@@ -259,6 +242,7 @@ resize_to_layout!(fig)
 save(filesave * "TuvwpUxfields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
 
 ######################
+# along-front averages
 x, y, z = nodes(Ti);
 yrange1 = findfirst(p2[1][2]-ly .< 1e-3*y .- 100):findlast(1e-3*y .- 100 .<= p2[1][2]) 
 yrange2 = findfirst(p2[2][2]-ly .< 1e-3*y .- 100):findlast(1e-3*y .- 100 .<= p2[2][2]) 
@@ -266,17 +250,19 @@ Tmap, vmap = :diff,:delta
 zmin = -70
 kz = findlast(z .< zmin)
 Nz = length(z)
-fig = Figure(size = (640, 750))
+fig = Figure(size = (640, 920))
 gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (aspect=8/5, ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~T-20~\text{({^\circ}C)}", axis_kwargs...)
-ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)}~T-20~\text{({^\circ}C)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)}~u~\text{(m s^{-1})}", ylabel = "z (m)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (zmin,0))) 
-ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)}~u~\text{(m s^{-1})}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~v~\text{(m s^{-1})}", ylabel = "z (m)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (zmin,0))) 
-ax_f = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(f)}~v~\text{(m s^{-1})}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_g = Axis(gabc[4,1]; titlealign = :left, title=L"\text{(g)}~w~\text{(10^{-3}m s^{-1})}", xlabel = "x (km)", ylabel = "z (m)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (zmin,0))) 
-ax_h = Axis(gabc[4,2]; titlealign = :left, title=L"\text{(h)}~w~\text{(10^{-3}m s^{-1})}", xlabel = "x (km)", aspect=8/5, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+axis_kwargs = (ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0)))
+ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~{T}^a-20~\text{({^\circ}C)}", axis_kwargs...)
+ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)}~{T}^a-20~\text{({^\circ}C)}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)}~{u}^a~\text{(m s^{-1})}", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)}~{u}^a~\text{(m s^{-1})}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~{v}^a~\text{(m s^{-1})}", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_f = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(f)}~{v}^a~\text{(m s^{-1})}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_g = Axis(gabc[4,1]; titlealign = :left, title=L"\text{(g)}~{w}^a~\text{(10^{-3}m s^{-1})}", xlabel = "x (km)", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_h = Axis(gabc[4,2]; titlealign = :left, title=L"\text{(h)}~{w}^a~\text{(10^{-3}m s^{-1})}", xlabel = "x (km)", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_i = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(i)}~{U}_x^a~\text{(10^{-6}s^{-1})}", xlabel = "x (km)", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_j = Axis(gabc[5,2]; titlealign = :left, title=L"\text{(j)}~{U}_x^a~\text{(10^{-6}s^{-1})}", xlabel = "x (km)", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
 rmin, rmax = -0.5, 0.5
 hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz],shift(mean(interior(Ti,:,yrange1,kz:Nz),dims=2)[:,1,:]).-20; rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x, z[kz:Nz], (mean(interior(Ti,:,yrange2,kz:Nz),dims=2)[:,1,:]).-20; rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
@@ -286,27 +272,32 @@ hm_d = heatmap!(ax_d, 1e-3x, z[kz:Nz], (mean(interior(ui,:,yrange2,kz:Nz),dims=2
 rmin, rmax = -0.2, 0.2
 hm_e = heatmap!(ax_e, 1e-3x.-50, z[kz:Nz], shift(mean(interior(vi,:,yrange1,kz:Nz),dims=2)[:,1,:]); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
 hm_f = heatmap!(ax_f, 1e-3x, z[kz:Nz], (mean(interior(vi,:,yrange2,kz:Nz),dims=2)[:,1,:]); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
-rmin, rmax = -5, 5
+rmin, rmax = -1, 1
 hm_g = heatmap!(ax_g, 1e-3x.-50, z[kz:Nz], 1e3shift(mean(interior(wi,:,yrange1,kz:Nz),dims=2)[:,1,:]); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
 hm_h = heatmap!(ax_h, 1e-3x, z[kz:Nz], 1e3(mean(interior(wi,:,yrange2,kz:Nz),dims=2)[:,1,:]); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
-
+rmin, rmax = -3, 3
+hm_i = heatmap!(ax_i, 1e-3x.-50, z[kz:Nz], 1e6xhift(mean(interior(Uₓ,:,yrange1,kz:Nz),dims=2)[:,1,:]); rasterize = true, colormap = :balance, colorrange = (rmin, rmax))
+hm_j = heatmap!(ax_j, 1e-3x, z[kz:Nz], 1e6yshift(mean(interior(Uₓ,:,yrange2,kz:Nz),dims=2)[:,1,:]); rasterize = true, colormap = :balance, colorrange = (rmin, rmax))
 Colorbar(gabc[1,3], hm_b)
 Colorbar(gabc[2,3], hm_d)
 Colorbar(gabc[3,3], hm_f)
 Colorbar(gabc[4,3], hm_h)
+Colorbar(gabc[5,3], hm_i)
 hidexdecorations!(ax_a, ticks = false)
 hidexdecorations!(ax_b, ticks = false)
 hidexdecorations!(ax_c, ticks = false)
 hidexdecorations!(ax_d, ticks = false)
 hidexdecorations!(ax_e, ticks = false)
 hidexdecorations!(ax_f, ticks = false)
+hidexdecorations!(ax_g, ticks = false)
+hidexdecorations!(ax_h, ticks = false)
 Label(gabc[0, 1], L"\text{Unstable front}", tellwidth = false)
 Label(gabc[0, 2], L"\text{Stable front}", tellwidth = false)
 rowgap!(gabc, 3)
 colgap!(gabc, 1, 10)
 colgap!(gabc, 2, 1)
 resize_to_layout!(fig)
-save(filesave * "Tuvwzfields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
+save(filesave * "TuvwUxzfields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
 
 ######################
 x, y, _ = nodes(h0);
@@ -344,6 +335,121 @@ colgap!(gabc, 1, 15)
 colgap!(gabc, 2, 3)
 resize_to_layout!(fig)
 save(filesave * "MLDBLDfields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
+
+xrange1 = pB[1] .< 1e-3x.-50 .<= pB[1]+lx
+yrange1 = pB[2]-ly .< 1e-3y.-50 .<= pB[2]
+xrange2 = pC[1] .< 1e-3x .<= pC[1]+lx
+yrange2 = pC[2]-ly .< 1e-3y.-50 .<= pC[2]
+jidx = 1:2:161
+tsh0 = zeros(size(snapshots,1))
+for j = 1:2:161
+    h0 = compute!(MLD(snapshots,j; threshold = 0.09));
+    h1 = compute!(BLD(snapshots,j));
+    xhift(interior(h0,xrange1,yrange1,1))
+end
+
+######################
+ωz = compute!(Field(@at (Center, Center, Center) ∂x(ṽi) - ∂y(ũi) + f));
+ωx = compute!(Field(∂y(w̃i) - ∂z(ṽi)));
+ωy = compute!(Field(∂z(ũi) - ∂x(w̃i)));
+R̃i = compute!(Field(@at (Center, Center, Center) ∂z(b̃i)/(∂z(ũi)^2 + ∂z(ṽi)^2)));
+using JLD2
+data = jldopen("results/PV_hydrostatic_d6.jld2", "r");
+q̃i = CenterField(Ti.grid); #compute!(Field(ωz * ∂z(b̃i) + ωx * ∂x(b̃i) + ωy * ∂y(b̃i)));
+#jldsave("results/PV_hydrostatic_d6.jld2", PV = interior(q̃i,:,:,:))
+set!(q̃i, data["PV"]);
+fill_halo_regions!(q̃i)
+insti = classify_instability(f, q̃i, ωz, R̃i)
+
+# Category names for plotting
+const CATEGORY_NAMES = ["Stable", "I/SI", "SI", "SI/G", "G"]
+# Define a discrete colormap for categories 
+const CATEGORY_COLORS = [:white, "#8dd3c7", "#ffffb3", "#bebada", "#fb8072"]
+
+x, y, z = nodes(ωz);
+cmap = :curl
+k = 202
+fig = Figure(size = (640, 590))
+gabc = fig[1, 1] = GridLayout()
+axis_kwargs = (ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
+ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{q}/(N_s^2 f),~z=-25.3~\text{(m)}", axis_kwargs...)
+ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)}~\tilde{q}/(N_s^2 f),~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2])))
+ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Ri},~z=-25.3~\text{(m)}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_d = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(d)~Ri},~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
+ax_e = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(e)}~\tilde{\zeta}/f,~z=-25.3~\text{(m)}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_f = Axis(gabc[5,2]; titlealign = :left, title=L"\text{(f)}~\tilde{\zeta}/f,~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
+ax_g = Axis(gabc[7,1]; titlealign = :left, title=L"\text{(e)~Instabilities,}~z=-25.3~\text{(m)}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_h = Axis(gabc[7,2]; titlealign = :left, title=L"\text{(f)~Instabilities,}~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
+rmin, rmax = -3, 3
+hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y.-50, xhift(interior(q̃i,:,:,k))./(f*N²s); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_b = heatmap!(ax_b, 1e-3x, 1e-3y.-50, yshift(interior(q̃i,:,:,k))./(f*N²s); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+rmin, rmax = -5, 5
+hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-50, xhift(interior(R̃i,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_d = heatmap!(ax_d, 1e-3x, 1e-3y.-50, yshift(interior(R̃i,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+rmin, rmax = -3, 3
+hm_e = heatmap!(ax_e, 1e-3x.-50, 1e-3y.-50, xhift(interior(ωz,:,:,k))./f.-1; rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_f = heatmap!(ax_f, 1e-3x, 1e-3y.-50, yshift(interior(ωz,:,:,k))./f.-1; rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+rmin, rmax = -0.5, 4.5
+hm_g = heatmap!(ax_g, 1e-3x.-50, 1e-3y.-50, xhift(interior(insti,:,:,k)); rasterize = true, colormap = CATEGORY_COLORS, colorrange = (rmin, rmax))
+hm_h = heatmap!(ax_h, 1e-3x, 1e-3y.-50, yshift(interior(insti,:,:,k)); rasterize = true, colormap = CATEGORY_COLORS, colorrange = (rmin, rmax))
+Colorbar(gabc[1,3], hm_b)
+Colorbar(gabc[3,3], hm_d)
+Colorbar(gabc[5,3], hm_f)
+Colorbar(gabc[7,3], hm_h, label="Category", ticks = (0:4, CATEGORY_NAMES))
+hidexdecorations!(ax_a, ticks = false)
+hidexdecorations!(ax_b, ticks = false)
+hidexdecorations!(ax_c, ticks = false)
+hidexdecorations!(ax_d, ticks = false)
+hidexdecorations!(ax_e, ticks = false)
+hidexdecorations!(ax_f, ticks = false)
+hidexdecorations!(ax_g, ticks = false)
+hidexdecorations!(ax_h, ticks = false)
+
+zmin = -70
+kz = findlast(z .< zmin)
+Nz = length(z)
+yrange1 = findfirst(p2[1][2]-ly .< 1e-3*y .- 100):findlast(1e-3*y .- 100 .<= p2[1][2]) 
+yrange2 = findfirst(p2[2][2]-ly .< 1e-3*y .- 100):findlast(1e-3*y .- 100 .<= p2[2][2]) 
+axis_kwargs = (ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0)))
+ax_a = Axis(gabc[2,1]; titlealign = :left, axis_kwargs...)
+ax_b = Axis(gabc[2,2]; titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_c = Axis(gabc[4,1]; titlealign = :left, ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_d = Axis(gabc[4,2]; titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_e = Axis(gabc[6,1]; titlealign = :left, ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_f = Axis(gabc[6,2]; titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+rmin, rmax = -3, 3
+hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz],shift(mean(interior(q̃i,:,yrange1,kz:Nz),dims=2))./(f*N²s); rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
+hm_b = heatmap!(ax_b, 1e-3x, z[kz:Nz], mean(interior(q̃i,:,yrange2,kz:Nz),dims=2)./(f*N²s); rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
+rmin, rmax = -5, 5
+hm_c = heatmap!(ax_c, 1e-3x.-50, z[kz:Nz], shift(mean(interior(R̃i,:,jc,kz:Nz),dims=2)); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
+hm_d = heatmap!(ax_d, 1e-3x, z[kz:Nz], mean(interior(R̃i,:,ja+Δj,kz:Nz),dims=2); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
+rmin, rmax = -3, 3
+hm_e = heatmap!(ax_e, 1e-3x.-50, z[kz:Nz], shift(mean(interior(ωz,:,jc,kz:Nz),dims=2))./f.-1; rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
+hm_f = heatmap!(ax_f, 1e-3x, z[kz:Nz], mean(interior(ωz,:,ja+Δj,kz:Nz),dims=2)./f.-1; rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
+Label(gabc[0, 1], L"\text{Unstable front}", tellwidth = false)
+Label(gabc[0, 2], L"\text{Stable front}", tellwidth = false)
+rowgap!(gabc, 3)
+colgap!(gabc, 1, 15)
+colgap!(gabc, 2, 3)
+for row = [2,4,6]
+    rowsize!(gabc, row, Relative(0.1))
+end
+resize_to_layout!(fig)
+save(filesave * "PVRifields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
+#######################
+
+# Current feedback on stress
+θ, τ, ρ₀=parameters.θ,parameters.τw,parameters.ρ₀
+τ̅x,τ̅y=-τ*sind(θ),-τ*cosd(θ)
+EBFτ̅ = compute!(Field(@at (Center, Center, Face) (τ̅y * ∂x(b̃i) - τ̅x * ∂y(b̃i))/f/ρ₀))
+ρₐ = 1.225; # kg/m³
+cd = 0.001; # Drag coefficient
+Uₐ = sqrt(τ / (ρₐ * cd)); # Wind speed at the surface
+Uₐx, Uₐy = Uₐ * cosd(θ), Uₐ * sind(θ) # Wind speed at the surface
+Unorm = compute!(Field(sqrt((Uₐx + ũi)^2 + (Uₐy + ṽi)^2))); # Wind speed at the surface
+τx = compute!(Field(- ρₐ * cd * Unorm * (Uₐx + ũi)));
+τy = compute!(Field(- ρₐ * cd * Unorm * (Uₐy + ṽi)));
+EBFτ′ = compute!(Field(-EBFτ̅ + (τy * ∂x(b̃i) - τx * ∂y(b̃i))/f/ρ₀))
 
 ########################
 x, y, z = nodes(wi);
