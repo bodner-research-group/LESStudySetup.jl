@@ -895,3 +895,159 @@ function MLI(snapshots, i; kernel=:tophat, scale=20kilometer)
 
     return MLaverage(snapshots,i,compute!(Field(μ * ∇b^2)); kernel, scale) * H^2 / f
 end
+
+# Define instability category constants as per your request
+const STABLE = 0
+const I_SI   = 1  # Inertial/symmetric instability
+const SI     = 2  # Symmetric instability
+const SI_G   = 3  # Symmetric/gravitational instability
+const G      = 4  # Gravitational Instability
+
+"""
+    _classify_instability_kernel!(categories, f, q, ωz, Ri)
+
+An Oceananigans.jl kernel function to classify instability at each grid point (i, j, k).
+
+Arguments:
+- `categories`: The output 3D field where integer category codes will be stored.
+- `f`: Coriolis frequency (scalar).
+- `q`: Potential vorticity (3D field).
+- `ωz`: Vertical component of vorticity (3D field).
+- `Ri`: Richardson number (3D field).
+"""
+@kernel function _classify_instability_kernel!(categories, f, q, ωz, Ri)
+    i, j, k = @index(Global, NTuple)
+
+    # Default to Stable
+    category_value = STABLE
+
+    ϕRi = atan(-1/Ri[i, j, k])
+    ϕRo = atan(-ωz[i, j, k]/f)
+    if q[i, j, k] < 0  # Check for instability prerequisite
+        # Anticyclonic Vorticity Condition: ωz < f
+        if ωz[i, j, k] < f
+            if -π/4 < ϕRi && ϕRi <= ϕRo
+                category_value = I_SI
+            elseif -π/2 < ϕRi && ϕRi <= -π/4
+                category_value = SI
+            elseif -3π/4 < ϕRi && ϕRi <= -π/2
+                category_value = SI_G
+            elseif -π <= ϕRi && ϕRi <= -3π/4
+                category_value = G
+            elseif ϕRo < ϕRi && ϕRi <= 0
+                category_value = STABLE # Stable case within q < 0
+            end
+        # Cyclonic Vorticity Condition: ωz > f
+        elseif ωz[i, j, k] > f
+            # Note: No I/SI for cyclonic case in the table
+            if -π/2 < ϕRi && ϕRi <= ϕRo # SI condition uses ϕRo here
+                category_value = SI
+            elseif -3π/4 < ϕRi && ϕRi <= -π/2
+                category_value = SI_G
+            elseif -π <= ϕRi && ϕRi <= -3π/4
+                category_value = G
+            elseif ϕRo < ϕRi && ϕRi <= 0
+                category_value = STABLE # Stable case within q < 0
+            end
+        # If ωz[i, j, k] == f, it remains STABLE (0) if q < 0 but no other conditions met,
+        # as category_value was initialized to STABLE.
+        end
+    else # q[i, j, k] >= 0
+        category_value = STABLE # Stable if potential vorticity is not negative
+    end
+    categories[i, j, k] = category_value
+end
+
+"""
+    classify_instability(f, q, ωz, Ri)
+
+Returns a field of instability categories based on input oceanographic fields.
+
+Arguments:
+- `f`: Coriolis frequency (scalar, s^{-1}).
+- `q`: Potential vorticity (Oceananigans.jl field, s^{-3}).
+- `ωz`: Vertical component of relative vorticity (Oceananigans.jl field, s^{-1}).
+         The table specifies `ωz > f` for cyclonic and `ωz < f` for anticyclonic.
+- `Ri`: the Richardson number (Oceananigans.jl field).
+
+Returns:
+- `categories`: An Oceananigans.jl `Field` containing integer codes:
+    - 0: Stable (S)
+    - 1: Inertial/symmetric instability (I/SI)
+    - 2: Symmetric instability (SI)
+    - 3: Symmetric/gravitational instability (SI/G)
+    - 4: Gravitational Instability (G)
+
+Assumes `q`, `ωz`, `Ri` are all defined on the same `grid` and at the same cell locations.
+"""
+function classify_instability(f, q, ωz, Ri)
+    
+    grid = q.grid
+    arch = architecture(grid)
+    # Assumes q, ωz, ϕRi, ϕRo are all at the same location (e.g., Center, Center, Center)
+    # Create an output field for the categories. It must store integers.
+    # Initialize with STABLE (0). The kernel also sets a default for each point.
+    categories = Field{Center, Center, Center}(grid, eltype=Int)
+    # fill!(categories, STABLE) # Optional: kernel initializes each point anyway
+
+    # Launch the kernel function to populate the categories field
+    launch!(arch, grid, :xyz, 
+            _classify_instability_kernel!, 
+            categories, f, q, ωz, Ri)
+
+    return categories
+end
+
+# --- Helper function to calculate categories for 2D averaged data ---
+# This function replicates the logic from `_classify_instability_kernel!`
+# but operates on 2D arrays directly.
+function calculate_instability_categories_2d(f, q_2d, ωz_2d, Ri_2d)
+    Nx, Nz = size(q_2d)
+    categories_2d = zeros(Int, Nx, Nz) # Initialize with STABLE
+
+    for k_idx in 1:Nz # z-dimension
+        for i_idx in 1:Nx # x-dimension
+            q_val = q_2d[i_idx, k_idx]
+            ωz_val = ωz_2d[i_idx, k_idx]
+            ϕRi_val = atan(-1/Ri_2d[i_idx, k_idx])
+            ϕRo_val = atan(-ωz_2d[i_idx, k_idx]/f)
+            
+            category_value = STABLE # Default for current point
+
+            if q_val < 0
+                if ωz_val < f_scalar # Anticyclonic
+                    if -π/4 < ϕRi_val && ϕRi_val <= ϕRo_val
+                        category_value = I_SI
+                    elseif -π/2 < ϕRi_val && ϕRi_val <= -π/4
+                        category_value = SI
+                    elseif -3π/4 < ϕRi_val && ϕRi_val <= -π/2
+                        category_value = SI_G
+                    elseif -π <= ϕRi_val && ϕRi_val <= -3π/4
+                        category_value = G
+                    elseif ϕRo_val < ϕRi_val && ϕRi_val <= 0 
+                        category_value = STABLE
+                    # If none of the above, it remains STABLE due to initialization if q_val < 0 and no specific instability or the explicit stable condition is met.
+                    # However, for clarity and to ensure it's STABLE if no other instability type within q<0, ωz<f is found:
+                    # else category_value = STABLE; (already set, but good to keep in mind)
+                    end
+                elseif ωz_val > f_scalar # Cyclonic
+                    if -π/2 < ϕRi_val && ϕRi_val <= ϕRo_val
+                        category_value = SI
+                    elseif -3π/4 < ϕRi_val && ϕRi_val <= -π/2
+                        category_value = SI_G
+                    elseif -π <= ϕRi_val && ϕRi_val <= -3π/4
+                        category_value = G
+                    elseif ϕRo_val < ϕRi_val && ϕRi_val <= 0
+                        category_value = STABLE
+                    # else category_value = STABLE; (as above)
+                    end
+                # If ωz_val == f_scalar, it remains STABLE (as initialized)
+                end
+            else # q_val >= 0
+                category_value = STABLE
+            end
+            categories_2d[i_idx, k_idx] = category_value
+        end
+    end
+    return categories_2d
+end
