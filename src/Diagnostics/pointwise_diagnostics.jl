@@ -987,7 +987,7 @@ function classify_instability(f, q, ωz, Ri)
     # Assumes q, ωz, ϕRi, ϕRo are all at the same location (e.g., Center, Center, Center)
     # Create an output field for the categories. It must store integers.
     # Initialize with STABLE (0). The kernel also sets a default for each point.
-    categories = Field{Center, Center, Center}(grid, eltype=Int)
+    categories = Field{Center, Center, Center}(grid)
     # fill!(categories, STABLE) # Optional: kernel initializes each point anyway
 
     # Launch the kernel function to populate the categories field
@@ -1015,7 +1015,7 @@ function calculate_instability_categories_2d(f, q_2d, ωz_2d, Ri_2d)
             category_value = STABLE # Default for current point
 
             if q_val < 0
-                if ωz_val < f_scalar # Anticyclonic
+                if ωz_val < f # Anticyclonic
                     if -π/4 < ϕRi_val && ϕRi_val <= ϕRo_val
                         category_value = I_SI
                     elseif -π/2 < ϕRi_val && ϕRi_val <= -π/4
@@ -1030,7 +1030,7 @@ function calculate_instability_categories_2d(f, q_2d, ωz_2d, Ri_2d)
                     # However, for clarity and to ensure it's STABLE if no other instability type within q<0, ωz<f is found:
                     # else category_value = STABLE; (already set, but good to keep in mind)
                     end
-                elseif ωz_val > f_scalar # Cyclonic
+                elseif ωz_val > f # Cyclonic
                     if -π/2 < ϕRi_val && ϕRi_val <= ϕRo_val
                         category_value = SI
                     elseif -3π/4 < ϕRi_val && ϕRi_val <= -π/2
@@ -1041,7 +1041,7 @@ function calculate_instability_categories_2d(f, q_2d, ωz_2d, Ri_2d)
                         category_value = STABLE
                     # else category_value = STABLE; (as above)
                     end
-                # If ωz_val == f_scalar, it remains STABLE (as initialized)
+                # If ωz_val == f, it remains STABLE (as initialized)
                 end
             else # q_val >= 0
                 category_value = STABLE

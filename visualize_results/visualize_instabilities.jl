@@ -119,10 +119,10 @@ rmin, rmax = 0, 1
 hcolor, scolor = [:blue,:green], :black
 fig = Figure(size = (640, 720))
 gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (-50, 50)))
+axis_kwargs = (ylabel = L"y~\text{(km)}", aspect=1, limits = ((-50, 50), (-50, 50)))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\nabla{\tilde{b}}/M_0^2,~z=-2.8~\text{m}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)}~\nabla{\tilde{b}}/M_0^2,~z=-25.3~\text{m}", aspect=1, limits = ((0, 100), (-50, 50)))
-ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Unstable front},~z=-25.3~\text{m}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Unstable front},~z=-25.3~\text{m}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_d = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(d)~Stable front},~z=-25.3~\text{m}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
 hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y.-50, scale * xhift(interior(var,:,:,k+20)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x, 1e-3y.-50, scale * yshift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
@@ -149,12 +149,12 @@ jc = 9*64
 Δj = 64
 kz = findlast(z .< zmin)
 Nz = length(z)
-axis_kwargs0 = (xlabel = "x (km)", ylabel = "z (m)", limits = ((-50, 50), (zmin, 0)))
+axis_kwargs0 = (xlabel = L"x~\text{(km)}", ylabel = L"z~\text{(m)}", limits = ((-50, 50), (zmin, 0)))
 axis_kwargs1 = NamedTuple{(:xlabel,:ylabel)}(axis_kwargs0)
 ax_a = Axis(gabc[2,1]; titlealign = :left, title=L"y=0~\text{km}", axis_kwargs0...)
-ax_b = Axis(gabc[2,2]; titlealign = :left, title=L"y=-50~\text{km}", xlabel = "x (km)", limits = ((0, 100), (zmin, 0)))
+ax_b = Axis(gabc[2,2]; titlealign = :left, title=L"y=-50~\text{km}", xlabel = L"x~\text{(km)}", limits = ((0, 100), (zmin, 0)))
 ax_c = Axis(gabc[4,1]; titlealign = :left, title=L"y=-10~\text{km}", limits = ((pB[1], pB[1]+lx), (zmin, 0)), axis_kwargs1...)
-ax_d = Axis(gabc[4,2]; titlealign = :left, title=L"y=-40~\text{km}", xlabel = "x (km)", limits = ((pC[1], pC[1]+lx), (zmin, 0)))
+ax_d = Axis(gabc[4,2]; titlealign = :left, title=L"y=-40~\text{km}", xlabel = L"x~\text{(km)}", limits = ((pC[1], pC[1]+lx), (zmin, 0)))
 vmin, vmax = rmin, rmax
 hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz], scale*shift(interior(var,:,2ja,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
 hm_b = heatmap!(ax_b, 1e-3x, z[kz:Nz], scale*(interior(var,:,ja,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
@@ -195,17 +195,17 @@ k = 202;
 bmap, vmap = :diff,:delta
 fig = Figure(size = (640, 920))
 gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
+axis_kwargs = (ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{b}\prime~\text{(10^{-3}m s^{-2})}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)}~\tilde{b}\prime~\text{(10^{-3}m s^{-2})}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2])))
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)}~\tilde{u}\prime~\text{(m s^{-1})}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)}~\tilde{u}\prime~\text{(m s^{-1})}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)}~\tilde{u}\prime~\text{(m s^{-1})}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
-ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~\tilde{v}\prime~\text{(m s^{-1})}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~\tilde{v}\prime~\text{(m s^{-1})}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_f = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(f)}~\tilde{v}\prime~\text{(m s^{-1})}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
-ax_g = Axis(gabc[4,1]; titlealign = :left, title=L"\text{(g)}~\tilde{w}\prime~\text{(m s^{-1})}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_g = Axis(gabc[4,1]; titlealign = :left, title=L"\text{(g)}~\tilde{w}\prime~\text{(m s^{-1})}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_h = Axis(gabc[4,2]; titlealign = :left, title=L"\text{(h)}~\tilde{w}\prime~\text{(m s^{-1})}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
-ax_i = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(i)}~{U}_x~\text{(10^{-6}s^{-1})}", xlabel = "x (km)", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
-ax_j = Axis(gabc[5,2]; titlealign = :left, title=L"\text{(j)}~{U}_x~\text{(10^{-6}s^{-1})}", xlabel = "x (km)", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
+ax_i = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(i)}~{U}_x~\text{(10^{-6}s^{-1})}", xlabel = L"x~\text{(km)}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_j = Axis(gabc[5,2]; titlealign = :left, title=L"\text{(j)}~{U}_x~\text{(10^{-6}s^{-1})}", xlabel = L"x~\text{(km)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
 rmin, rmax = -1, 1
 hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y.-50,1e3xhift(interior(b′,:,:,k)); rasterize = true, colormap = bmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x, 1e-3y.-50,1e3yshift(interior(b′,:,:,k)); rasterize = true, colormap = bmap, colorrange = (rmin, rmax))
@@ -252,17 +252,17 @@ kz = findlast(z .< zmin)
 Nz = length(z)
 fig = Figure(size = (640, 920))
 gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0)))
+axis_kwargs = (ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0)))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~{T}^a-20~\text{({^\circ}C)}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)}~{T}^a-20~\text{({^\circ}C)}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)}~{u}^a~\text{(m s^{-1})}", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)}~{u}^a~\text{(m s^{-1})}", ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
 ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)}~{u}^a~\text{(m s^{-1})}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~{v}^a~\text{(m s^{-1})}", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~{v}^a~\text{(m s^{-1})}", ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
 ax_f = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(f)}~{v}^a~\text{(m s^{-1})}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_g = Axis(gabc[4,1]; titlealign = :left, title=L"\text{(g)}~{w}^a~\text{(10^{-3}m s^{-1})}", xlabel = "x (km)", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
-ax_h = Axis(gabc[4,2]; titlealign = :left, title=L"\text{(h)}~{w}^a~\text{(10^{-3}m s^{-1})}", xlabel = "x (km)", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_i = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(i)}~{U}_x^a~\text{(10^{-6}s^{-1})}", xlabel = "x (km)", ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
-ax_j = Axis(gabc[5,2]; titlealign = :left, title=L"\text{(j)}~{U}_x^a~\text{(10^{-6}s^{-1})}", xlabel = "x (km)", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_g = Axis(gabc[4,1]; titlealign = :left, title=L"\text{(g)}~{w}^a~\text{(10^{-3}m s^{-1})}", xlabel = L"x~\text{(km)}", ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_h = Axis(gabc[4,2]; titlealign = :left, title=L"\text{(h)}~{w}^a~\text{(10^{-3}m s^{-1})}", xlabel = L"x~\text{(km)}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_i = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(i)}~{U}_x^a~\text{(10^{-6}s^{-1})}", xlabel = L"x~\text{(km)}", ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_j = Axis(gabc[5,2]; titlealign = :left, title=L"\text{(j)}~{U}_x^a~\text{(10^{-6}s^{-1})}", xlabel = L"x~\text{(km)}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
 rmin, rmax = -0.5, 0.5
 hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz],shift(mean(interior(Ti,:,yrange1,kz:Nz),dims=2)[:,1,:]).-20; rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x, z[kz:Nz], (mean(interior(Ti,:,yrange2,kz:Nz),dims=2)[:,1,:]).-20; rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
@@ -304,13 +304,13 @@ x, y, _ = nodes(h0);
 cmap = :deep
 fig = Figure(size = (640, 590))
 gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
+axis_kwargs = (ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)~MLD}~h_D~\text{(m)}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~MLD}~h_D~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2])))
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~BLD}~h_K~\text{(m)}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~BLD}~h_K~\text{(m)}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~BLD}~h_K~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
-ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~h_D-h_K~\text{(m)}", xlabel = "x (km)",ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
-ax_f = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(f)}~h_D-h_K~\text{(m)}", xlabel = "x (km)",aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
+ax_e = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(e)}~h_D-h_K~\text{(m)}", xlabel = L"x~\text{(km)}",ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_f = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(f)}~h_D-h_K~\text{(m)}", xlabel = L"x~\text{(km)}",aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
 rmin, rmax = 50, 70
 hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y.-50, xhift(interior(h0,:,:,1)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x, 1e-3y.-50, yshift(interior(h0,:,:,1)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
@@ -359,43 +359,43 @@ q̃i = CenterField(Ti.grid); #compute!(Field(ωz * ∂z(b̃i) + ωx * ∂x(b̃i)
 #jldsave("results/PV_hydrostatic_d6.jld2", PV = interior(q̃i,:,:,:))
 set!(q̃i, data["PV"]);
 fill_halo_regions!(q̃i)
-insti = classify_instability(f, q̃i, ωz, R̃i)
+insti = classify_instability(f, q̃i, ωz, R̃i);
 
 # Category names for plotting
 const CATEGORY_NAMES = ["Stable", "I/SI", "SI", "SI/G", "G"]
 # Define a discrete colormap for categories 
-const CATEGORY_COLORS = [:white, "#8dd3c7", "#ffffb3", "#bebada", "#fb8072"]
+COLORS = cgrad([:white, "#8dd3c7", "#fb8072", "#bebada", "#ffffb3"],5, categorical = true)
 
 x, y, z = nodes(ωz);
 cmap = :curl
 k = 202
-fig = Figure(size = (640, 590))
+fig = Figure(size = (640, 990))
 gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
+axis_kwargs = (ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2])))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{q}/(N_s^2 f),~z=-25.3~\text{(m)}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)}~\tilde{q}/(N_s^2 f),~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2])))
-ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Ri},~z=-25.3~\text{(m)}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Ri},~z=-25.3~\text{(m)}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_d = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(d)~Ri},~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
-ax_e = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(e)}~\tilde{\zeta}/f,~z=-25.3~\text{(m)}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_e = Axis(gabc[5,1]; titlealign = :left, title=L"\text{(e)}~\tilde{\zeta}/f,~z=-25.3~\text{(m)}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_f = Axis(gabc[5,2]; titlealign = :left, title=L"\text{(f)}~\tilde{\zeta}/f,~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
-ax_g = Axis(gabc[7,1]; titlealign = :left, title=L"\text{(e)~Instabilities,}~z=-25.3~\text{(m)}", ylabel = "y (km)", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
+ax_g = Axis(gabc[7,1]; titlealign = :left, title=L"\text{(e)~Instabilities,}~z=-25.3~\text{(m)}", ylabel = L"y~\text{(km)}", aspect=8/5, limits = ((pB[1], pB[1]+lx), (pB[2]-ly,pB[2]))) 
 ax_h = Axis(gabc[7,2]; titlealign = :left, title=L"\text{(f)~Instabilities,}~z=-25.3~\text{(m)}", aspect=8/5, limits = ((pC[1], pC[1]+lx), (pC[2]-ly, pC[2]))) 
-rmin, rmax = -3, 3
+rmin, rmax = -5, 5
 hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y.-50, xhift(interior(q̃i,:,:,k))./(f*N²s); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x, 1e-3y.-50, yshift(interior(q̃i,:,:,k))./(f*N²s); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 rmin, rmax = -5, 5
-hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-50, xhift(interior(R̃i,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_d = heatmap!(ax_d, 1e-3x, 1e-3y.-50, yshift(interior(R̃i,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-50, xhift(interior(R̃i,:,:,k)); rasterize = true, colormap = :balance, colorrange = (rmin, rmax))
+hm_d = heatmap!(ax_d, 1e-3x, 1e-3y.-50, yshift(interior(R̃i,:,:,k)); rasterize = true, colormap = :balance, colorrange = (rmin, rmax))
 rmin, rmax = -3, 3
 hm_e = heatmap!(ax_e, 1e-3x.-50, 1e-3y.-50, xhift(interior(ωz,:,:,k))./f.-1; rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 hm_f = heatmap!(ax_f, 1e-3x, 1e-3y.-50, yshift(interior(ωz,:,:,k))./f.-1; rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 rmin, rmax = -0.5, 4.5
-hm_g = heatmap!(ax_g, 1e-3x.-50, 1e-3y.-50, xhift(interior(insti,:,:,k)); rasterize = true, colormap = CATEGORY_COLORS, colorrange = (rmin, rmax))
-hm_h = heatmap!(ax_h, 1e-3x, 1e-3y.-50, yshift(interior(insti,:,:,k)); rasterize = true, colormap = CATEGORY_COLORS, colorrange = (rmin, rmax))
+hm_g = heatmap!(ax_g, 1e-3x.-50, 1e-3y.-50, xhift(interior(insti,:,:,k)); rasterize = true, colormap = COLORS, colorrange = (rmin, rmax))
+hm_h = heatmap!(ax_h, 1e-3x, 1e-3y.-50, yshift(interior(insti,:,:,k)); rasterize = true, colormap = COLORS, colorrange = (rmin, rmax))
 Colorbar(gabc[1,3], hm_b)
 Colorbar(gabc[3,3], hm_d)
 Colorbar(gabc[5,3], hm_f)
-Colorbar(gabc[7,3], hm_h, label="Category", ticks = (0:4, CATEGORY_NAMES))
+Colorbar(gabc[7,3], hm_h, ticks = (0:4, CATEGORY_NAMES))
 hidexdecorations!(ax_a, ticks = false)
 hidexdecorations!(ax_b, ticks = false)
 hidexdecorations!(ax_c, ticks = false)
@@ -405,37 +405,56 @@ hidexdecorations!(ax_f, ticks = false)
 hidexdecorations!(ax_g, ticks = false)
 hidexdecorations!(ax_h, ticks = false)
 
-zmin = -70
+zmin = -60
 kz = findlast(z .< zmin)
 Nz = length(z)
 yrange1 = findfirst(p2[1][2]-ly .< 1e-3*y .- 100):findlast(1e-3*y .- 100 .<= p2[1][2]) 
 yrange2 = findfirst(p2[2][2]-ly .< 1e-3*y .- 100):findlast(1e-3*y .- 100 .<= p2[2][2]) 
-axis_kwargs = (ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0)))
-ax_a = Axis(gabc[2,1]; titlealign = :left, axis_kwargs...)
-ax_b = Axis(gabc[2,2]; titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_c = Axis(gabc[4,1]; titlealign = :left, ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
-ax_d = Axis(gabc[4,2]; titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-ax_e = Axis(gabc[6,1]; titlealign = :left, ylabel = "z (m)", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
-ax_f = Axis(gabc[6,2]; titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
-rmin, rmax = -3, 3
-hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz],shift(mean(interior(q̃i,:,yrange1,kz:Nz),dims=2))./(f*N²s); rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
-hm_b = heatmap!(ax_b, 1e-3x, z[kz:Nz], mean(interior(q̃i,:,yrange2,kz:Nz),dims=2)./(f*N²s); rasterize = true, colormap = Tmap, colorrange = (rmin, rmax))
+qᵃ₁,qᵃ₂ = shift(mean(interior(q̃i,:,yrange1,kz:Nz),dims=2)[:,1,:]),mean(interior(q̃i,:,yrange2,kz:Nz),dims=2)[:,1,:];
+riᵃ₁,riᵃ₂ = shift(mean(interior(R̃i,:,yrange1,kz:Nz),dims=2)[:,1,:]),mean(interior(R̃i,:,yrange2,kz:Nz),dims=2)[:,1,:];
+ωzᵃ₁,ωzᵃ₂ = shift(mean(interior(ωz,:,yrange1,kz:Nz),dims=2)[:,1,:]),mean(interior(ωz,:,yrange2,kz:Nz),dims=2)[:,1,:];
+instᵃ₁,instᵃ₂ = calculate_instability_categories_2d(f, qᵃ₁, ωzᵃ₁, riᵃ₁),calculate_instability_categories_2d(f, qᵃ₂, ωzᵃ₂, riᵃ₂);
+axis_kwargs = (ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0)))
+ax_a = Axis(gabc[2,1]; yticks = -60:20:0, titlealign = :left, axis_kwargs...)
+ax_b = Axis(gabc[2,2]; yticks = -60:20:0, titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_c = Axis(gabc[4,1]; yticks = -60:20:0, titlealign = :left, ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_d = Axis(gabc[4,2]; yticks = -60:20:0, titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_e = Axis(gabc[6,1]; yticks = -60:20:0, titlealign = :left, ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_f = Axis(gabc[6,2]; yticks = -60:20:0, titlealign = :left, limits = ((pC[1], pC[1]+lx), (zmin,0))) 
+ax_g = Axis(gabc[8,1]; yticks = -60:20:0, titlealign = :left, xlabel = L"x~\text{(km)}", ylabel = L"z~\text{(m)}", limits = ((pB[1], pB[1]+lx), (zmin,0))) 
+ax_h = Axis(gabc[8,2]; yticks = -60:20:0, titlealign = :left, xlabel = L"x~\text{(km)}", limits = ((pC[1], pC[1]+lx), (zmin,0))) 
 rmin, rmax = -5, 5
-hm_c = heatmap!(ax_c, 1e-3x.-50, z[kz:Nz], shift(mean(interior(R̃i,:,jc,kz:Nz),dims=2)); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
-hm_d = heatmap!(ax_d, 1e-3x, z[kz:Nz], mean(interior(R̃i,:,ja+Δj,kz:Nz),dims=2); rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
+hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz],qᵃ₁./(f*N²s); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_b = heatmap!(ax_b, 1e-3x, z[kz:Nz], qᵃ₂./(f*N²s); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+rmin, rmax = -5, 5
+hm_c = heatmap!(ax_c, 1e-3x.-50, z[kz:Nz], riᵃ₁; rasterize = true, colormap = :balance, colorrange = (rmin, rmax))
+hm_d = heatmap!(ax_d, 1e-3x, z[kz:Nz], riᵃ₂; rasterize = true, colormap = :balance, colorrange = (rmin, rmax))
 rmin, rmax = -3, 3
-hm_e = heatmap!(ax_e, 1e-3x.-50, z[kz:Nz], shift(mean(interior(ωz,:,jc,kz:Nz),dims=2))./f.-1; rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
-hm_f = heatmap!(ax_f, 1e-3x, z[kz:Nz], mean(interior(ωz,:,ja+Δj,kz:Nz),dims=2)./f.-1; rasterize = true, colormap = vmap, colorrange = (rmin, rmax))
+hm_e = heatmap!(ax_e, 1e-3x.-50, z[kz:Nz], ωzᵃ₁./f.-1; rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_f = heatmap!(ax_f, 1e-3x, z[kz:Nz], ωzᵃ₂./f.-1; rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+rmin, rmax = -0.5, 4.5
+hm_g = heatmap!(ax_g, 1e-3x.-50, z[kz:Nz], instᵃ₁; rasterize = true, colormap = COLORS, colorrange = (rmin, rmax))
+hm_h = heatmap!(ax_h, 1e-3x, z[kz:Nz], instᵃ₂; rasterize = true, colormap = COLORS, colorrange = (rmin, rmax))
+Colorbar(gabc[2,3], hm_b)
+Colorbar(gabc[4,3], hm_d)
+Colorbar(gabc[6,3], hm_f)
+Colorbar(gabc[8,3], hm_h, ticks = (0:4, CATEGORY_NAMES))
+hidexdecorations!(ax_a, ticks = false)
+hidexdecorations!(ax_b, ticks = false)
+hidexdecorations!(ax_c, ticks = false)
+hidexdecorations!(ax_d, ticks = false)
+hidexdecorations!(ax_e, ticks = false)
+hidexdecorations!(ax_f, ticks = false)
 Label(gabc[0, 1], L"\text{Unstable front}", tellwidth = false)
 Label(gabc[0, 2], L"\text{Stable front}", tellwidth = false)
-rowgap!(gabc, 3)
+rowgap!(gabc, 5)
 colgap!(gabc, 1, 15)
 colgap!(gabc, 2, 3)
-for row = [2,4,6]
-    rowsize!(gabc, row, Relative(0.1))
+for row = [2,4,6,8]
+    rowsize!(gabc, row, Relative(0.06))
 end
 resize_to_layout!(fig)
-save(filesave * "PVRifields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
+save(filesave * "PVRiRoInsfields_" * fileparams * "_d6.pdf", fig; pt_per_unit = 1)
 #######################
 
 # Current feedback on stress
@@ -819,10 +838,10 @@ hcolor, scolor = :gray, :black
 h = compute!(MLD(snapshots,i; threshold = 0.1))
 fig = Figure(size = (640, 785))
 gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (0, 100)))
+axis_kwargs = (ylabel = L"y~\text{(km)}", aspect=1, limits = ((-50, 50), (0, 100)))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\langle{w^s}\rangle \langle{b^s}\rangle~\text{(10^{-7} m^2 s^{-3})},~z=-25~\text{m}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", aspect=1, limits = ((pA[1], pA[1]+lA), (pA[2]-lA, pA[2])))
-ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Region B}", ylabel = "y (km)", aspect=1, limits = ((pB[1], pB[1]+lB), (pB[2]-lB,pB[2]))) 
+ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Region B}", ylabel = L"y~\text{(km)}", aspect=1, limits = ((pB[1], pB[1]+lB), (pB[2]-lB,pB[2]))) 
 ax_d = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(d)~Region C}", aspect=1, limits = ((pC[1], pC[1]+lC), (pC[2]-lC, pC[2]))) 
 hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y, scale * shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 hm_b = heatmap!(ax_b, 1e-3x.-50, 1e-3y, scale * shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
@@ -863,12 +882,12 @@ jc = 9*64
 Δj = 40
 kz = findlast(z .< zmin)
 Nz = length(z)
-axis_kwargs0 = (xlabel = "x (km)", ylabel = "z (m)", limits = ((-50, 50), (zmin, 0)))
+axis_kwargs0 = (xlabel = L"x~\text{(km)}", ylabel = L"z~\text{(m)}", limits = ((-50, 50), (zmin, 0)))
 axis_kwargs1 = NamedTuple{(:xlabel,:ylabel)}(axis_kwargs0)
 ax_a = Axis(gabc[2,1]; titlealign = :left, title=L"y=50~\text{km}", axis_kwargs0...)
-ax_b = Axis(gabc[2,2]; titlealign = :left, title=L"y=56~\text{km}", xlabel = "x (km)", limits = ((pA[1], pA[1]+lA), (zmin, 0)))
+ax_b = Axis(gabc[2,2]; titlealign = :left, title=L"y=56~\text{km}", xlabel = L"x~\text{(km)}", limits = ((pA[1], pA[1]+lA), (zmin, 0)))
 ax_c = Axis(gabc[4,1]; titlealign = :left, title=L"y=-10~\text{km}", limits = ((pB[1], pB[1]+lB), (zmin, 0)), axis_kwargs1...)
-ax_d = Axis(gabc[4,2]; titlealign = :left, title=L"y=56~\text{km}", xlabel = "x (km)", limits = ((pC[1], pC[1]+lC), (zmin, 0)))
+ax_d = Axis(gabc[4,2]; titlealign = :left, title=L"y=56~\text{km}", xlabel = L"x~\text{(km)}", limits = ((pC[1], pC[1]+lC), (zmin, 0)))
 if cmap == :thermal
     vmin, vmax = minimum(interior(var,:,:,kz:Nz)), maximum(interior(var,:,:,kz:Nz))
 else
