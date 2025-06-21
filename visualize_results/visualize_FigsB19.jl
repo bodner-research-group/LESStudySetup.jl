@@ -121,8 +121,10 @@ if ϵ<1e-6
         t_all = 0:dt:t_max
         nt = length(t_all)
         ψ1, v1, b1 = zeros(nt,nx,nz),zeros(nt,nx,nz),zeros(nt,nx,nz)
+        bfull = zeros(nt,nx,nz)
         for i = 1:nt
             bfulli, vfulli, ψfulli = fields_at_time(t_all[i]; γ, ϵ)
+            bfull[i,:,:] = bfulli
             ψ1[i,:,:], v1[i,:,:], b1[i,:,:] = ψfulli .- ψ_e, vfulli .- v_e, bfulli .- b_e
         end
         ψ1, v1, b1 = ψ1./γ, v1./γ, b1./γ
@@ -139,6 +141,9 @@ if ϵ<1e-6
         hm_b = heatmap!(ax_b, x, z, b1[1,:,:], colorrange = (-5,5), colormap = :diff)
         hm_v = heatmap!(ax_v, x, z, v1[1,:,:], colorrange = (-2,2), colormap = :delta)
         hm_ψ = heatmap!(ax_ψ, x, z, ψ1[1,:,:], colorrange = (-0.2, 0.2), colormap = :PuOr)
+        ct_b = contour!(ax_b, x, z, bfull[1,:,:]; levels = 10, linewidth = 1, color = :black)
+        ct_v = contour!(ax_v, x, z, bfull[1,:,:]; levels = 10, linewidth = 1, color = :black)
+        ct_ψ = contour!(ax_ψ, x, z, bfull[1,:,:]; levels = 10, linewidth = 1, color = :black)
 
         # Add colorbar
         Colorbar(fig[1, 2], hm_b)
@@ -162,6 +167,9 @@ if ϵ<1e-6
             hm_b[3] = b1[i,:,:]
             hm_v[3] = v1[i,:,:]
             hm_ψ[3] = ψ1[i,:,:]
+            ct_b[3] = bfull[i,:,:]
+            ct_v[3] = bfull[i,:,:]
+            ct_ψ[3] = bfull[i,:,:]
             
             # Update the title
             title_obs[] = @sprintf("t=%.2f", t)
