@@ -143,23 +143,36 @@ end
 
 using Oceananigans, JLD2
 function load_distributed_checkpoint_subdomain(filename, iteration;
-                                             architecture = CPU(),
-                                             metadata = nothing,
-                                             xlims = nothing,
-                                             ylims = nothing, 
-                                             zlims = nothing,
-                                             level = nothing)
-    
+                                            architecture = CPU(),
+                                            metadata = nothing,
+                                            xlims = nothing,
+                                            ylims = nothing,
+                                            zlims = nothing,
+                                            level = nothing)
+
+    # Helper function to handle periodic coordinate normalization
+    function normalize_periodic_coords(coord_min, coord_max, domain_size)
+        # Normalize coordinates to [0, domain_size) range
+        coord_min_norm = mod(coord_min, domain_size)
+        coord_max_norm = mod(coord_max, domain_size)
+        
+        # Handle wraparound case
+        if coord_min_norm > coord_max_norm
+            # Domain wraps around: split into two segments
+            return [(coord_min_norm, domain_size), (0.0, coord_max_norm)]
+        else
+            # Normal case: single segment
+            return [(coord_min_norm, coord_max_norm)]
+        end
+    end
+
     # Read metadata from rank 0 to understand full grid layout
     file = jldopen(filename * "0_iteration$(iteration).jld2")
-    
     Px = file["NonhydrostaticModel/grid"].architecture.partition.x
     Py = file["NonhydrostaticModel/grid"].architecture.partition.y
-    
-    nx = file["NonhydrostaticModel/grid"].Nx  # points per rank in x
-    ny = file["NonhydrostaticModel/grid"].Ny  # points per rank in y
-    Nz = file["NonhydrostaticModel/grid"].Nz  # total points in z
-    
+    nx = file["NonhydrostaticModel/grid"].Nx # points per rank in x
+    ny = file["NonhydrostaticModel/grid"].Ny # points per rank in y
+    Nz = file["NonhydrostaticModel/grid"].Nz # total points in z
     Hx = file["NonhydrostaticModel/grid"].Hx
     Hy = file["NonhydrostaticModel/grid"].Hy
     Hz = file["NonhydrostaticModel/grid"].Hz
@@ -167,7 +180,6 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     # Full domain parameters
     Nx_full = nx * Px
     Ny_full = ny * Py
-    
     Lx_full = file["NonhydrostaticModel/grid"].Lx * Px
     Ly_full = file["NonhydrostaticModel/grid"].Ly * Py
     Lz_full = file["NonhydrostaticModel/grid"].Lz
@@ -178,7 +190,7 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     Δz = Lz_full / Nz
     
     close(file)
-    
+
     # Handle default limits (full domain)
     if isnothing(xlims)
         xlims = (0.0, Lx_full)
@@ -187,58 +199,37 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
         ylims = (0.0, Ly_full)
     end
     if isnothing(zlims)
-        zlims = (-Lz_full, 0.0)
+        zlims = (-Δz, 0.0)
     end
+
+    # NEW: Handle periodic coordinates - get segments that may wrap around
+    x_segments = normalize_periodic_coords(xlims[1], xlims[2], Lx_full)
+    y_segments = normalize_periodic_coords(ylims[1], ylims[2], Ly_full)
+
+    # Calculate total subdomain size (based on requested range, not normalized)
+    Nx_sub = round(Int, (xlims[2] - xlims[1]) / Δx)
+    Ny_sub = round(Int, (ylims[2] - ylims[1]) / Δy)
     
-    # Convert physical limits to grid indices
-    x_start_idx = max(1, round(Int, xlims[1] / Δx) + 1)
-    x_end_idx = min(Nx_full, round(Int, xlims[2] / Δx))
-    y_start_idx = max(1, round(Int, ylims[1] / Δy) + 1)
-    y_end_idx = min(Ny_full, round(Int, ylims[2] / Δy))
+    # Handle z-limits (unchanged)
     z_start_idx = max(1, round(Int, (zlims[1] + Lz_full) / Δz) + 1)
     z_end_idx = min(Nz, round(Int, (zlims[2] + Lz_full) / Δz))
-    
-    # Adjust to align with rank boundaries for efficient loading
-    rank_x_start = div(x_start_idx - 1, nx) + 1
-    rank_x_end = div(x_end_idx - 1, nx) + 1
-    rank_y_start = div(y_start_idx - 1, ny) + 1  
-    rank_y_end = div(y_end_idx - 1, ny) + 1
-    
-    # Adjust grid indices to align with rank boundaries
-    x_start_idx = (rank_x_start - 1) * nx + 1
-    x_end_idx = rank_x_end * nx
-    y_start_idx = (rank_y_start - 1) * ny + 1
-    y_end_idx = rank_y_end * ny
-    
-    # Calculate subdomain grid size
-    Nx_sub = x_end_idx - x_start_idx + 1
-    Ny_sub = y_end_idx - y_start_idx + 1
     Nz_sub = isnothing(level) ? (z_end_idx - z_start_idx + 1) : 1
-    
-    # Calculate actual physical coordinates for subdomain boundaries
-    x_min_actual = (x_start_idx - 1) * Δx
-    x_max_actual = x_end_idx * Δx  
-    y_min_actual = (y_start_idx - 1) * Δy
-    y_max_actual = y_end_idx * Δy
-    z_min_actual = -Lz_full + (z_start_idx - 1) * Δz
-    z_max_actual = isnothing(level) ? (-Lz_full + z_end_idx * Δz) : (-Lz_full + z_start_idx * Δz)
-    
-    # Create subdomain grid - use Bounded topology for subdomains
+
+    # Create subdomain grid with REQUESTED coordinates (not normalized)
     grid_topology = (Bounded, Bounded, Bounded)
-    
-    grid = RectilinearGrid(architecture; 
+    grid = RectilinearGrid(architecture;
                           size = (Nx_sub, Ny_sub, Nz_sub),
-                          x = (x_min_actual, x_max_actual),
-                          y = (y_min_actual, y_max_actual), 
-                          z = (z_min_actual, z_max_actual),
+                          x = xlims,
+                          y = ylims,
+                          z = zlims,
                           topology = grid_topology)
-    
+
     @info "Created subdomain grid:"
-    @info "  Size: ($Nx_sub, $Ny_sub, $Nz_sub)"
-    @info "  X extent: ($x_min_actual, $x_max_actual)"
-    @info "  Y extent: ($y_min_actual, $y_max_actual)" 
-    @info "  Z extent: ($z_min_actual, $z_max_actual)"
-    
+    @info " Size: ($Nx_sub, $Ny_sub, $Nz_sub)"
+    @info " X extent: $(xlims)"
+    @info " Y extent: $(ylims)"
+    @info " Z extent: $(zlims)"
+
     # Determine vertical indices for field creation and data extraction
     if isnothing(level)
         field_indices = (Colon(), Colon(), Colon())
@@ -248,108 +239,167 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
         field_indices = (Colon(), Colon(), UnitRange(1, 1))
         data_z_range = level:level
     end
-    
+
     # Create fields on subdomain grid
     u = XFaceField(grid; indices=field_indices)
     v = YFaceField(grid; indices=field_indices)
     w = ZFaceField(grid; indices=field_indices)
     T = CenterField(grid; indices=field_indices)
+
+    # NEW: Load data from all segments (handling periodic wraparound)
+    @info "Loading data from $(length(x_segments)) x-segments and $(length(y_segments)) y-segments"
     
-    # Load data from necessary ranks only
-    @info "Loading subdomain from ranks covering x-ranks $rank_x_start:$rank_x_end, y-ranks $rank_y_start:$rank_y_end"
-    
-    for Rx in rank_x_start:rank_x_end
-        for Ry in rank_y_start:rank_y_end
-            # Calculate rank number (0-indexed) - matches original function logic
-            rank = (Ry - 1) * Px + (Rx - 1)
+    for (seg_x_idx, (x_min_seg, x_max_seg)) in enumerate(x_segments)
+        for (seg_y_idx, (y_min_seg, y_max_seg)) in enumerate(y_segments)
             
-            @info "Loading from rank $rank (Rx=$Rx, Ry=$Ry)"
+            @info "Processing segment: x ∈ ($x_min_seg, $x_max_seg), y ∈ ($y_min_seg, $y_max_seg)"
             
-            file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
+            # Convert segment coordinates to grid indices
+            x_start_idx = max(1, round(Int, x_min_seg / Δx) + 1)
+            x_end_idx = min(Nx_full, round(Int, x_max_seg / Δx))
+            y_start_idx = max(1, round(Int, y_min_seg / Δy) + 1)
+            y_end_idx = min(Ny_full, round(Int, y_max_seg / Δy))
             
-            # Get the actual local indices for this rank from the file (like original function)
-            file_Rx = file["NonhydrostaticModel/grid"].architecture.local_index[1]
-            file_Ry = file["NonhydrostaticModel/grid"].architecture.local_index[2]
+            # Adjust to align with rank boundaries for efficient loading
+            rank_x_start = div(x_start_idx - 1, nx) + 1
+            rank_x_end = div(x_end_idx - 1, nx) + 1
+            rank_y_start = div(y_start_idx - 1, ny) + 1
+            rank_y_end = div(y_end_idx - 1, ny) + 1
             
-            # Load data from this rank (excluding halos like in original)
-            udata = file["NonhydrostaticModel/u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-            vdata = file["NonhydrostaticModel/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-            wdata = file["NonhydrostaticModel/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-            Tdata = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+            # Adjust grid indices to align with rank boundaries
+            x_start_idx = (rank_x_start - 1) * nx + 1
+            x_end_idx = rank_x_end * nx
+            y_start_idx = (rank_y_start - 1) * ny + 1
+            y_end_idx = rank_y_end * ny
             
-            close(file)
+            @info "Segment aligned indices: x=$x_start_idx:$x_end_idx, y=$y_start_idx:$y_end_idx"
+            @info "Loading from ranks: Rx=$rank_x_start:$rank_x_end, Ry=$rank_y_start:$rank_y_end"
             
-            # Calculate global index ranges for this rank's data (like original function)
-            rank_x_global_start = 1 + (file_Rx - 1) * nx
-            rank_x_global_end = file_Rx * nx
-            rank_y_global_start = 1 + (file_Ry - 1) * ny  
-            rank_y_global_end = file_Ry * ny
-            
-            # Calculate overlap with our target subdomain
-            x_overlap_start = max(rank_x_global_start, x_start_idx)
-            x_overlap_end = min(rank_x_global_end, x_end_idx)
-            y_overlap_start = max(rank_y_global_start, y_start_idx)
-            y_overlap_end = min(rank_y_global_end, y_end_idx)
-            
-            # Skip if no overlap
-            if x_overlap_start > x_overlap_end || y_overlap_start > y_overlap_end
-                continue
+            # Calculate where this segment maps to in the OUTPUT grid
+            # Key insight: map normalized segment coordinates to requested coordinate space
+            if seg_x_idx == 1
+                # First x-segment starts at beginning of output
+                out_x_start = 1
+                out_x_end = round(Int, (x_max_seg - x_min_seg) / Δx)
+            else
+                # Second x-segment (wraparound case)
+                prev_seg_width = round(Int, (x_segments[1][2] - x_segments[1][1]) / Δx)
+                out_x_start = prev_seg_width + 1
+                out_x_end = prev_seg_width + round(Int, (x_max_seg - x_min_seg) / Δx)
             end
             
-            # Calculate indices within this rank's data array
-            rank_x_start_local = x_overlap_start - rank_x_global_start + 1
-            rank_x_end_local = x_overlap_end - rank_x_global_start + 1  
-            rank_y_start_local = y_overlap_start - rank_y_global_start + 1
-            rank_y_end_local = y_overlap_end - rank_y_global_start + 1
-            
-            # Calculate indices within subdomain 
-            sub_x_start = x_overlap_start - x_start_idx + 1
-            sub_x_end = x_overlap_end - x_start_idx + 1
-            sub_y_start = y_overlap_start - y_start_idx + 1  
-            sub_y_end = y_overlap_end - y_start_idx + 1
-            
-            @info "Rank $rank: global range ($rank_x_global_start:$rank_x_global_end, $rank_y_global_start:$rank_y_global_end)"
-            @info "  -> local slice ($rank_x_start_local:$rank_x_end_local, $rank_y_start_local:$rank_y_end_local)" 
-            @info "  -> subdomain slice ($sub_x_start:$sub_x_end, $sub_y_start:$sub_y_end)"
-            
-            # Copy data with proper indexing
-            if isnothing(level)
-                # Full vertical range
-                interior(u, sub_x_start:sub_x_end, sub_y_start:sub_y_end, :) .= 
-                    udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
-                interior(v, sub_x_start:sub_x_end, sub_y_start:sub_y_end, :) .= 
-                    vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
-                interior(w, sub_x_start:sub_x_end, sub_y_start:sub_y_end, :) .= 
-                    wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range_w .- Hz]
-                interior(T, sub_x_start:sub_x_end, sub_y_start:sub_y_end, :) .= 
-                    Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
+            if seg_y_idx == 1
+                # First y-segment starts at beginning of output
+                out_y_start = 1
+                out_y_end = round(Int, (y_max_seg - y_min_seg) / Δy)
             else
-                # Single vertical level (like original function)
-                z_level_local = level - Hz
-                interior(u, sub_x_start:sub_x_end, sub_y_start:sub_y_end, 1) .= 
-                    udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
-                interior(v, sub_x_start:sub_x_end, sub_y_start:sub_y_end, 1) .= 
-                    vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
-                interior(w, sub_x_start:sub_x_end, sub_y_start:sub_y_end, 1) .= 
-                    wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
-                interior(T, sub_x_start:sub_x_end, sub_y_start:sub_y_end, 1) .= 
-                    Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
+                # Second y-segment (wraparound case)
+                prev_seg_width = round(Int, (y_segments[1][2] - y_segments[1][1]) / Δy)
+                out_y_start = prev_seg_width + 1
+                out_y_end = prev_seg_width + round(Int, (y_max_seg - y_min_seg) / Δy)
+            end
+            
+            @info "Output mapping: x=$out_x_start:$out_x_end, y=$out_y_start:$out_y_end"
+            
+            # Load data from necessary ranks for this segment
+            for Rx in rank_x_start:rank_x_end
+                for Ry in rank_y_start:rank_y_end
+                    # Calculate rank number (0-indexed)
+                    rank = (Rx - 1) * Px + (Ry - 1)
+                    @info "Loading from rank $rank (Rx=$Rx, Ry=$Ry)"
+                    
+                    file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
+                    
+                    # Get the actual local indices for this rank from the file
+                    file_Rx = file["NonhydrostaticModel/grid"].architecture.local_index[1]
+                    file_Ry = file["NonhydrostaticModel/grid"].architecture.local_index[2]
+                    
+                    # Load data from this rank (excluding halos)
+                    udata = file["NonhydrostaticModel/u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+                    vdata = file["NonhydrostaticModel/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+                    wdata = file["NonhydrostaticModel/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+                    Tdata = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+                    
+                    close(file)
+                    
+                    # Calculate global index ranges for this rank's data
+                    rank_x_global_start = 1 + (file_Rx - 1) * nx
+                    rank_x_global_end = file_Rx * nx
+                    rank_y_global_start = 1 + (file_Ry - 1) * ny
+                    rank_y_global_end = file_Ry * ny
+                    
+                    # Calculate overlap with our target segment
+                    x_overlap_start = max(rank_x_global_start, x_start_idx)
+                    x_overlap_end = min(rank_x_global_end, x_end_idx)
+                    y_overlap_start = max(rank_y_global_start, y_start_idx)
+                    y_overlap_end = min(rank_y_global_end, y_end_idx)
+                    
+                    # Skip if no overlap
+                    if x_overlap_start > x_overlap_end || y_overlap_start > y_overlap_end
+                        @info "No overlap with global x=$rank_x_global_start:$rank_x_global_end, y=$rank_y_global_start:$rank_y_global_end"
+                        continue
+                    end
+                    
+                    # Calculate indices within this rank's data array
+                    rank_x_start_local = x_overlap_start - rank_x_global_start + 1
+                    rank_x_end_local = x_overlap_end - rank_x_global_start + 1
+                    rank_y_start_local = y_overlap_start - rank_y_global_start + 1
+                    rank_y_end_local = y_overlap_end - rank_y_global_start + 1
+                    
+                    # Calculate indices within THIS SEGMENT of the output
+                    seg_x_start = x_overlap_start - x_start_idx + 1
+                    seg_x_end = x_overlap_end - x_start_idx + 1
+                    seg_y_start = y_overlap_start - y_start_idx + 1
+                    seg_y_end = y_overlap_end - y_start_idx + 1
+                    
+                    # Map segment indices to final output indices
+                    final_x_start = out_x_start + seg_x_start - 1
+                    final_x_end = out_x_start + seg_x_end - 1
+                    final_y_start = out_y_start + seg_y_start - 1
+                    final_y_end = out_y_start + seg_y_end - 1
+                    
+                    @info "Copying data: rank local ($rank_x_start_local:$rank_x_end_local, $rank_y_start_local:$rank_y_end_local) → output ($final_x_start:$final_x_end, $final_y_start:$final_y_end)"
+                    
+                    # Copy data with proper indexing
+                    if isnothing(level)
+                        # Full vertical range
+                        interior(u, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                            udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
+                        interior(v, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                            vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
+                        interior(w, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                            wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range_w .- Hz]
+                        interior(T, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                            Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
+                    else
+                        # Single vertical level
+                        z_level_local = level - Hz
+                        interior(u, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                            udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
+                        interior(v, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                            vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
+                        interior(w, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                            wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
+                        interior(T, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                            Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
+                    end
+                end
             end
         end
     end
-    
+
     snapshot = Dict()
     snapshot[:u] = u
-    snapshot[:v] = v  
+    snapshot[:v] = v
     snapshot[:w] = w
     snapshot[:T] = T
     snapshot[:grid] = grid
-    
+
     if !isnothing(metadata)
         params = jldopen(metadata)["parameters"]
         set_value!(params)
     end
-    
+
     return snapshot
 end
 
