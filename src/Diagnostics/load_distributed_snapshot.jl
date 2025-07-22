@@ -1,8 +1,8 @@
 
 function load_distributed_checkpoint(filename, iteration; 
-                                    architecture = CPU(),
-                                    metadata = nothing,
-                                    level = nothing)
+                                     architecture = CPU(),
+                                     metadata = nothing,
+                                     level = nothing)
 
     snapshot = Dict()
 
@@ -49,7 +49,7 @@ function load_distributed_checkpoint(filename, iteration;
         vdata = file["NonhydrostaticModel/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
         wdata = file["NonhydrostaticModel/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
         Tdata = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-
+        
         irange = 1 + (Rx - 1) * nx : Rx * nx
         jrange = 1 + (Ry - 1) * ny : Ry * ny
 
@@ -68,7 +68,7 @@ function load_distributed_checkpoint(filename, iteration;
         params = jldopen(metadata)["parameters"]
         set_value!(params)
     end
-
+    
     return snapshot
 end
 
@@ -98,7 +98,7 @@ function load_distributed_snapshot(filename, iteration;
     grid = RectilinearGrid(architecture; size = (Nx, Ny, Nz), extent = (Lx, Ly, Lz))
 
     indices = isnothing(level) ? (Colon(), Colon(), Colon()) : (Colon(), Colon(), UnitRange(level, level))
-
+    
     u = XFaceField(grid; indices)
     v = YFaceField(grid; indices)
     w = ZFaceField(grid; indices)
@@ -107,25 +107,25 @@ function load_distributed_snapshot(filename, iteration;
     close(file)
 
     for rank in 0 : (Px * Py - 1)
-    @info "loading rank $rank of $(Px * Py - 1)"
+        @info "loading rank $rank of $(Px * Py - 1)"
 
-    file = jldopen(filename * "$(rank).jld2")
+        file = jldopen(filename * "$(rank).jld2")
 
-    Rx = file["grid/architecture/local_index/1"]
-    Ry = file["grid/architecture/local_index/2"]
+        Rx = file["grid/architecture/local_index/1"]
+        Ry = file["grid/architecture/local_index/2"]
 
-    udata = file["timeseries/u/" * iteration]
-    vdata = file["timeseries/v/" * iteration]
-    wdata = file["timeseries/w/" * iteration]
-    Tdata = file["timeseries/T/" * iteration]
+        udata = file["timeseries/u/" * iteration]
+        vdata = file["timeseries/v/" * iteration]
+        wdata = file["timeseries/w/" * iteration]
+        Tdata = file["timeseries/T/" * iteration]
+        
+        irange = 1 + (Rx - 1) * nx : Rx * nx
+        jrange = 1 + (Ry - 1) * ny : Ry * ny
 
-    irange = 1 + (Rx - 1) * nx : Rx * nx
-    jrange = 1 + (Ry - 1) * ny : Ry * ny
-
-    interior(u, irange, jrange, :) .= udata[:, :, indices[3]] 
-    interior(v, irange, jrange, :) .= vdata[:, :, indices[3]]
-    interior(w, irange, jrange, :) .= wdata[:, :, indices[3]]
-    interior(T, irange, jrange, :) .= Tdata[:, :, indices[3]]
+	interior(u, irange, jrange, :) .= udata[:, :, indices[3]] 
+        interior(v, irange, jrange, :) .= vdata[:, :, indices[3]]
+        interior(w, irange, jrange, :) .= wdata[:, :, indices[3]]
+        interior(T, irange, jrange, :) .= Tdata[:, :, indices[3]]
     end
 
     snapshot[:u] = u
@@ -134,30 +134,34 @@ function load_distributed_snapshot(filename, iteration;
     snapshot[:T] = T
 
     if !isnothing(metadata)
-    params = jldopen(metadata)["parameters"]
-    set_value!(params)
+        params = jldopen(metadata)["parameters"]
+        set_value!(params)
     end
-
+    
     return snapshot
 end
 
-using Oceananigans, JLD2
 function load_distributed_checkpoint_subdomain(filename, iteration;
                                             architecture = CPU(),
                                             metadata = nothing,
                                             xlims = nothing,
                                             ylims = nothing,
                                             zlims = nothing,
-                                            level = nothing)
+                                            levels = nothing,
+                                            getMLD = 0, Δρ = 0.03)
 
     # Helper function to handle periodic coordinate normalization
     function normalize_periodic_coords(coord_min, coord_max, domain_size)
+        if coord_min > -1 && coord_max < domain_size+1
+            # No wraparound: single segment
+            return [(coord_min, coord_max)]
+        end
         # Normalize coordinates to [0, domain_size) range
         coord_min_norm = mod(coord_min, domain_size)
         coord_max_norm = mod(coord_max, domain_size)
         
         # Handle wraparound case
-        if coord_min_norm > coord_max_norm
+        if coord_min_norm+1 > coord_max_norm
             # Domain wraps around: split into two segments
             return [(coord_min_norm, domain_size), (0.0, coord_max_norm)]
         else
@@ -199,7 +203,7 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
         ylims = (0.0, Ly_full)
     end
     if isnothing(zlims)
-        zlims = (-Δz, 0.0)
+        zlims = (-Lz_full, 0.0)
     end
 
     # NEW: Handle periodic coordinates - get segments that may wrap around
@@ -213,10 +217,12 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     # Handle z-limits (unchanged)
     z_start_idx = max(1, round(Int, (zlims[1] + Lz_full) / Δz) + 1)
     z_end_idx = min(Nz, round(Int, (zlims[2] + Lz_full) / Δz))
-    Nz_sub = isnothing(level) ? (z_end_idx - z_start_idx + 1) : 1
+    Nz_sub = z_end_idx - z_start_idx + 1
 
     # Create subdomain grid with REQUESTED coordinates (not normalized)
-    grid_topology = (Bounded, Bounded, Bounded)
+    x_topoloty = (xlims[2] - xlims[1]) > Lx_full - Δx/2 ? Periodic : Bounded
+    y_topoloty = (ylims[2] - ylims[1]) > Ly_full - Δy/2 ? Periodic : Bounded
+    grid_topology = (x_topoloty, y_topoloty, Bounded)
     grid = RectilinearGrid(architecture;
                           size = (Nx_sub, Ny_sub, Nz_sub),
                           x = xlims,
@@ -231,13 +237,14 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     @info " Z extent: $(zlims)"
 
     # Determine vertical indices for field creation and data extraction
-    if isnothing(level)
+    if isnothing(levels)
         field_indices = (Colon(), Colon(), Colon())
         data_z_range = z_start_idx:z_end_idx
         data_z_range_w = z_start_idx:(z_end_idx+1)
     else
-        field_indices = (Colon(), Colon(), UnitRange(1, 1))
-        data_z_range = level:level
+        field_indices = (Colon(), Colon(), UnitRange(1, length(levels)))
+        data_z_range = levels
+        data_z_range_w = levels
     end
 
     # Create fields on subdomain grid
@@ -245,6 +252,15 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     v = YFaceField(grid; indices=field_indices)
     w = ZFaceField(grid; indices=field_indices)
     T = CenterField(grid; indices=field_indices)
+    if getMLD >= 1
+        MLD = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+    end
+    if getMLD >= 2
+        MLD2 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+    end
+    if getMLD >= 3
+        MLD3 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+    end
 
     # NEW: Load data from all segments (handling periodic wraparound)
     @info "Loading data from $(length(x_segments)) x-segments and $(length(y_segments)) y-segments"
@@ -321,6 +337,25 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
                     Tdata = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
                     
                     close(file)
+
+                    if getMLD >= 1
+                        grid_r = RectilinearGrid(architecture;
+                                                 size = (nx, ny, Nz),
+                                                 x = (0, Δx*nx),
+                                                 y = (0, Δy*ny),
+                                                 z = (-Lz_full, 0.0),
+                                                 topology = (Bounded, Bounded, Bounded))
+                        T_r = CenterField(grid_r)
+                        interior(T_r) .= Tdata
+                        α, ρ₀ = parameters.α, parameters.ρ₀
+                        MLDdata = interior(compute!(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(Δρ / ρ₀ / α))))
+                    end
+                    if getMLD >= 2
+                        MLD2data = interior(compute!(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(2Δρ / ρ₀ / α))))
+                    end
+                    if getMLD >= 3
+                        MLD3data = interior(compute!(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(3Δρ / ρ₀ / α))))
+                    end
                     
                     # Calculate global index ranges for this rank's data
                     rank_x_global_start = 1 + (file_Rx - 1) * nx
@@ -361,39 +396,66 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
                     @info "Copying data: rank local ($rank_x_start_local:$rank_x_end_local, $rank_y_start_local:$rank_y_end_local) → output ($final_x_start:$final_x_end, $final_y_start:$final_y_end)"
                     
                     # Copy data with proper indexing
-                    if isnothing(level)
-                        # Full vertical range
-                        interior(u, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
-                            udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
-                        interior(v, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
-                            vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
-                        interior(w, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
-                            wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range_w .- Hz]
-                        interior(T, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
-                            Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range .- Hz]
-                    else
-                        # Single vertical level
-                        z_level_local = level - Hz
-                        interior(u, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
-                            udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
-                        interior(v, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
-                            vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
-                        interior(w, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
-                            wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
-                        interior(T, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
-                            Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, z_level_local]
+                    # if isnothing(levels)
+                    # Full vertical range
+                    interior(u, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                        udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range]
+                    interior(v, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                        vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range]
+                    interior(w, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                        wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range_w]
+                    interior(T, final_x_start:final_x_end, final_y_start:final_y_end, :) .=
+                        Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, data_z_range]
+                    if getMLD >= 1
+                        interior(MLD, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                            MLDdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
                     end
+                    if getMLD >= 2
+                        interior(MLD2, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                            MLD2data[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                    end
+                    if getMLD >= 3
+                        interior(MLD3, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                            MLD3data[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                    end
+                    # else
+                    #     # Vertical levels
+                    #     interior(u, final_x_start:final_x_end, final_y_start:final_y_end, levels) .=
+                    #         udata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, levels]
+                    #     interior(v, final_x_start:final_x_end, final_y_start:final_y_end, levels) .=
+                    #         vdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, levels]
+                    #     interior(w, final_x_start:final_x_end, final_y_start:final_y_end, levels) .=
+                    #         wdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, levels]
+                    #     interior(T, final_x_start:final_x_end, final_y_start:final_y_end, levels) .=
+                    #         Tdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, levels]
+                    # end
                 end
             end
         end
     end
 
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    fill_halo_regions!(w)
+    fill_halo_regions!(T)
     snapshot = Dict()
     snapshot[:u] = u
     snapshot[:v] = v
     snapshot[:w] = w
     snapshot[:T] = T
     snapshot[:grid] = grid
+    if getMLD >= 1
+        fill_halo_regions!(MLD)
+        snapshot[:MLD] = MLD
+    end
+    if getMLD >= 2
+        fill_halo_regions!(MLD2)
+        snapshot[:MLD2] = MLD2
+    end
+    if getMLD >= 3
+        fill_halo_regions!(MLD3)
+        snapshot[:MLD3] = MLD3
+    end
 
     if !isnothing(metadata)
         params = jldopen(metadata)["parameters"]
@@ -419,7 +481,7 @@ Arguments:
 Returns:
 - A `Dict` containing the reconstructed fields (e.g., `:u`, `:v`, `:T`) and the `grid`.
 """
-function load_subdomain_snapshot(filename)
+function load_subdomain_snapshot(filename; variables = ("u", "v", "w", "T"), level = nothing)
     # Create an empty dictionary to store the results
     snapshot = Dict{Symbol, Any}()
 
@@ -431,26 +493,50 @@ function load_subdomain_snapshot(filename)
 
         @info "Loaded grid: $grid"
 
+        if "levels" in keys(file["metadata"])
+            levels = file["metadata/levels"]
+            
+            @info "Found levels: $levels"
+        end
+        
         # 2. Iterate through the saved fields group to find all field names.
         field_names = keys(file["fields"])
         @info "Found fields: $field_names"
 
-        for name in field_names
-            field_symbol = Symbol(name)
-            field_group = file["fields/$name"]
+        for var in variables
+            if var in field_names
+                field_symbol = Symbol(var)
+                field_group = file["fields/$field_symbol"]
 
-            # 3. For each field, read its raw data array and its location.
-            data = field_group["data"]
-            loc = field_group["location"]
+                # 3. For each field, read its raw data array and its location.
+                # 4. Reconstruct the Field object on the grid at the correct location.
+                if isnothing(level)
+                    data = field_group["data"]
+                    loc = field_group["location"]
+                    field = Field(loc, grid)
+                else
+                    i = findfirst(levels .== level)
+                    if isnothing(i)
+                        @warn "Level $level not found in $filename."
+                        continue
+                    else
+                        @info "Loading level $level."
+                        snapshot[:level] = level
+                        data = field_group["data"][:,:,i]
+                        loc = field_group["location"]
+                        field = Field{loc[1], loc[2], Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+                    end
+                end
 
-            # 4. Reconstruct the Field object on the grid at the correct location.
-            field = Field(loc, grid)
+                # 5. Fill the interior of the newly created field with the loaded data.
+                interior(field) .= data
+                fill_halo_regions!(field)
 
-            # 5. Fill the interior of the newly created field with the loaded data.
-            interior(field) .= data
-
-            # 6. Store the fully reconstructed, usable field in the snapshot dictionary.
-            snapshot[field_symbol] = field
+                # 6. Store the fully reconstructed, usable field in the snapshot dictionary.
+                snapshot[field_symbol] = field
+            else
+                @warn "Field $var not found in $filename."
+            end
         end
     end
 

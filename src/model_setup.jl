@@ -99,7 +99,7 @@ function progress(sim)
     msg0 = @sprintf("Time: %s, iteration: %d, Δt: %s ", prettytime(sim.model.clock.time), 
                                                         sim.model.clock.iteration,
                                                         prettytime(sim.Δt))
-    msg1 = @sprintf("(u, v, w): %.2e %.2e %.2e ", maximum(ui), maximum(vi), maximum(wi))
+    msg1 = @sprintf("(u, v, w): (%.2e, %.2e, %.2e), (%.2e, %.2e, %.2e) ", minimum(ui), minimum(vi), minimum(wi), maximum(ui), maximum(vi), maximum(wi))
     msg2 = @sprintf("T: %.2e %.2e ", minimum(Ti), maximum(Ti))
 
     @info msg0 * msg1 * msg2 

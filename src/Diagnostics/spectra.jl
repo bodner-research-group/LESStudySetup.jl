@@ -104,6 +104,15 @@ function isotropic_powerspectrum(var1::AbstractMatrix{T1}, var2::AbstractMatrix{
         v2_fft_input = w .* v2_prime
         # Calculate window correction factor (mean square of the window)
         window_correction_factor = mean(w .^ 2)
+    elseif window == :xhann
+        # Calculate xHann window
+        wx = sin.(π .* (0:Nx-1) ./ (Nx-1)).^2
+        w = reshape(wx, Nx, 1) 
+        # Apply window
+        v1_fft_input = w .* v1_prime
+        v2_fft_input = w .* v2_prime
+        # Calculate window correction factor (mean square of the window)
+        window_correction_factor = mean(w .^ 2)
     else
         error("Unsupported window type: $window")
     end

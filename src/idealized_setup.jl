@@ -151,10 +151,10 @@ function default_experimental_setup!(; Δh=parameters.Δh, Δz=parameters.Δz)
 end
 
 function turbulence_generator_setup(arch; 
-                                    stop_time = 10hours,
-                                    background_forcing = false)
+                                    stop_time = 10hours)
 
     # Retrieving the problem constants
+    m₀ = parameters.m₀
     Δh = parameters.Δh 
     Δz = parameters.Δz 
     Lz = parameters.Lz 
@@ -164,9 +164,11 @@ function turbulence_generator_setup(arch;
     cₚ = parameters.cp
     τw = parameters.τw 
      θ = parameters.θ
+     Q = parameters.Q
+   Δmᶠ = parameters.Δmᶠ
      
     # Reduced domain size (250 by 250 meters)
-    Lx = Ly = 250
+    Lx = Ly = 3125
 
     # Remember to set the value!
     set_value!(; Lx, Ly)
@@ -195,30 +197,35 @@ function turbulence_generator_setup(arch;
 
     u_top = FluxBoundaryCondition(τw * cosd(θ) / ρ₀)
     v_top = FluxBoundaryCondition(τw * sind(θ) / ρ₀)
+    T_top = FluxBoundaryCondition(Q / ρ₀ / cₚ) # Positive fluxes at the top are cooling in Oceananigans
 
     u_bcs = FieldBoundaryConditions(top = u_top)
     v_bcs = FieldBoundaryConditions(top = v_top)
+    T_bcs = FieldBoundaryConditions(top = T_top)
 
-    # We force only velocity!
-    boundary_conditions = (u = u_bcs, v = v_bcs)
+    boundary_conditions = (u = u_bcs, v = v_bcs, T = T_bcs)
     
     model = NonhydrostaticModel(; grid, 
                                   coriolis,
                                   buoyancy,
                                   boundary_conditions,
                                   advection = WENO(; order = 9),
+                                  timestepper = :RungeKutta3,
+                                  hydrostatic_pressure_anomaly = CenterField(grid),
                                   tracers = :T)
 
     # We initialize with a fictitious
     # vertical profile that only depends on z 
-    set!(model, T = Tᶻ) 
+    w₀(x, y, z) = z < -1e-3 ? 1e-3 * randn() * (tanh((z + m₀) / (Δmᶠ / 2)) + 1) / 2 : 0.0
+
+    set!(model, w=w₀, T = Tᶻ) 
      
     # 10 seconds as an initial step does 
     # not seem preposterous
     Δt = 10
     
     # But let's always add a wizard to be sure!
-    wizard = TimeStepWizard(cfl = 0.25, max_change = 1.1)
+    wizard = TimeStepWizard(cfl = 0.75, max_change = 1.1, max_Δt = 3minutes)
 
     simulation = Simulation(model; Δt, stop_time)
 

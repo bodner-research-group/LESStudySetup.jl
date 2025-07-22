@@ -470,7 +470,7 @@ A separate helper (`build_tophat_kernel`) builds the tophat kernel. The paramete
 kernel. If the cutoff is no greater than the grid spacing, the original field is returned.
 """
 function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilometer,
-                           method=:physical)
+                           method=:physical,levels = nothing,window=nothing)
     # Extract interior data and grid nodes.
     d = interior(u)
     xu, yu, _ = nodes(u)
@@ -492,7 +492,7 @@ function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilome
     # Allocate the output array.
     dl = similar(d)
 
-    # Currently, only :tophat, :gaussian, or lanczos kernel is implemented.
+    # Currently, only :tophat, :gaussian, or :lanczos kernel is implemented.
     if kernel == :tophat
         grid_info = (; Nx=Nx, Ny=Ny)
         Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
@@ -523,9 +523,10 @@ function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilome
         error("Method $(method) not recognized. Use :spectral or :physical.")
     end
 
+    zidx = isnothing(levels) ? (1:Nz) : levels
     if method == :physical
         t0 = time()
-        for iz in 1:Nz
+        for iz in zidx
             dl[:, :, iz] .= imfilter(d[:, :, iz], centered(Gl), Pad(:circular))
             if time()-t0 > 10
                 println(":physical is slow (>10s); switching to FFT method.")
@@ -547,7 +548,21 @@ function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilome
         Ĝl = rfft(Gl)
         for iz in 1:Nz
             d_slice = d[:, :, iz]
-            d_hat = rfft(d_slice)
+            if isnothing(window)
+                d_hat = rfft(d_slice)
+            elseif window == :hann
+                # Calculate Hann window
+                wx = sin.(π .* (0:Nx-1) ./ (Nx-1)).^2
+                wy = sin.(π .* (0:Ny-1) ./ (Ny-1)).^2
+                w = reshape(wx, Nx, 1) .* reshape(wy, 1, Ny)
+                norm = 2 * Nx / (Nx - 1) * 2 * Ny / (Ny - 1)
+                d_hat = rfft(w .* d_slice) * norm
+            elseif window == :xhann
+                wx = sin.(π .* (0:Nx-1) ./ (Nx-1)).^2
+                w = reshape(wx, Nx, 1) 
+                norm = 2 * Nx / (Nx - 1)
+                d_hat = rfft(w .* d_slice) * norm
+            end
             filtered_hat = Ĝl .* d_hat
             dl[:, :, iz] .= irfft(filtered_hat, Nx)
         end
