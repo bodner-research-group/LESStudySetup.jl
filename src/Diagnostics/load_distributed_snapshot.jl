@@ -505,6 +505,7 @@ function load_subdomain_snapshot(filename; variables = ("u", "v", "w", "T"), lev
 
         for var in variables
             if var in field_names
+                @info "Loading field $var."
                 field_symbol = Symbol(var)
                 field_group = file["fields/$field_symbol"]
 

@@ -470,7 +470,7 @@ A separate helper (`build_tophat_kernel`) builds the tophat kernel. The paramete
 kernel. If the cutoff is no greater than the grid spacing, the original field is returned.
 """
 function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilometer,
-                           method=:physical,levels = nothing,window=nothing)
+                           method=:physical,levels = nothing,border=:circular,useGPU=false)
     # Extract interior data and grid nodes.
     d = interior(u)
     xu, yu, _ = nodes(u)
@@ -493,14 +493,23 @@ function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilome
     dl = similar(d)
 
     # Currently, only :tophat, :gaussian, or :lanczos kernel is implemented.
+    xreflect, yreflect = 1, 1
+    if (method==:spectral) && (border!= :circular)
+        @info "FFT-based convolution requires circular padding. Reflecting to be circular."
+        xreflect = 2
+        if border != :ycircular
+            yreflect = 2
+        end
+    end
+
     if kernel == :tophat
-        grid_info = (; Nx=Nx, Ny=Ny)
-        Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
+        grid_info = (; Nx=xreflect*Nx, Ny=yreflect*Ny)
+        Gl = build_tophat_kernel(grid_info, cutoff; Lx=xreflect*Lx, Ly=yreflect*Ly, method=method)
     elseif kernel == :gaussian
         Gl = Kernel.gaussian((floor(Int, (cutoff/2) / dx), floor(Int, (cutoff/2) / dy)))
     elseif kernel == :lanczos
-        grid_info = (; Nx=Nx, Ny=Ny)
-        Gl = build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=Lx, Ly=Ly, method=method)
+        grid_info = (; Nx=xreflect*Nx, Ny=yreflect*Ny)
+        Gl = build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=xreflect*Lx, Ly=yreflect*Ly, method=method)
     else
         error("Kernel $(kernel) not implemented.")
     end
@@ -526,45 +535,68 @@ function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilome
     zidx = isnothing(levels) ? (1:Nz) : levels
     if method == :physical
         t0 = time()
-        for iz in zidx
-            dl[:, :, iz] .= imfilter(d[:, :, iz], centered(Gl), Pad(:circular))
-            if time()-t0 > 10
-                println(":physical is slow (>10s); switching to FFT method.")
-                method = :spectral
-                if kernel == :tophat
-                    Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
-                elseif kernel == :gaussian
-                    Gl = Kernel.gaussian((floor(Int, (cutoff/2) / dx), floor(Int, (cutoff/2) / dy)))
-                elseif kernel == :lanczos
-                    Gl = build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=Lx, Ly=Ly, method=method)
-                end
-            end
-            #println("$(time()-t0)s")
-        end
+        kernel_3d = reshape(Gl, size(Gl)..., 1)  # Add singleton dimension
+        dl = imfilter(d, kernel_3d, Pad(border))
+        @info "Filtered with 3D :physical method in $(time()-t0)s for border=$border."
+        # for iz = 1:Nz
+        #     if iz in zidx
+        #         dl[:, :, iz] .= imfilter(d[:, :, iz], centered(Gl), Pad(border))
+        #         if (time()-t0 > 10) && (border == :circular)
+        #             println(":physical is slow (>10s); switching to FFT method for periodic boundaries.")
+        #             method = :spectral
+        #             if kernel == :tophat
+        #                 Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
+        #             elseif kernel == :gaussian
+        #                 Gl = Kernel.gaussian((floor(Int, (cutoff/2) / dx), floor(Int, (cutoff/2) / dy)))
+        #             elseif kernel == :lanczos
+        #                 Gl = build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=Lx, Ly=Ly, method=method)
+        #             end
+        #             break
+        #         else
+        #             println(":physical is slow (>10s), $(iz) used $(time()-t0)s for border=$border.")
+        #         end
+        #     else
+        #         dl[:, :, iz] .= d[:, :, iz]
+        #     end
+        # end
     end
 
     if method == :spectral
-        # Precompute the FFT of the kernel.
-        Ĝl = rfft(Gl)
-        for iz in 1:Nz
-            d_slice = d[:, :, iz]
-            if isnothing(window)
-                d_hat = rfft(d_slice)
-            elseif window == :hann
-                # Calculate Hann window
-                wx = sin.(π .* (0:Nx-1) ./ (Nx-1)).^2
-                wy = sin.(π .* (0:Ny-1) ./ (Ny-1)).^2
-                w = reshape(wx, Nx, 1) .* reshape(wy, 1, Ny)
-                norm = 2 * Nx / (Nx - 1) * 2 * Ny / (Ny - 1)
-                d_hat = rfft(w .* d_slice) * norm
-            elseif window == :xhann
-                wx = sin.(π .* (0:Nx-1) ./ (Nx-1)).^2
-                w = reshape(wx, Nx, 1) 
-                norm = 2 * Nx / (Nx - 1)
-                d_hat = rfft(w .* d_slice) * norm
-            end
-            filtered_hat = Ĝl .* d_hat
-            dl[:, :, iz] .= irfft(filtered_hat, Nx)
+        if useGPU
+            # Use the GPU-accelerated version
+            @info "Using GPU-accelerated filtering..."
+            gpu_accelerated_filtering!(dl, d, Gl, zidx, border, Nx, Ny, Nz, 
+            batch_size=32, use_streams=true)
+        else
+            # Use the CPU-based version
+            # Precompute the FFT of the kernel.
+            Ĝl = rfft(Gl)
+            # Loop over z-slices and apply the filter.
+            t0 = time()
+            for iz = 1:Nz
+                if iz in zidx
+                    d_slice = d[:, :, iz]
+                    if border != :circular
+                        d_slice = [d_slice[Nx÷2:-1:1, :]; d_slice; d_slice[Nx:-1:Nx÷2+1, :]]
+                    end
+                    if border != :ycircular
+                        d_slice = [d_slice[:, Ny÷2:-1:1] d_slice d_slice[:, Ny:-1:Ny÷2+1]]
+                    end
+                    d_hat = rfft(d_slice)
+                    filtered_hat = Ĝl .* d_hat
+                    d_filtered = irfft(filtered_hat, xreflect*Nx)
+                    if border == :ycircular
+                        dl[:, :, iz] .= d_filtered[Nx÷2+1:Nx÷2+Nx, :]
+                    elseif border != :circular
+                        dl[:, :, iz] .= d_filtered[Nx÷2+1:Nx÷2+Nx, Ny÷2+1:Ny÷2+Ny]
+                    else
+                        dl[:, :, iz] .= d_filtered
+                    end
+                else
+                    dl[:, :, iz] .= d[:, :, iz]
+                end
+                @info "Filtered with 2D :spectral method in $(time()-t0)s at z=$iz."
+            end     
         end
     end
 
@@ -572,3 +604,239 @@ function coarse_graining!(u::Field, u̅l::Field; kernel=:tophat, cutoff=20kilome
     fill_halo_regions!(u̅l)
     return nothing
 end
+
+using CUDA, FFTW, CUDA.CUFFT
+using BenchmarkTools
+
+function gpu_accelerated_filtering!(dl, d, Gl, zidx, border, Nx, Ny, Nz; 
+                                   batch_size=32, use_streams=true)
+    """
+    GPU-accelerated FFT filtering with batching and memory management.
+    
+    Args:
+        dl: Output array
+        d: Input data array (Nx, Ny, Nz)
+        Gl: Spatial kernel
+        zidx: Indices to process
+        border: Border condition
+        batch_size: Number of slices to process simultaneously on GPU
+        use_streams: Whether to use CUDA streams for overlapping computation
+    """
+    
+    # Determine padding and output dimensions
+    xreflect = (border != :circular) ? 2 : 1
+    yreflect = (border != :ycircular) ? 2 : 1
+    padded_Nx = xreflect * Nx
+    padded_Ny = yreflect * Ny
+    
+    # Move kernel to GPU and precompute its FFT
+    Gl_gpu = CuArray(Float32.(Gl))
+    Ĝl_gpu = rfft(Gl_gpu)
+    
+    # Pre-allocate GPU memory for batched processing
+    batch_input = CUDA.zeros(Float32, padded_Nx, padded_Ny, batch_size)
+    batch_fft = CUDA.zeros(ComplexF32, size(rfft(batch_input[:,:,1]))..., batch_size)
+    batch_filtered = CUDA.zeros(ComplexF32, size(batch_fft))
+    batch_output = CUDA.zeros(Float32, padded_Nx, padded_Ny, batch_size)
+    
+    # Create CUDA streams for overlapping operations
+    if use_streams
+        stream1 = CuStream()
+        stream2 = CuStream()
+        streams = [stream1, stream2]
+    else
+        streams = [CuDefaultStream()]
+    end
+    
+    # Create FFT plans for batched operations
+    fft_plan = plan_rfft(batch_input, (1,2))
+    ifft_plan = plan_irfft(batch_filtered, padded_Nx, (1,2))
+    
+    println("Starting GPU-accelerated filtering...")
+    t0 = time()
+    
+    # Process in batches
+    zidx_list = collect(zidx)
+    n_batches = ceil(Int, length(zidx_list) / batch_size)
+    
+    for batch_idx = 1:n_batches
+        # Determine batch range
+        start_idx = (batch_idx - 1) * batch_size + 1
+        end_idx = min(batch_idx * batch_size, length(zidx_list))
+        current_batch_size = end_idx - start_idx + 1
+        current_zidx = zidx_list[start_idx:end_idx]
+        
+        # Use alternating streams for overlapping
+        stream = streams[((batch_idx - 1) % length(streams)) + 1]
+        
+        CUDA.@sync stream begin
+            # Prepare batch data on GPU
+            prepare_batch_gpu!(batch_input, d, current_zidx, current_batch_size, 
+                             border, Nx, Ny, padded_Nx, padded_Ny)
+            
+            # Batched FFT
+            mul!(batch_fft, fft_plan, batch_input)
+            
+            # Apply filter (element-wise multiplication with broadcasting)
+            batch_filtered .= batch_fft .* reshape(Ĝl_gpu, size(Ĝl_gpu)..., 1)
+            
+            # Batched inverse FFT
+            mul!(batch_output, ifft_plan, batch_filtered)
+            
+            # Extract and copy results back
+            extract_batch_results!(dl, batch_output, current_zidx, current_batch_size,
+                                 border, Nx, Ny, padded_Nx, padded_Ny)
+        end
+        
+        # Progress reporting
+        elapsed = time() - t0
+        progress = batch_idx / n_batches * 100
+        avg_time_per_slice = elapsed / ((batch_idx - 1) * batch_size + current_batch_size)
+        estimated_total = avg_time_per_slice * length(zidx_list)
+        
+        println("Batch $batch_idx/$n_batches ($(round(progress, digits=1))%) - " *
+                "Elapsed: $(round(elapsed, digits=1))s, " *
+                "Estimated total: $(round(estimated_total, digits=1))s")
+    end
+    
+    # Process remaining non-zidx slices (copy unchanged)
+    remaining_indices = setdiff(1:Nz, zidx)
+    if !isempty(remaining_indices)
+        for iz in remaining_indices
+            dl[:, :, iz] .= d[:, :, iz]
+        end
+    end
+    
+    total_time = time() - t0
+    println("GPU filtering completed in $(round(total_time, digits=2))s " *
+            "($(round(8*60/total_time, digits=1))x speedup from 8min)")
+    
+    # Cleanup
+    if use_streams
+        for stream in streams
+            CUDA.unsafe_destroy!(stream)
+        end
+    end
+    
+    return dl
+end
+
+function prepare_batch_gpu!(batch_input, d, zidx_batch, batch_size, border, Nx, Ny, padded_Nx, padded_Ny)
+    """Prepare padded batch data on GPU"""
+    
+    # Reset batch array
+    fill!(batch_input, 0f0)
+    
+    for (i, iz) in enumerate(zidx_batch)
+        if i > batch_size
+            break
+        end
+        
+        # Copy slice to GPU with appropriate padding
+        d_slice = CuArray(Float32.(d[:, :, iz]))
+        
+        if border != :circular
+            # Reflect in x-direction
+            d_padded_x = cat(d_slice[Nx÷2:-1:1, :], d_slice, d_slice[Nx:-1:Nx÷2+1, :], dims=1)
+        else
+            d_padded_x = d_slice
+        end
+        
+        if border != :ycircular
+            # Reflect in y-direction
+            d_padded = cat(d_padded_x[:, Ny÷2:-1:1], d_padded_x, d_padded_x[:, Ny:-1:Ny÷2+1], dims=2)
+        else
+            d_padded = d_padded_x
+        end
+        
+        # Copy to batch array
+        batch_input[:, :, i] .= d_padded
+    end
+end
+
+function extract_batch_results!(dl, batch_output, zidx_batch, batch_size, border, Nx, Ny, padded_Nx, padded_Ny)
+    """Extract results from GPU batch and copy to output"""
+    
+    for (i, iz) in enumerate(zidx_batch)
+        if i > batch_size
+            break
+        end
+        
+        # Extract the relevant region based on border conditions
+        if border == :ycircular
+            result = Array(batch_output[Nx÷2+1:Nx÷2+Nx, :, i])
+        elseif border != :circular
+            result = Array(batch_output[Nx÷2+1:Nx÷2+Nx, Ny÷2+1:Ny÷2+Ny, i])
+        else
+            result = Array(batch_output[:, :, i])
+        end
+        
+        dl[:, :, iz] .= result
+    end
+end
+
+# Alternative: Memory-efficient streaming approach for very large datasets
+function streaming_gpu_filter!(dl, d, Gl, zidx, border, Nx, Ny, Nz; 
+                              max_gpu_slices=16)
+    """
+    Memory-efficient streaming approach that processes slices as they fit in GPU memory
+    """
+    
+    xreflect = (border != :circular) ? 2 : 1
+    yreflect = (border != :ycircular) ? 2 : 1
+    padded_Nx = xreflect * Nx
+    padded_Ny = yreflect * Ny
+    
+    # Move kernel to GPU
+    Gl_gpu = CuArray(Float32.(Gl))
+    Ĝl_gpu = rfft(Gl_gpu)
+    
+    # Create GPU workspace
+    gpu_input = CUDA.zeros(Float32, padded_Nx, padded_Ny)
+    gpu_fft = CUDA.zeros(ComplexF32, size(rfft(gpu_input)))
+    
+    println("Starting streaming GPU filtering...")
+    t0 = time()
+    
+    for (idx, iz) in enumerate(zidx)
+        # Prepare data
+        d_slice = d[:, :, iz]
+        
+        # Apply padding
+        if border != :circular
+            d_slice = [d_slice[Nx÷2:-1:1, :]; d_slice; d_slice[Nx:-1:Nx÷2+1, :]]
+        end
+        if border != :ycircular
+            d_slice = [d_slice[:, Ny÷2:-1:1] d_slice d_slice[:, Ny:-1:Ny÷2+1]]
+        end
+        
+        # Move to GPU and process
+        copyto!(gpu_input, Float32.(d_slice))
+        rfft!(gpu_fft, gpu_input)
+        gpu_fft .*= Ĝl_gpu
+        irfft!(gpu_input, gpu_fft, padded_Nx)
+        
+        # Extract result
+        if border == :ycircular
+            dl[:, :, iz] .= Array(gpu_input[Nx÷2+1:Nx÷2+Nx, :])
+        elseif border != :circular
+            dl[:, :, iz] .= Array(gpu_input[Nx÷2+1:Nx÷2+Nx, Ny÷2+1:Ny÷2+Ny])
+        else
+            dl[:, :, iz] .= Array(gpu_input)
+        end
+        
+        if idx % 10 == 0
+            elapsed = time() - t0
+            progress = idx / length(zidx) * 100
+            println("Processed $idx/$(length(zidx)) slices ($(round(progress, digits=1))%) in $(round(elapsed, digits=1))s")
+        end
+    end
+    
+    println("Streaming GPU filtering completed in $(round(time() - t0, digits=2))s")
+    return dl
+end
+
+# Usage example:
+# gpu_accelerated_filtering!(dl, d, Gl, zidx, border, Nx, Ny, Nz, batch_size=32)
+# or for memory-constrained scenarios:
+# streaming_gpu_filter!(dl, d, Gl, zidx, border, Nx, Ny, Nz)
