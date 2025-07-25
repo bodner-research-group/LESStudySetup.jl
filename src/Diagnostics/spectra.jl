@@ -1,6 +1,7 @@
 using FFTW
 using Oceananigans.Grids: φnode
 using Statistics: mean
+using CUDA, Tullio
 
 struct Spectrum{S, F}
     spec :: S
@@ -47,9 +48,9 @@ Normalization ensures sum(spectra .* Δfs) ≈ sum(v1_prime .* v2_prime) / (Nx *
 Args:
     var1 (Matrix): First 2D data field.
     var2 (Matrix): Second 2D data field (can be the same as var1 for auto-spectrum).
-    x (Vector): Coordinates for the first dimension.
-    y (Vector): Coordinates for the second dimension.
     window (Union{Nothing, Symbol}): Specify `:hann` for Hann window, or nothing.
+    L_filter (Union{Real, Nothing}): Filter scale for Gaussian filter (in grid units).
+    use_gpu (Bool): Whether to use GPU acceleration.
 
 Returns:
     Tuple: A tuple containing:
@@ -62,25 +63,25 @@ Returns:
         - Δy: Grid spacing in the second dimension.
         - window_correction_factor: The factor applied to correct for window energy loss (1.0 if no window).
 """
-function isotropic_powerspectrum(var1::AbstractMatrix{T1}, var2::AbstractMatrix{T2},
-                                 x::AbstractVector{T3}, y::AbstractVector{T4};
-                                 window::Union{Nothing, Symbol} = nothing) where {T1<:Real, T2<:Real, T3<:Real, T4<:Real}
+function isotropic_powerspectrum(var1::AbstractMatrix{T1}, var2::AbstractMatrix{T2}; T::DataType=Float32,
+                                 L_filter::Union{Real, Nothing}=nothing, use_gpu::Bool=true,
+                                 window::Union{Nothing, Symbol} = nothing) where {T1<:Real, T2<:Real}
 
     if size(var1) != size(var2)
         error("Input variables var1 and var2 must have the same dimensions.")
     end
-    if size(var1) != (length(x), length(y))
-        error("Input variable dimensions must match length of x and y coordinates.")
-    end
+    CT = T == Float32 ? ComplexF32 : ComplexF64
 
+    # Check for GPU and select the device/array type
+    can_use_gpu = use_gpu && CUDA.functional()
+    device = can_use_gpu ? CuArray : Array
+    println(can_use_gpu ? "✅ GPU detected, using CUDA.jl." : "🖥️  No functional GPU, using CPU.")
+
+    # --- Grid parameters ---
     Nx, Ny = size(var1)
     # Correctly calculate grid spacing assuming uniform grid
-    Δx = x[2] - x[1]
-    Δy = y[2] - y[1]
-    # Optional: Add checks for uniform spacing if needed
-    # if !all(diff(x) .≈ Δx) || !all(diff(y) .≈ Δy)
-    #     @warn "Grid spacing may not be uniform. Using first difference."
-    # end
+    Δx = parameters.Δh
+    Δy = parameters.Δh
 
     # --- Preprocessing ---
     v1_mean = mean(var1)
@@ -121,21 +122,50 @@ function isotropic_powerspectrum(var1::AbstractMatrix{T1}, var2::AbstractMatrix{
     # Note: v1_prime and v2_prime returned are the *original* mean-subtracted fields,
     #       *before* potential windowing, as this is often more useful for reference.
     #       If windowed fields are needed, return v1_fft_input, v2_fft_input instead.
-    v̂1 = rfft(v1_fft_input)
-    v̂2 = rfft(v2_fft_input)
+    v̂1 = rfft(device(v1_fft_input))
+    v̂2 = rfft(device(v2_fft_input))
 
     Nkx, Nky = size(v̂1) # Nkx = div(Nx,2)+1, Nky = Ny
 
     # --- Compute raw cross power spectrum (unweighted, unnormalized) ---
-    S_raw = v̂1 .* conj(v̂2) # Raw coefficients product
+    S_raw = Array(v̂1 .* conj(v̂2)) # Raw coefficients product
+    @info "Raw cross-power spectrum computed."
+
+    # Compute filtered spectrum if L_filter is specified
+    S_filtered = nothing
+    if !isnothing(L_filter)
+        # --- Create Gaussian filter G_hat in spectral space ---
+        # The standard deviation `sigma` is derived from the filter scale `L`.
+        σ = L_filter / parameters.Δh# / sqrt(12.0)
+
+        # Create centered coordinate grids for the physical kernel
+        x = fftshift(-Nx/2 : Nx/2 - 1)
+        y = fftshift(-Ny/2 : Ny/2 - 1)
+
+        # Generate the physical-space Gaussian kernel, normalized
+        @tullio G[i, j] := T(exp(-(x[i]^2 + y[j]^2) / (2.0 * σ^2)))
+        G ./= sum(G)
+
+        # Get the transfer function G_hat and move to device
+        # Note: We create the kernel on the CPU as it's a small, one-time cost.
+        Ĝ = device(rfft(G))
+
+        # --- Apply filter and compute filtered spectrum ---
+        v̂1_filt = Ĝ .* v̂1
+        v̂2_filt = Ĝ .* v̂2
+        S_filtered = Array(v̂1_filt .* conj(v̂2_filt))
+    end
 
     # --- Wavenumbers ---
     # Correct calculation using spacing Δx, Δy
     kx_vec = 2π .* rfftfreq(Nx, 1/Δx) # Frequencies for rfft output
     ky_vec = 2π .* fftfreq(Ny, 1/Δy)  # Frequencies for standard fft dimension
+    Δkx = length(kx_vec) > 1 ? kx_vec[2] - kx_vec[1] : 0.0
+    Δky = length(ky_vec) > 1 ? abs(ky_vec[2] - ky_vec[1]) : 0.0
+    Δk = Δkx ≈ 0.0 || Δky ≈ 0.0 ? max(Δkx, Δky) : sqrt(Δkx * Δky)
 
     # Compute wavenumber magnitude grid
-    k_mag_sq = zeros(Float64, Nkx, Nky)
+    k_mag_sq = zeros(T, Nkx, Nky)
     # Outer product equivalent using broadcasting for potentially better efficiency
     # Ensure ky_vec is treated as a row vector for broadcasting
     k_mag_sq .= (kx_vec.^2) .+ reshape(ky_vec.^2, 1, Nky)
@@ -144,82 +174,95 @@ function isotropic_powerspectrum(var1::AbstractMatrix{T1}, var2::AbstractMatrix{
 
     # --- Binning parameters ---
     # Check if Δx or Δy are zero or very small
-    Δkx = if length(kx_vec) > 1 kx_vec[2] - kx_vec[1] else 0.0 end # 2π / (Nx*Δx)
-    Δky = if length(ky_vec) > 1 abs(ky_vec[2] - ky_vec[1]) else 0.0 end # 2π / (Ny*Δy)
-    Δk = if Δkx ≈ 0.0 || Δky ≈ 0.0
-             max(Δkx, Δky) # Handle 1D cases
-         else
-             sqrt(Δkx * Δky) # Geometric mean for 2D
-         end
     kmin, kmax = 0.0, maximum(k)
     klen = kmax - kmin
 
     # Avoid division by zero if Δk is effectively zero
-    if Δk < 1e-12 && klen > 1e-9 # Check if range is non-trivial but spacing is zero
-         @warn "Wavenumber spacing Δk is near zero ($Δk) but range is $klen. Check grid setup. Defaulting Nk=1."
-         Nk = 1
-    elseif Δk < 1e-12
-         Nk = 1 # Only one bin if spacing is zero (e.g., single point in k-space)
-    else
-         Nk = max(1, ceil(Int, klen / Δk)) # Ensure at least one bin
-    end
+    Nk = Δk > 1e-12 ? max(1, ceil(Int, klen / Δk)) : 1
     # Define bin edges
     kbins = range(kmin, stop=kmax + Δk, length=Nk+1) # Extend slightly to ensure max k included
 
-    # --- Prepare for efficient binning ---
-    k_flat = vec(k)
-    S_flat = vec(S_raw)
-    i_indices = repeat(1:Nkx, Nky) # Get the 'i' index (rfft dimension) for each flattened element
-
-    # Pre-calculate weights based on the 'i' index
+    # --- Optimized Weight Calculation ---
     is_nx_even = iseven(Nx)
     nyquist_i_index = div(Nx, 2) + 1
-    # Use 1.0 and 2.0 for type stability with complex S_flat multiplication
-    weights = map(i -> (i == 1 || (is_nx_even && i == nyquist_i_index)) ? 1.0 : 2.0, i_indices)
+    # Weights depend only on the kx index (i). Create a column vector.
+    weights_col = map(i -> (i == 1 || (is_nx_even && i == nyquist_i_index)) ? 1.0 : 2.0, 1:Nkx)
 
-    # --- Bin and sum using vectorized indexing (more efficient) ---
-    spectra_summed = zeros(ComplexF64, Nk) # Store the summed values per bin
-    freqs = zeros(Float64, Nk)
-    Δfs = zeros(Float64, Nk) # Store bin widths
+    # Broadcast the column to the full 2D grid size
+    weights = device(weights_col .* ones(T, 1, Nky))
 
-    for bin_i in 1:Nk
-        bin_start = kbins[bin_i]
-        bin_end = kbins[bin_i+1]
+    # --- Vectorized Bin Assignment and Scatter-Add ---
+    # Move data to target device
+    k_device = device(k)
+    S_raw_device = device(S_raw)
+    S_filt_device = isnothing(S_filtered) ? nothing : device(S_filtered)
 
-        # Create boolean mask for elements in the current bin
-        # Handle k=0 inclusion carefully for the first bin
-        if bin_i == 1
-            # Include lower bound for the first bin (k=0)
-            idx = (bin_start .≤ k_flat) .& (k_flat .≤ bin_end)
-            # Special case: If kmax is exactly 0, ensure the single k=0 point is captured
-            if kmax == 0.0 && bin_start == 0.0
-                idx = (k_flat .== 0.0)
+    # A. Find bin index for EVERY wavenumber point in a single, vectorized step
+    # `searchsortedfirst` is efficient for this. `kbins` is small, so keep it on CPU.
+    bin_indices = searchsortedfirst.(Ref(kbins), k_device) .- 1
+    # Clamp indices to be within 1:Nk, as `searchsortedfirst` can return Nk+1
+    CUDA.allowscalar() do
+        @tullio bin_indices[i] = clamp(bin_indices[i], 1, Nk)
+    end
+
+    # B. Sum spectra into bins using a high-performance scatter-add
+    spectra_summed = zeros(CT, Nk) |> device
+    weighted_S_raw = S_raw_device .* weights
+
+    if can_use_gpu
+        # GPU Path: Use a custom kernel with atomic operations for race-free summation
+        CUDA.@sync begin
+            @cuda threads=256 blocks=cld(length(weighted_S_raw), 256) scatter_add_kernel!(spectra_summed, vec(weighted_S_raw), vec(bin_indices))
+        end
+    else
+        # CPU Path: Use Tullio.jl for a highly optimized, multithreaded scatter-add
+        @tullio spectra_summed[bin_indices[i]] += weighted_S_raw[i]
+    end
+
+    # Repeat for filtered spectrum if it exists
+    spectra_summed_filtered = nothing
+    if !isnothing(S_filtered)
+        spectra_summed_filtered = zeros(CT, Nk) |> device
+        weighted_S_filt = S_filt_device .* weights
+        if can_use_gpu
+            CUDA.@sync begin
+                @cuda threads=256 blocks=cld(length(weighted_S_filt), 256) scatter_add_kernel!(spectra_summed_filtered, vec(weighted_S_filt), vec(bin_indices))
             end
         else
-            # Exclude lower bound for subsequent bins
-            idx = (bin_start .< k_flat) .& (k_flat .≤ bin_end)
+            @tullio spectra_summed_filtered[bin_indices[i]] += weighted_S_filt[i]
         end
-
-        if any(idx)
-            # Sum the weighted raw spectral components within this bin
-            spectra_summed[bin_i] = sum(S_flat[idx] .* weights[idx])
-        # else: bin_sum remains zero
-        end
-
-        # Store bin center frequency and bin width
-        freqs[bin_i] = (bin_start + bin_end) / 2
-        Δfs[bin_i] = bin_end - bin_start
     end
 
     # --- Final Normalization ---
+    freqs = (kbins[1:Nk] .+ kbins[2:Nk+1]) ./ 2
+    Δfs = kbins[2:Nk+1] .- kbins[1:Nk]
     # Factor includes:
     # 1 / (Nx * Ny)^2 : From FFTW normalization convention (forward and backward)
     # 1 / window_correction_factor : To correct for energy loss from windowing
     norm_factor = 1 / (Nx * Ny)^2 / window_correction_factor
     # Apply normalization, avoiding division by zero if Δfs is zero
-    spectra = map( (sum_val, df) -> df > 1e-12 ? sum_val * norm_factor / df : zero(ComplexF64),
-                   spectra_summed, Δfs)
+    # Handle division by zero for empty bins
+    inv_Δfs = map(df -> df > 1e-12 ? 1.0 / df : 0.0, Δfs)
+    spectra = Array(spectra_summed) .* (norm_factor .* inv_Δfs)
+    if !isnothing(S_filtered)
+        spectra_filtered = Array(spectra_summed_filtered) .* (norm_factor .* inv_Δfs)
+        return (spec=spectra, specf=spectra_filtered, freq=freqs)
+    else
+        return Spectrum(spectra, freqs)
+    end
 
     # Return relevant quantities
-    return Spectrum(spectra, freqs)#freqs, spectra, Δfs, v1_prime, v2_prime, Δx, Δy, window_correction_factor
+    # return Spectrum(spectra, freqs)#freqs, spectra, Δfs, v1_prime, v2_prime, Δx, Δy, window_correction_factor
+end
+
+"""
+Custom CUDA kernel for a high-performance, race-free scatter-add operation.
+"""
+function scatter_add_kernel!(dest::CuDeviceVector, src::CuDeviceVector, indices::CuDeviceVector{Int})
+    i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    if i <= length(src)
+        # Atomically add the source value to the destination bin
+        CUDA.@atomic dest[indices[i]] += src[i]
+    end
+    return
 end
