@@ -481,7 +481,7 @@ Arguments:
 Returns:
 - A `Dict` containing the reconstructed fields (e.g., `:u`, `:v`, `:T`) and the `grid`.
 """
-function load_subdomain_snapshot(filename; variables = ("u", "v", "w", "T"), level = nothing)
+function load_subdomain_snapshot(filename; T=Float32, variables = ("u", "v", "w", "T"), level = nothing)
     # Create an empty dictionary to store the results
     snapshot = Dict{Symbol, Any}()
 
@@ -489,7 +489,6 @@ function load_subdomain_snapshot(filename; variables = ("u", "v", "w", "T"), lev
     jldopen(filename, "r") do file
         # 1. Load the grid object. This is essential for reconstructing fields.
         grid = file["grid"]
-        snapshot[:grid] = grid
 
         @info "Loaded grid: $grid"
 
@@ -512,20 +511,31 @@ function load_subdomain_snapshot(filename; variables = ("u", "v", "w", "T"), lev
                 # 3. For each field, read its raw data array and its location.
                 # 4. Reconstruct the Field object on the grid at the correct location.
                 if isnothing(level)
-                    data = field_group["data"]
+                    snapshot[:grid] = grid
+                    data = T.(field_group["data"])
                     loc = field_group["location"]
-                    field = Field(loc, grid)
+                    field = Field{loc[1], loc[2], loc[3]}(grid, T)
                 else
+
                     i = findfirst(levels .== level)
                     if isnothing(i)
                         @warn "Level $level not found in $filename."
                         continue
                     else
-                        @info "Loading level $level."
+                        gridl = RectilinearGrid(grid.architecture;
+                                                size = (grid.Nx, grid.Ny, 1),
+                                                x = (-grid.Lx/2,grid.Lx/2),
+                                                y = (0,grid.Ly),
+                                                z = (-grid.Lz/grid.Nz,0),
+                                                topology = (grid.Lx>parameters.Lx-1 ? Periodic : Bounded,grid.Ly>parameters.Ly-1 ? Periodic : Bounded,Bounded))
+                        @info "Loading level $level with one-layer grid $gridl."
+                        snapshot[:grid] = gridl
                         snapshot[:level] = level
-                        data = field_group["data"][:,:,i]
+                        data = T.(field_group["data"][:,:,i])
                         loc = field_group["location"]
-                        field = Field{loc[1], loc[2], Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+                        loc3 = var=="w" ? Nothing : loc[3]
+                        ind3 = var=="w" ? UnitRange(1, 1) : Colon()
+                        field = Field{loc[1], loc[2], loc3}(gridl, T; indices=(Colon(), Colon(), ind3))
                     end
                 end
 
