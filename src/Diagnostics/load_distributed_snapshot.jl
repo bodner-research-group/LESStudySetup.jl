@@ -148,6 +148,7 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
                                             ylims = nothing,
                                             zlims = nothing,
                                             levels = nothing,
+                                            getEw = false,
                                             getMLD = 0, Δρ = 0.03)
 
     # Helper function to handle periodic coordinate normalization
@@ -254,12 +255,21 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     T = CenterField(grid; indices=field_indices)
     if getMLD >= 1
         MLD = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        if getEw
+            Ew = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        end
     end
     if getMLD >= 2
         MLD2 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        if getEw
+            Ew2 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        end
     end
     if getMLD >= 3
         MLD3 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        if getEw
+            Ew3 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        end
     end
 
     # NEW: Load data from all segments (handling periodic wraparound)
@@ -348,13 +358,30 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
                         T_r = CenterField(grid_r)
                         interior(T_r) .= Tdata
                         α, ρ₀ = parameters.α, parameters.ρ₀
-                        MLDdata = interior(compute!(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(Δρ / ρ₀ / α))))
+                        if !getEw
+                            MLDdata = interior(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(Δρ / ρ₀ / α)))
+                        else
+                            w_r = ZFaceField(grid_r)
+                            interior(w_r) .= wdata
+                            (MLDdata, Ewdata) = MixedLayerDepth(grid_r, (; T=T_r); w=w_r, ΔT = abs(Δρ / ρ₀ / α))
+                            MLDdata, Ewdata = interior(MLDdata), interior(Ewdata)
+                        end
                     end
                     if getMLD >= 2
-                        MLD2data = interior(compute!(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(2Δρ / ρ₀ / α))))
+                        if !getEw
+                            MLD2data = interior(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(2Δρ / ρ₀ / α)))
+                        else
+                            (MLD2data, Ew2data) = MixedLayerDepth(grid_r, (; T=T_r); w=w_r, ΔT = abs(2Δρ / ρ₀ / α))
+                            MLD2data, Ew2data = interior(MLD2data), interior(Ew2data)
+                        end
                     end
                     if getMLD >= 3
-                        MLD3data = interior(compute!(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(3Δρ / ρ₀ / α))))
+                        if !getEw
+                            MLD3data = interior(MixedLayerDepth(grid_r, (; T=T_r); ΔT = abs(3Δρ / ρ₀ / α)))
+                        else
+                            (MLD3data, Ew3data) = MixedLayerDepth(grid_r, (; T=T_r); w=w_r, ΔT = abs(3Δρ / ρ₀ / α))
+                            MLD3data, Ew3data = interior(MLD3data), interior(Ew3data)
+                        end
                     end
                     
                     # Calculate global index ranges for this rank's data
@@ -409,14 +436,26 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
                     if getMLD >= 1
                         interior(MLD, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
                             MLDdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                        if getEw
+                            interior(Ew, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                                Ewdata[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                        end
                     end
                     if getMLD >= 2
                         interior(MLD2, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
                             MLD2data[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                        if getEw
+                            interior(Ew2, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                                Ew2data[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                        end
                     end
                     if getMLD >= 3
                         interior(MLD3, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
                             MLD3data[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                        if getEw
+                            interior(Ew3, final_x_start:final_x_end, final_y_start:final_y_end, 1) .=
+                                Ew3data[rank_x_start_local:rank_x_end_local, rank_y_start_local:rank_y_end_local, 1]
+                        end
                     end
                     # else
                     #     # Vertical levels
@@ -447,14 +486,26 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     if getMLD >= 1
         fill_halo_regions!(MLD)
         snapshot[:MLD] = MLD
+        if getEw
+            fill_halo_regions!(Ew)
+            snapshot[:Ew] = Ew
+        end
     end
     if getMLD >= 2
         fill_halo_regions!(MLD2)
         snapshot[:MLD2] = MLD2
+        if getEw
+            fill_halo_regions!(Ew2)
+            snapshot[:Ew2] = Ew2
+        end
     end
     if getMLD >= 3
         fill_halo_regions!(MLD3)
         snapshot[:MLD3] = MLD3
+        if getEw
+            fill_halo_regions!(Ew3)
+            snapshot[:Ew3] = Ew3
+        end
     end
 
     if !isnothing(metadata)
@@ -516,13 +567,13 @@ function load_subdomain_snapshot(filename; T=Float32, variables = ("u", "v", "w"
                     loc = field_group["location"]
                     field = Field{loc[1], loc[2], loc[3]}(grid, T)
                 else
+                    i = "levels" in keys(file["metadata"]) ? findfirst(levels .== level) : level
 
-                    i = findfirst(levels .== level)
                     if isnothing(i)
                         @warn "Level $level not found in $filename."
                         continue
                     else
-                        gridl = RectilinearGrid(grid.architecture;
+                        gridl = RectilinearGrid(grid.architecture,T;
                                                 size = (grid.Nx, grid.Ny, 1),
                                                 x = (-grid.Lx/2,grid.Lx/2),
                                                 y = (0,grid.Ly),
@@ -531,10 +582,10 @@ function load_subdomain_snapshot(filename; T=Float32, variables = ("u", "v", "w"
                         @info "Loading level $level with one-layer grid $gridl."
                         snapshot[:grid] = gridl
                         snapshot[:level] = level
-                        data = T.(field_group["data"][:,:,i])
+                        data = var in ("u", "v", "w", "T") ? T.(field_group["data"][:,:,i]) : T.(field_group["data"][:,:,1])
                         loc = field_group["location"]
                         loc3 = var=="w" ? Nothing : loc[3]
-                        ind3 = var=="w" ? UnitRange(1, 1) : Colon()
+                        ind3 = var in ("u", "v", "T") ? Colon() : UnitRange(1, 1)
                         field = Field{loc[1], loc[2], loc3}(gridl, T; indices=(Colon(), Colon(), ind3))
                     end
                 end

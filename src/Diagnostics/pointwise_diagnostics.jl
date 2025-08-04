@@ -945,7 +945,7 @@ end
 """ mixed layer average function """
 function MLaverage(snapshots, i, v; kernel=:tophat, scale=20kilometer)
     _, _, z = nodes(v)
-    h = compute!(MLD(snapshots,i; threshold = 0.03))
+    h = MLD(snapshots,i; threshold = 0.03)
     grid = v.grid
     H = Field{Center, Center, Nothing}(grid)
     coarse_graining!(h, H; kernel, cutoff = scale)
@@ -961,7 +961,7 @@ function MLI(snapshots, i; kernel=:tophat, scale=20kilometer)
     g = parameters.g
     f = parameters.f
     Ti = snapshots[:T][i]
-    h = compute!(MLD(snapshots,i; threshold = 0.03))
+    h = MLD(snapshots,i; threshold = 0.03)
 
     H = Field{Center, Center, Nothing}(Ti.grid)
     T = CenterField(Ti.grid)
