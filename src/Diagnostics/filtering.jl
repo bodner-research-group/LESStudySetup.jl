@@ -500,6 +500,7 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
     if (method==:spectral) && (border!= :circular)
         @info "FFT-based convolution requires circular padding. Reflecting to be circular."
         xreflect = 2
+        Δi = Nx % 2 == 0 ? 0 : 1
         if border != :ycircular
             yreflect = 2
         end
@@ -514,8 +515,8 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
             Gl = T.(Kernel.gaussian((floor(Int, cutoff / dx), floor(Int, cutoff / dy))))
         else
             # Create centered coordinate grids for the physical kernel
-            x = fftshift(-xreflect*Nx/2 : xreflect*Nx/2 - 1)
-            y = fftshift(-yreflect*Ny/2 : yreflect*Ny/2 - 1)
+            x = fftshift(-xreflect*(Nx ÷ 2) : xreflect*(Nx ÷ 2) - 1)
+            y = fftshift(-yreflect*(Ny ÷ 2) : yreflect*(Ny ÷ 2) - 1)
 
             # Generate the physical-space Gaussian kernel, normalized
             @tullio Gl[i, j] := T(exp(-(x[i]^2 + y[j]^2) / (2.0 * (cutoff / dx)^2)))
@@ -533,12 +534,19 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
     if method == :physical && nonzero_fraction > 0.2
         @info "Kernel is large (nonzero fraction = $(nonzero_fraction)); switching to FFT method."
         method = :spectral
+        if border!= :circular
+            xreflect = 2
+            Δi = Nx % 2 == 0 ? 0 : 1
+            if border != :ycircular
+                yreflect = 2
+            end
+        end
         if kernel == :tophat
             Gl = T.(build_tophat_kernel(grid_info, cutoff; Lx=xreflect*Lx, Ly=yreflect*Ly, method=method))
         elseif kernel == :gaussian
             # Create centered coordinate grids for the physical kernel
-            x = fftshift(-xreflect*Nx/2 : xreflect*Nx/2 - 1)
-            y = fftshift(-yreflect*Ny/2 : yreflect*Ny/2 - 1)
+            x = fftshift(-xreflect*(Nx ÷ 2) : xreflect*(Nx ÷ 2) - 1)
+            y = fftshift(-yreflect*(Ny ÷ 2) : yreflect*(Ny ÷ 2) - 1)
 
             # Generate the physical-space Gaussian kernel, normalized
             @tullio Gl[i, j] := T(exp(-(x[i]^2 + y[j]^2) / (2.0 * (cutoff / dx)^2)))
@@ -592,7 +600,7 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
         t0 = time()
         # Create a padded array for the FFT-based convolution
         if border != :circular
-            d_slice = [d[Nx÷2:-1:1, :, zidx]; d[:,:, zidx]; d[Nx:-1:Nx÷2+1, :, zidx]]
+            d_slice = [d[Nx÷2:-1:1+Δi, :, zidx]; d[:,:, zidx]; d[Nx-Δi:-1:Nx÷2+1, :, zidx]] 
             if border != :ycircular
                 d_slice = [d_slice[:, Ny÷2:-1:1,:] d_slice d_slice[:, Ny:-1:Ny÷2+1,:]]
             end
@@ -612,9 +620,9 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
         if border == :circular
             dl[:, :, zidx] .= Array(d_filtered)
         elseif border == :ycircular
-            dl[:, :, zidx] .= Array(d_filtered)[Nx÷2+1:Nx÷2+Nx, :,:]
+            dl[:, :, zidx] .= Array(d_filtered)[Nx÷2+1-Δi:Nx÷2+Nx-Δi, :,:]
         else
-            dl[:, :, zidx] .= Array(d_filtered)[Nx÷2+1:Nx÷2+Nx, Ny÷2+1:Ny÷2+Ny,:]
+            dl[:, :, zidx] .= Array(d_filtered)[Nx÷2+1-Δi:Nx÷2+Nx-Δi, Ny÷2+1:Ny÷2+Ny,:]
         end
 
         @info "Filtered with GPU=$(can_use_gpu), 3D :spectral method in $(time()-t0)s."   
@@ -624,72 +632,3 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
     fill_halo_regions!(u̅l)
     return nothing
 end
-
-# using CUDA.CUFFT
-# using BenchmarkTools
-
-# # Alternative: Memory-efficient streaming approach for very large datasets
-# function streaming_gpu_filter!(dl, d, Gl, zidx, border, Nx, Ny, Nz; 
-#                               max_gpu_slices=16)
-#     """
-#     Memory-efficient streaming approach that processes slices as they fit in GPU memory
-#     """
-    
-#     xreflect = (border != :circular) ? 2 : 1
-#     yreflect = (border != :ycircular) ? 2 : 1
-#     padded_Nx = xreflect * Nx
-#     padded_Ny = yreflect * Ny
-    
-#     # Move kernel to GPU
-#     Gl_gpu = CuArray(Float32.(Gl))
-#     Ĝl_gpu = rfft(Gl_gpu)
-    
-#     # Create GPU workspace
-#     gpu_input = CUDA.zeros(Float32, padded_Nx, padded_Ny)
-#     gpu_fft = CUDA.zeros(ComplexF32, size(rfft(gpu_input)))
-    
-#     println("Starting streaming GPU filtering...")
-#     t0 = time()
-    
-#     for (idx, iz) in enumerate(zidx)
-#         # Prepare data
-#         d_slice = d[:, :, iz]
-        
-#         # Apply padding
-#         if border != :circular
-#             d_slice = [d_slice[Nx÷2:-1:1, :]; d_slice; d_slice[Nx:-1:Nx÷2+1, :]]
-#         end
-#         if border != :ycircular
-#             d_slice = [d_slice[:, Ny÷2:-1:1] d_slice d_slice[:, Ny:-1:Ny÷2+1]]
-#         end
-        
-#         # Move to GPU and process
-#         copyto!(gpu_input, Float32.(d_slice))
-#         rfft!(gpu_fft, gpu_input)
-#         gpu_fft .*= Ĝl_gpu
-#         irfft!(gpu_input, gpu_fft, padded_Nx)
-        
-#         # Extract result
-#         if border == :ycircular
-#             dl[:, :, iz] .= Array(gpu_input[Nx÷2+1:Nx÷2+Nx, :])
-#         elseif border != :circular
-#             dl[:, :, iz] .= Array(gpu_input[Nx÷2+1:Nx÷2+Nx, Ny÷2+1:Ny÷2+Ny])
-#         else
-#             dl[:, :, iz] .= Array(gpu_input)
-#         end
-        
-#         if idx % 10 == 0
-#             elapsed = time() - t0
-#             progress = idx / length(zidx) * 100
-#             println("Processed $idx/$(length(zidx)) slices ($(round(progress, digits=1))%) in $(round(elapsed, digits=1))s")
-#         end
-#     end
-    
-#     println("Streaming GPU filtering completed in $(round(time() - t0, digits=2))s")
-#     return dl
-# end
-
-# Usage example:
-# gpu_accelerated_filtering!(dl, d, Gl, zidx, border, Nx, Ny, Nz, batch_size=32)
-# or for memory-constrained scenarios:
-# streaming_gpu_filter!(dl, d, Gl, zidx, border, Nx, Ny, Nz)
