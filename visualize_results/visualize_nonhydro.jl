@@ -4,7 +4,7 @@ using Printf, Dates
 using Statistics: mean, std
 using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_distributed_checkpoint,load_subdomain_snapshot
-using LESStudySetup.Diagnostics: isotropic_powerspectrum
+using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes
 using LESStudySetup.Diagnostics: coarse_graining!, TKE, MLD
 set_theme!(theme_latexfonts(), fontsize=12, figure_padding = 10)
 using JLD2, CUDA
@@ -38,33 +38,35 @@ function get_iterations_regex(filehead, fileparam, directory="."; subdirparam="s
     return sort(iterations)
 end
 
-
 ##########################
 shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
 filename0 = "./hydrostatic_snapshots_init.jld2"
 snapshots = load_snapshots(filename0);
 v0 = snapshots[:v][1];
 u0 = snapshots[:u][1];
-T0 = snapshots[:T][1];
+# T0 = snapshots[:T][1];
 xu, yu, zu = nodes(u0);
 xv, yv, zv = nodes(v0);
-xT, yT, zT = nodes(T0);
-_ , _ , zw = nodes(snapshots[:w][1])
-h0 = MLD(snapshots,1; threshold = 0.09)
-f = parameters.f;
-ζ₀ = compute!(Field(∂x(v0) - ∂y(u0)));
-x, y, z = nodes(ζ₀);
-Nz = length(z)
+# xT, yT, zT = nodes(T0);
+# _ , _ , zw = nodes(snapshots[:w][1])
+# h0 = MLD(snapshots,1; threshold = 0.09)
+# f = parameters.f;
+# ζ₀ = compute!(Field(∂x(v0) - ∂y(u0)));
+# x, y, z = nodes(ζ₀);
+# Nz = length(z)
 initfile = "./hydrostatic_snapshots_free.jld2"
 initsnaps = load_snapshots(initfile)
 Ub = initsnaps[:u][1];
 Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
-σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
-σs = compute!(Field((∂y(Ub)+∂x(Vb))/2));
-@info "σn extrema: $(extrema(interior(σn)))"
-@info "σs extrema: $(extrema(interior(σs)))"
-iarrow = 2:32:640
-k = length(zT)
+iUb, iVb = interior(Ub), interior(Vb);
+iUb, iVb = [iUb[size(xu,1)÷2+1:end, :, :]; iUb[1:size(xu,1)÷2, :, :]],[iVb[size(xv,1)÷2+1:end, :, :]; iVb[1:size(xv,1)÷2, :, :]];
+ipU, ipV = (xu .- 5e4,vec(yu)), (xv .- 5e4,vec(yv))
+# σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
+# σs = compute!(Field((∂y(Ub)+∂x(Vb))/2));
+# @info "σn extrema: $(extrema(interior(σn)))"
+# @info "σs extrema: $(extrema(interior(σs)))"
+# iarrow = 2:32:640
+# k = length(zT)
 
 # fig = Figure(size = (640, 270))
 # gab = fig[1, 1] = GridLayout()
@@ -130,53 +132,54 @@ k = length(zT)
 # resize_to_layout!(fig)
 # save(filesave * "sMT0v0fields.pdf", fig)
 
-use_gpu = true
-A=rand(Float32,10240,20480,1);
-if use_gpu && CUDA.functional()
-    p = CUDA.CUFFT.plan_rfft(CuArray(A), (1,2));
-    ip = CUDA.CUFFT.plan_irfft(p * CuArray(A), 10240, (1,2));
-else
-    @error "CUDA not available"
-end
-fileparam = "xband1sublevels"
-fig = Figure(size = (640, 580))
-g4 = fig[1, 1] = GridLayout()
-aspect = 0.25
-crange = (-10, 10)
-axis_kwargs = (xlabel = L"x~\text{(km)}", limits = ((-12.5,12.5),(0,100)), aspect=aspect)
-ax_a = Axis(g4[1,1]; titlealign = :left, title=L"\text{(a)}~\zeta_0/f", ylabel = L"y~\text{(km)}", axis_kwargs...)
-ax_b = Axis(g4[1,2]; titlealign = :left, title=L"\text{(b)}~\overline{\zeta}/f,~t=16~\text{h}", axis_kwargs...)
-ax_c = Axis(g4[1,3]; titlealign = :left, title=L"\text{(c)}~\overline{\zeta}/f,~t=30~\text{h}", axis_kwargs...) 
-ax_d = Axis(g4[1,4]; titlealign = :left, title=L"\text{(d)}~\overline{\zeta}/f,~t=44~\text{h}", axis_kwargs...) 
-hideydecorations!(ax_b, ticks = false)
-hideydecorations!(ax_c, ticks = false)
-hideydecorations!(ax_d, ticks = false)
-hm_a = heatmap!(ax_a, 1e-3x .- 50, 1e-3y, shift(interior(ζ₀,:,:,Nz))./f; rasterize = true, colormap = :curl, colorrange = crange)
-arrows!(ax_a,xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2,alpha=0.5)
-axs = [ax_b, ax_c, ax_d]
-iterations = [26066,37003,49086]
-for (i,iteration) in enumerate(iterations)
-    output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
-    snapshot = load_subdomain_snapshot(output_filename;variables = ("v","u"),level=224);
-    grid = snapshot[:u].grid
-    u̅  = XFaceField(grid);
-    v̅  = YFaceField(grid);
-    _, _, zi = nodes(snapshot[:v]);
-    Nzi = length(zi)
-    coarse_graining!(snapshot[:v] , v̅; kernel=:gaussian, cutoff=100, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
-    coarse_graining!(snapshot[:u] , u̅; kernel=:gaussian, cutoff=100, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
-    ζ̄i = compute!(Field((∂x(v̅)-∂y(u̅))));
-    xi, yi, _ = nodes(ζ̄i);
-    hm_i = heatmap!(axs[i], 1e-3xi, 1e-3yi, (interior(ζ̄i,:,:,Nzi))./f; rasterize = true, colormap = :curl, colorrange = crange)
-    arrows!(axs[i],xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2,alpha=0.5)
-end
-Colorbar(g4[1,5], hm_a)
-colgap!(g4, 1, 5)
-colgap!(g4, 2, 5)
-colgap!(g4, 3, 5)
-colgap!(g4, 4, 1)
-resize_to_layout!(fig)
-save(filesave * "curl_" * fileparam * "_0_16_30_44h.pdf", fig; pt_per_unit = 1)
+# use_gpu = true
+# A=rand(Float32,10240,20480,8);
+# if use_gpu && CUDA.functional()
+#     p = CUDA.CUFFT.plan_rfft(CuArray(A), (1,2));
+#     pk = CUDA.CUFFT.plan_rfft(CuArray(A[:,:,1:1]), (1,2));
+#     ip = CUDA.CUFFT.plan_irfft(p * CuArray(A), 10240, (1,2));
+# else
+#     @error "CUDA not available"
+# end
+# fileparam = "xband1sublevels"
+# fig = Figure(size = (640, 580))
+# g4 = fig[1, 1] = GridLayout()
+# aspect = 0.25
+# crange = (-10, 10)
+# axis_kwargs = (xlabel = L"x~\text{(km)}", limits = ((-12.5,12.5),(0,100)), aspect=aspect)
+# ax_a = Axis(g4[1,1]; titlealign = :left, title=L"\text{(a)}~\zeta_0/f", ylabel = L"y~\text{(km)}", axis_kwargs...)
+# ax_b = Axis(g4[1,2]; titlealign = :left, title=L"\text{(b)}~\overline{\zeta}/f,~t=16~\text{h}", axis_kwargs...)
+# ax_c = Axis(g4[1,3]; titlealign = :left, title=L"\text{(c)}~\overline{\zeta}/f,~t=30~\text{h}", axis_kwargs...) 
+# ax_d = Axis(g4[1,4]; titlealign = :left, title=L"\text{(d)}~\overline{\zeta}/f,~t=44~\text{h}", axis_kwargs...) 
+# hideydecorations!(ax_b, ticks = false)
+# hideydecorations!(ax_c, ticks = false)
+# hideydecorations!(ax_d, ticks = false)
+# hm_a = heatmap!(ax_a, 1e-3x .- 50, 1e-3y, shift(interior(ζ₀,:,:,Nz))./f; rasterize = true, colormap = :curl, colorrange = crange)
+# arrows!(ax_a,xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2,alpha=0.5)
+# axs = [ax_b, ax_c, ax_d]
+# iterations = [26066,37003,49086]
+# for (i,iteration) in enumerate(iterations)
+#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+#     snapshot = load_subdomain_snapshot(output_filename;variables = ("v","u"),level=224);
+#     grid = snapshot[:u].grid
+#     u̅  = XFaceField(grid);
+#     v̅  = YFaceField(grid);
+#     _, _, zi = nodes(snapshot[:v]);
+#     Nzi = length(zi)
+#     coarse_graining!(snapshot[:v] , v̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
+#     coarse_graining!(snapshot[:u] , u̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
+#     ζ̄i = compute!(Field((∂x(v̅)-∂y(u̅))));
+#     xi, yi, _ = nodes(ζ̄i);
+#     hm_i = heatmap!(axs[i], 1e-3xi, 1e-3yi, (interior(ζ̄i,:,:,Nzi))./f; rasterize = true, colormap = :curl, colorrange = crange)
+#     arrows!(axs[i],xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2,alpha=0.5)
+# end
+# Colorbar(g4[1,5], hm_a)
+# colgap!(g4, 1, 5)
+# colgap!(g4, 2, 5)
+# colgap!(g4, 3, 5)
+# colgap!(g4, 4, 1)
+# resize_to_layout!(fig)
+# save(filesave * "curl_" * fileparam * "_0_16_30_44h_cg3hm.pdf", fig; pt_per_unit = 1)
 
 # meshgrid(x::AbstractVector, y::AbstractVector) =
 #         repeat(x, 1, length(y)), repeat(y', length(x), 1)
@@ -266,10 +269,53 @@ save(filesave * "curl_" * fileparam * "_0_16_30_44h.pdf", fig; pt_per_unit = 1)
 # save(filesave * "Twv_rank$(rank)_.pdf", fig; pt_per_unit = 1)
 ##############################
 # # --- Simulation and Subdomain Parameters ---
-# fileparam = "sublevels"
+# fileparam = "xband1surf9"
+iteration = 49086
 
+# # 1. Define the filename of the saved snapshot
+# output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+
+# # 2. Load the snapshot using the new function
+# snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w"));
+
+# u̅, v̅, w̅, τuu, τvv, τww = TKE(snapshot; cutoff=300, border=:ycircular, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly,
+#                                        method=:spectral,use_gpu,plans=(p,pk,ip));
+# @info "τuu extrema: $(extrema(interior(τuu)))"
+# @info "τvv extrema: $(extrema(interior(τvv)))"
+# @info "τww extrema: $(extrema(interior(τww)))"
+
+# # 3. Plot the TKE fields
+# Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
+# wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
+# TKEₛ = compute!(Field((τvv + τuu + τww)/2/wₛ^2));
+# SKEₛ = compute!(Field(((u̅ - mean(u̅;dims=(1,2)))^2 + (v̅ - mean(v̅;dims=(1,2)))^2 + (w̅ - mean(w̅;dims=(1,2)))^2)/2/wₛ^2));
+# using Makie
+# fig = Figure(size = (640, 640))
+# gab = fig[1, 1] = GridLayout()
+# idxEm = argmax(interior(TKEₛ))
+# var = interior(TKEₛ, :, :, idxEm[3]);
+# x, y, z = nodes(TKEₛ);
+# axis_kwargs = (titlealign = :left,xlabel=L"x~\text{(km)}",limits=((-12.5,12.5),(0,100)))
+# ax_a = Axis(gab[1,1]; title=L"\text{(a) TKE}/w_*^2", ylabel=L"y~\text{(km)}", axis_kwargs...)
+# ax_b = Axis(gab[1,3]; title=L"\text{(b) SKE}/w_*^2", axis_kwargs...)
+# hm_a = heatmap!(ax_a, 1e-3x, 1e-3y, var; rasterize = true, colormap = :amp, colorrange = (0, max(var...)))
+# Colorbar(gab[1,2], hm_a)
+# iEmax, jEmax = idxEm[1], idxEm[2]
+# scatter!(ax_a, 1e-3x[iEmax], 1e-3y[jEmax]; marker = :star4, markersize = 10, color = :black)
+# hideydecorations!(ax_b, ticks = false)
+# varb = interior(SKEₛ, :, :, idxEm[3]);
+# x, y, z = nodes(SKEₛ);
+# hm_b = heatmap!(ax_b, 1e-3x, 1e-3y, varb; rasterize = true, colormap = :amp, colorrange = (0, max(varb...)))
+# Colorbar(gab[1,4], hm_b)
+# idxSKEm = argmax(varb)
+# scatter!(ax_b, 1e-3x[idxSKEm[1]], 1e-3y[idxSKEm[2]]; marker = :star4, markersize = 10, color = :black)
+# colgap!(gab, 1, 1)
+# colgap!(gab, 3, 1)
+# resize_to_layout!(fig)
+# save(filesave * "TKESKE_" * fileparam * "_44h_iter$(iteration)_cg3hm.pdf", fig; pt_per_unit = 1)
+# println("Finished plotting TKE SKE fields")
+# @info "Memory usage: " * (Sys.free_memory() |> Base.format_bytes) * " GB free"
 # iterations = get_iterations_regex(filehead, fileparam)
-# cutoff = 100
 
 # mMLDs = zeros(length(iterations), 3)
 # for (i,iteration) in enumerate(iterations)
@@ -295,6 +341,7 @@ save(filesave * "curl_" * fileparam * "_0_16_30_44h.pdf", fig; pt_per_unit = 1)
 # resize_to_layout!(fig)
 # save(filesave * "mMLD_" * fileparam * "_1d_nd.pdf", fig; pt_per_unit = 1)
 
+# cutoff = 100
 # for (i,iteration) in enumerate(iterations)
 #     # --- Load the snapshot ---
 #     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
@@ -314,7 +361,7 @@ save(filesave * "curl_" * fileparam * "_0_16_30_44h.pdf", fig; pt_per_unit = 1)
 # output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
 
 # # 2. Load the snapshot using the new function
-# snapshot = load_subdomain_snapshot(output_filename; level = 198, variables = ("u", "v", "w"));
+# snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w"),level=221);
 
 # ###################################
 # window = nothing #:xhann
@@ -329,8 +376,8 @@ save(filesave * "curl_" * fileparam * "_0_16_30_44h.pdf", fig; pt_per_unit = 1)
 # g3 = fig[1, 1] = GridLayout()
 # alphabet = [letter for letter in 'a':'z'];
 # klev = 1
-# L_filter = 100
-# ax = Axis(g3[1, 1]; title=L"\text{Nonhydrostatic LES spectra at 48~h}~z=-4~\text{m}", axis_kwargs1...)
+# L_filter = 300
+# ax = Axis(g3[1, 1]; title=L"\text{Nonhydrostatic LES spectra at 44~h}~z=-4~\text{m}", axis_kwargs1...)
 # vlines!(ax, 1/200; color = :black, linewidth = 0.8)
 # #vlines!(ax, 2*3.14/300; color = :red, linewidth = 0.8)
 # vlines!(ax, 2*3.14/400; color = :red, linewidth = 0.8)
@@ -349,27 +396,84 @@ save(filesave * "curl_" * fileparam * "_0_16_30_44h.pdf", fig; pt_per_unit = 1)
 # #lines!(ax, St.freq[idx], Real.(St.spec[idx]./St.spec[idx][1]), color = :red, label = L"E_T")
 # lines!(ax, Su.freq[idx], Real.(Su.spec[idx]./Sv.spec[idx][1]), color = :blue, label = L"E_u")
 # lines!(ax, Sv.freq[idx], Real.(Sv.spec[idx]./Sv.spec[idx][1]), color = :green, label = L"E_v")
-# lines!(ax, Sv.freq[idx], Real.(Sv.specf[idx]./Sv.spec[idx][1]), color = :green, linestyle = :dash)
+# lines!(ax, Sv.freq[idx], Real.(Sv.specf[idx]./Sv.spec[idx][1]), color = :green, linestyle = :dash, label = L"E_{\overline{v}}")
 # lines!(ax, Sw.freq[idx], Real.(Sw.spec[idx]./Sv.spec[idx][1]), color = :black, label = L"E_w")
 # axislegend(ax, labelsize=9, patchsize = (15, 1), framevisible = false,
 #             padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
 # resize_to_layout!(fig)
-# save(filesave * "spectra_" * fileparam * "_2d4m_iter$(iteration).pdf", fig; pt_per_unit = 1)
+# save(filesave * "spectra_" * fileparam * "_44h4m_iter$(iteration).pdf", fig; pt_per_unit = 1)
 
-# τuu, τvv, τww, _, _, _ = TKE(snapshot; border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
+#############################
+for fileparam in ["subdomain1"]
+    # 1. Define the filename of the saved snapshot
+    output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
 
-# jldopen(filehead * "TKEphysical_"*fileparam*"_iter$(iteration).jld2", "w") do file
-#     file["fields/τuu"] = (interior(τuu, 1:5120, 640, :) .+ interior(τuu,2:5121, 640, :))/2
-#     file["fields/τvv"] = (interior(τvv, :, 640, :) .+ interior(τvv, :, 641, :))/2
-#     file["fields/τww"] = (interior(τww, :, 640, 1:224) .+ interior(τww, :, 640, 2:225))/2
+    # 2. Load the snapshot using the new function
+    snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T", "MLD3"));
+
+    τwb, Πₕ, Πᵥ = coarse_grained_fluxes(snapshot,ipU, ipV, iUb, iVb; cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
     
-#     file["metadata/iteration"] = iteration
-#     file["metadata/xlims"] = (-12500,12500)
-#     file["metadata/ylims"] = (5e4, 5e4)
-#     file["metadata/zlims"] = (-252,0)
-#     file["metadata/Nx"] = 640*8
-#     file["metadata/Nz"] = 224
-# end
+    _, _, _, τuu, τvv, τww = TKE(snapshot; cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
+    @info "τuu extrema: $(extrema(interior(τuu)))"
+    @info "τvv extrema: $(extrema(interior(τvv)))"
+    @info "τww extrema: $(extrema(interior(τww)))"
+    # 3. Plot the TKE fields
+    Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
+    wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
+    TKEₛ = compute!(Field((τvv + τuu + τww)/2/wₛ^2));
+
+    x0, y0, z0 = nodes(TKEₛ)
+    jldopen(filehead * "subdomains/TKEphysical_"*fileparam*"_iter$(iteration)_cg3hm.jld2", "w") do file
+        file["fields/TKEs"] = interior(TKEₛ, :, 640, :)
+        file["fields/PHs"] = interior(Πₕ, :, 640, :)./ (parameters.f * wₛ^2)
+        file["fields/PVs"] = interior(Πᵥ, :, 640, :)./ (parameters.f * wₛ^2)
+        file["fields/Bs"] = interior(τwb, :, 640, :)./ (parameters.f * wₛ^2)
+        
+        file["metadata/iteration"] = iteration
+        file["metadata/x"] = x0
+        file["metadata/y"] = y0[640]
+        file["metadata/z"] = z0
+    end
+
+    using Makie
+    fig = Figure(size = (640, 960))
+    gab = fig[1, 1] = GridLayout()
+    titles = [L"\text{(a) TKE}/w_*^2",L"\text{(b) }P_H/(fw_*^2)",L"\text{(c) }P_V/(fw_*^2)",L"\text{(d) }B/(fw_*^2)"]
+    for (i, var0) in enumerate([TKEₛ, Πₕ, Πᵥ, τwb])
+        cmap = i==1 ? :amp : :balance
+        x, y, z = nodes(var0);
+        var = interior(var0, :, 640,:) * (i==1 ? 1 : 1e4/wₛ^2);
+        crange = i==1 ? (0, max(var...)) : (-max(abs.(var)...),max(abs.(var)...))
+        ax_a = Axis(gab[i,1]; titlealign = :left, title=titles[i], xlabel=L"x~\text{(km)}", ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+        ax_b = Axis(gab[i,3]; titlealign = :left, xlabel=L"\text{mean vs. local}",limits=(nothing,(-80,0)))
+        hm_a = heatmap!(ax_a, 1e-3x, z, var; rasterize = true, colormap = cmap, colorrange = crange)
+        Colorbar(gab[i,2], hm_a)
+        idxEm = argmax(var)
+        iEmax, jEmax = idxEm[1], idxEm[2]
+        @info "max at $(x[iEmax]/1e3), $(z[jEmax]): $(var[iEmax,jEmax])"
+        scatter!(ax_a, 1e-3x[iEmax], z[jEmax]; marker = :star4, markersize = 10, color = :black)
+        idxs = [argmin(vec(mean(var;dims=2))),argmax(vec(mean(var;dims=2))),iEmax]
+        vlines!(ax_a, 1e-3x[idxs], color = Makie.wong_colors()[2:4], linewidth = 0.8)
+        lines!(ax_a, 1e-3x0, -interior(snapshot[:MLD3],:,640,1), color = :blue, linewidth = 1, label="MLD")
+        axislegend(ax_a, labelsize=10,position = :lb,patchsize = (15, 5), patchlabelgap = 3, rowgap = 1)
+        hideydecorations!(ax_b, ticks = false)
+        lines!(ax_b, vec(mean(var, dims =(1))), z; linewidth = 2, label="mean")
+        lines!(ax_b, var[idxs[1],:], z; linewidth = 1)
+        lines!(ax_b, var[idxs[2],:], z; linewidth = 1)
+        lines!(ax_b, var[idxs[3],:], z; linewidth = 1)
+        axislegend(ax_b,  labelsize=10, position = :rb,patchsize = (15, 3), patchlabelgap = 3)
+        # hlines!(ax_b, -interior(snapshot[:BLD], :, 1497, 1)[[2004,1004,3004]], linestyle = :dash, color = [:orange, :green, :purple], linewidth = 0.8)
+        colsize!(gab, 3, Relative(0.3))
+        colgap!(gab, 1, 1)
+        resize_to_layout!(fig)
+        if i<4
+            hidexdecorations!(ax_a, ticks = false)
+            hidexdecorations!(ax_b, ticks = false)
+        end
+    end
+    save(filesave * "TKE3Ps_" * fileparam * "_44h_iter$(iteration)_cg3hm.pdf", fig; pt_per_unit = 1)
+end
+println("Finished plotting TKE and P fields")
 
 # file = jldopen(filehead * "TKEphysical_"*fileparam*"_iter$(iteration).jld2")
 # TKEw = file["fields/τww"]/2
@@ -391,38 +495,6 @@ save(filesave * "curl_" * fileparam * "_0_16_30_44h.pdf", fig; pt_per_unit = 1)
 # TKEs = (interior(τuu, 1:5120, 640, :) .+ interior(τuu,2:5121, 640, :))/4;
 # TKEs .+= (interior(τvv, :, 640, :) .+ interior(τvv, :, 641, :))/4;
 # TKEs .+= (interior(τww, :, 640, 1:224) .+ interior(τww, :, 640, 2:225))/4;
-
-# 3. Plot the TKE fields
-# using Makie
-# fig = Figure(size = (640, 320))
-# gab = fig[1, 1] = GridLayout()
-# #x, y, z = nodes(τww);
-# var = TKEw;#interior(τww, :, 640,:);
-# ax_a = Axis(gab[1,1]; titlealign = :left, title=L"\text{(a) TKE}_w~\text{(mm^2 s^{-2})}", xlabel=L"x~\text{(km)}", ylabel=L"z~\text{(m)}",limits=(nothing,(-90,0)))
-# ax_b = Axis(gab[1,3]; titlealign = :left, title=L"\text{(b)}", xlabel=L"\langle\text{TKE}_w\rangle~\text{(mm^2 s^{-2})}",limits=(nothing,(-90,0)))
-# hm_a = heatmap!(ax_a, 1e-3x, z, 1e6*var; rasterize = true, colormap = :amp, colorrange = (0, 70))
-# Colorbar(gab[1,2], hm_a)
-# # lines!(ax_a, 1e-3x, -interior(snapshot[:BLD], :, 1497, 1), color = :black, linewidth = 0.5, alpha=0.8)
-# # #lines!(ax_a, 1e-3x, -interior(snapshot[:MLD], :, 1497, 1), color = :red, linewidth = 1)
-# # #lines!(ax_a, 1e-3x, -interior(snapshot[:MLD2], :, 1497, 1), color = :blue, linewidth = 1)
-# # lines!(ax_a, 1e-3x, -interior(snapshot[:MLD3], :, 1497, 1), color = :green, linewidth = 1)
-# idxs = [1400,2834,3240]
-# vlines!(ax_a, 1e-3x[idxs], color = Makie.wong_colors()[2:4], linewidth = 0.8)
-# lines!(ax_a, 1e-3x, -BLDw, color = :black, linewidth = 1, label="BLD")
-# lines!(ax_a, 1e-3x, -interior(snapshot[:MLD3],:,640,1), color = :blue, linewidth = 1, label="MLD3")
-# axislegend(ax_a, labelsize=10,position = :lb,patchsize = (15, 5), patchlabelgap = 3, rowgap = 1)
-# hideydecorations!(ax_b, ticks = false)
-# lines!(ax_b, 1e6*vec(mean(var, dims =(1))), z; linewidth = 2, label="mean")
-# lines!(ax_b, 1e6*var[idxs[1],:], z; linewidth = 1)
-# lines!(ax_b, 1e6*var[idxs[2],:], z; linewidth = 1)
-# lines!(ax_b, 1e6*var[idxs[3],:], z; linewidth = 1)
-# axislegend(ax_b,  labelsize=10, position = :rb,patchsize = (15, 3), patchlabelgap = 3)
-# # hlines!(ax_b, -interior(snapshot[:BLD], :, 1497, 1)[[2004,1004,3004]], linestyle = :dash, color = [:orange, :green, :purple], linewidth = 0.8)
-# colsize!(gab, 3, Relative(0.3))
-# colgap!(gab, 1, 1)
-# resize_to_layout!(fig)
-# save(filesave * "TKEw_" * fileparam * "_2d_iter$(iteration).pdf", fig; pt_per_unit = 1)
-# println("Finished plotting TKE fields")
 
 #################################
 #iterations = [32207,52543,72635]#72635 #52543 #32207 

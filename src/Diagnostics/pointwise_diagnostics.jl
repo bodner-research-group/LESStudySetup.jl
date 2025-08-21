@@ -1,8 +1,10 @@
 using Oceananigans.Operators: div_xyᶜᶜᶜ
 using Oceananigans.Operators
 using Oceananigans.Utils: launch!
+using Oceananigans.Architectures: on_architecture
 using KernelAbstractions: @kernel, @index
 using Statistics: mean, var
+using Interpolations
 
 """ propagate a diagnostic over the timeseries found in snapshots 
     and save the results in a FieldTimeSeries object that is backed up in 
@@ -454,11 +456,11 @@ Compute the subfilter stress (residual stress) field τ from fields `u` and `v`
 given their coarse-grained versions `u̅` and `v̅`. The subfilter stress is defined as 
 τ = coarse_graining(u*v) - u̅ * v̅.
 """
-function subfilter_stress!(τ, u, v, u̅, v̅; kernel=:tophat, cutoff=4kilometer, border=:circular,method=:physical,useGPU=false)
+function subfilter_stress!(τ, u, v, u̅, v̅; kernel=:tophat, cutoff=4kilometer, border=:circular,method=:physical,use_gpu=false,plans=nothing)
     # Compute the product field (u*v) on the fly.
     product_field = compute!(Field(u * v))
     # Coarse-grain the product field and store the result in τ.
-    coarse_graining!(product_field, τ; kernel=kernel, cutoff=cutoff, border=border,method=method,useGPU=useGPU)
+    coarse_graining!(product_field, τ; kernel, cutoff, border, method, use_gpu, plans)
 
     # Compute the product of the filtered fields and subtract.
     # We assume that the multiplication is elementwise.
@@ -476,8 +478,8 @@ Compute the turbulent kinetic energy (TKE) from a snapshot. The function uses a
 coarse-graining (filtering) procedure based on a specified kernel, cutoff and border 
 for (non)periodic boundary conditions. It assumes the use of Oceananigans Field types.
 """
-function TKE(snapshot; kernel=:lanczos, cutoff=300, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
-                       border=:circular, method=:physical,useGPU=false)
+function TKE(snapshot; kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
+                       border=:circular, method=:physical,use_gpu=false,plans=nothing)
     t0 = time()
 
     set_value!(; Δh, Lx, Ly)
@@ -504,7 +506,7 @@ function TKE(snapshot; kernel=:lanczos, cutoff=300, Δh = 4.8828125, Lx = 1e5, L
 
     # --- Coarse-grain (filter) the primary fields. ---
     for (orig, filt) in ((u, u̅), (v, v̅), (w, w̅))
-        coarse_graining!(orig, filt; kernel=kernel, cutoff=cutoff, border=border, method=method,useGPU=useGPU)
+        coarse_graining!(orig, filt; kernel, cutoff, border, method,use_gpu,plans)
     end
     println("Computed filtered velocity fields at $(time() - t0)s...")
 
@@ -512,11 +514,18 @@ function TKE(snapshot; kernel=:lanczos, cutoff=300, Δh = 4.8828125, Lx = 1e5, L
     τuu = XFaceField(u.grid,Float32)
     τvv = YFaceField(v.grid,Float32)
     τww = ZFaceField(w.grid,Float32)
-    subfilter_stress!(τww, w, w, w̅, w̅; kernel=kernel, cutoff=cutoff, border=border, method=method,useGPU=useGPU)
-    subfilter_stress!(τuu, u, u, u̅, u̅; kernel=kernel, cutoff=cutoff, border=border, method=method,useGPU=useGPU)
-    subfilter_stress!(τvv, v, v, v̅, v̅; kernel=kernel, cutoff=cutoff, border=border, method=method,useGPU=useGPU)
+    subfilter_stress!(τww, w, w, w̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
+    subfilter_stress!(τuu, u, u, u̅, u̅; kernel, cutoff, border, method,use_gpu,plans)
+    subfilter_stress!(τvv, v, v, v̅, v̅; kernel, cutoff, border, method,use_gpu,plans)
 
-    return τuu, τvv, τww, u̅, v̅, w̅
+    can_use_gpu = use_gpu && CUDA.functional()
+    if can_use_gpu
+        # Move the filtered fields to the GPU.
+        gpu_field(cpu_field) = on_architecture(GPU(), cpu_field)
+        return gpu_field(u̅), gpu_field(v̅), gpu_field(w̅), gpu_field(τuu), gpu_field(τvv), gpu_field(τww)
+    else
+        return u̅, v̅, w̅, τuu, τvv, τww
+    end
 end
 
 
@@ -529,8 +538,11 @@ coarse-graining (filtering) procedure based on a specified kernel and cutoff. It
 periodic boundary conditions (so that FFTs can be used) and the use of Oceananigans Field
 types.
 """
-function coarse_grained_fluxes(snapshots; i=0, hy=false, kernel=:tophat, cutoff=4kilometer, border=:circular)
+function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
+                                          border=:circular, method=:physical,use_gpu=false,plans=nothing, m₀ = 60)
     t0 = time()
+
+    set_value!(; Δh, Lx, Ly, m₀)
 
     # Extract snapshot fields.
     u0 = i >= 1 ? snapshots[:u][i] : snapshots[:u]
@@ -558,8 +570,15 @@ function coarse_grained_fluxes(snapshots; i=0, hy=false, kernel=:tophat, cutoff=
     V = YFaceField(v.grid,Float32)
     xu, yu, zu = nodes(u)
     xv, yv, _ = nodes(v)
-    set!(U, uᵢ.(reshape(xu,:,1,1), reshape(yu,1,:), reshape(zu,1,1,:)))
-    set!(V, vᵢ.(reshape(xv,:,1,1), reshape(yv,1,:), reshape(zu,1,1,:)))
+    Nz0, Nz = size(U,3), length(zu)
+    for k = 1:length(zu)
+        itpU = interpolate(ipU, iU[:, :, Nz0-Nz+k], Gridded(Linear(Interpolations.Periodic())))
+        itpV = interpolate(ipV, iV[:, :, Nz0-Nz+k], Gridded(Linear(Interpolations.Periodic())))
+        etpU = extrapolate(itpU, Interpolations.Periodic())
+        etpV = extrapolate(itpV, Interpolations.Periodic())
+        interior(U, :, :, k) .= Float32.(etpU.(xu,yu'))
+        interior(V, :, :, k) .= Float32.(etpV.(xv,yv'))
+    end
     fill_halo_regions!(U)
     fill_halo_regions!(V)
 
@@ -581,38 +600,41 @@ function coarse_grained_fluxes(snapshots; i=0, hy=false, kernel=:tophat, cutoff=
 
     # --- Coarse-grain (filter) the primary fields. ---
     for (orig, filt) in ((u, u̅), (v, v̅), (w, w̅), (B, B̅), (U, U̅), (V, V̅))
-        coarse_graining!(orig, filt; kernel=kernel, cutoff=cutoff, border=border)
+        coarse_graining!(orig, filt; kernel, cutoff, border, method,use_gpu,plans)
     end
-    println("Computed filtered fields at $(time() - t0)s...")
+    @info "Computed filtered fields at $(time() - t0)s..."
 
     # --- Compute subfilter stresses ---
     # First set: fluxes associated with the u-momentum.
     τuuₜ = XFaceField(u.grid,Float32)
     τuvₜ = YFaceField(v.grid,Float32)
     τuw = ZFaceField(w.grid,Float32)
-    subfilter_stress!(τuuₜ, u, u+U, u̅, u̅+U̅; kernel=kernel, cutoff=cutoff, border=border)
-    subfilter_stress!(τuvₜ, v+V, u, v̅+V̅, u̅; kernel=kernel, cutoff=cutoff, border=border)
-    subfilter_stress!(τuw, w, u, w̅, u̅; kernel=kernel, cutoff=cutoff, border=border)
+    subfilter_stress!(τuuₜ, u, u+U, u̅, u̅+U̅; kernel, cutoff, border, method,use_gpu,plans)
+    subfilter_stress!(τuvₜ, v+V, u, v̅+V̅, u̅; kernel, cutoff, border, method,use_gpu,plans)
+    subfilter_stress!(τuw, w, u, w̅, u̅; kernel, cutoff, border, method,use_gpu,plans)
 
     # Second set: fluxes associated with the v-momentum.
     τvvₜ = YFaceField(v.grid,Float32)
     τvuₜ = XFaceField(u.grid,Float32)
     τvw = ZFaceField(w.grid,Float32)
-    subfilter_stress!(τvvₜ, v, v+V, v̅, v̅+V̅; kernel=kernel, cutoff=cutoff, border=border)
-    subfilter_stress!(τvuₜ, u+U, v, u̅+U̅, v̅; kernel=kernel, cutoff=cutoff, border=border)
-    subfilter_stress!(τvw, w, v, w̅, v̅; kernel=kernel, cutoff=cutoff, border=border)
-    println("Mean surface τvv is $(mean(interior(τvv, :, :, kT)))")
+    subfilter_stress!(τvvₜ, v, v+V, v̅, v̅+V̅; kernel, cutoff, border, method,use_gpu,plans)
+    subfilter_stress!(τvuₜ, u+U, v, u̅+U̅, v̅; kernel, cutoff, border, method,use_gpu,plans)
+    subfilter_stress!(τvw, w, v, w̅, v̅; kernel, cutoff, border, method,use_gpu,plans)
 
     # Third set: fluxes associated with the w-momentum.
     τww = ZFaceField(w.grid,Float32)
-    subfilter_stress!(τww, w, w, w̅, w̅; kernel=kernel, cutoff=cutoff, border=border)
+    subfilter_stress!(τww, w, w, w̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
     if !hy
         τwuₜ = XFaceField(w.grid,Float32)
         τwvₜ = YFaceField(w.grid,Float32)
-        subfilter_stress!(τwuₜ, u+U, w, u̅+U̅, w̅; kernel=kernel, cutoff=cutoff, border=border)
-        subfilter_stress!(τwvₜ, v+V, w, v̅+V̅, w̅; kernel=kernel, cutoff=cutoff, border=border)
+        subfilter_stress!(τwuₜ, u+U, w, u̅+U̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
+        subfilter_stress!(τwvₜ, v+V, w, v̅+V̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
     end
-    println("Computed residual stress terms at $(time() - t0)s...")
+    @info "Computed residual stress terms at $(time() - t0)s..."
+
+    @info "τuuₜ extrema: $(extrema(interior(τuuₜ)))"
+    @info "τvvₜ extrema: $(extrema(interior(τvvₜ)))"
+    @info "τww extrema: $(extrema(interior(τww)))"
 
     # --- Compute transfer (flux) terms using derivatives ---
     # Note: The derivative operators (∂x, ∂y, ∂z) are assumed to be available.
@@ -621,7 +643,7 @@ function coarse_grained_fluxes(snapshots; i=0, hy=false, kernel=:tophat, cutoff=
                           τvvₜ * ∂y(v̅) +
                           τuvₜ * ∂y(u̅) +
                           τvuₜ * ∂x(v̅))))
-    println("Transfer term Πₕ done at $(time() - t0)s, ML-average $(mean(interior(Πₕ, :, :,k0:kT)))")
+    @info "Transfer term Πₕ done at $(time() - t0)s, ML-average $(mean(interior(Πₕ, :, :,k0:kT)))"
 
     # Πᵥ: Vertical transfer term.
     if hy
@@ -634,7 +656,7 @@ function coarse_grained_fluxes(snapshots; i=0, hy=false, kernel=:tophat, cutoff=
                                                            τwuₜ * ∂x(w̅) +
                                                            τwvₜ * ∂y(w̅))))
     end
-    println("Transfer term Πᵥ done at $(time() - t0)s")
+    @info "Transfer term Πᵥ done at $(time() - t0)s, ML-average $(mean(interior(Πᵥ, :, :,k0:kT)))"
 
     if hy
         # Πδ: Diagonal (divergence-related) transfer term.
@@ -649,7 +671,8 @@ function coarse_grained_fluxes(snapshots; i=0, hy=false, kernel=:tophat, cutoff=
         return Πₕ, Πδ, Πᵥ, Πvgl
     else
         τwb = CenterField(B.grid,Float32)
-        subfilter_stress!(τwb, B, w, B̅, w̅; kernel=kernel, cutoff=cutoff, border=border)
+        subfilter_stress!(τwb, B, w, B̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
+        @info "Transfer term τwb done at $(time() - t0)s, ML-average $(mean(interior(τwb, :, :,k0:kT)))"
         return τwb, Πₕ, Πᵥ
     end
 end

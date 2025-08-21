@@ -560,7 +560,7 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
         error("Method $(method) not recognized. Use :spectral or :physical.")
     end
 
-    zidx = isnothing(levels) ? (1:Nz) : levels
+    zidx = isnothing(levels) ? (1:min(Nz,u.grid.Nz)) : levels
     #dl[:,:, :] .= d[:,:, :]
     kernel_3d = (reshape(Gl, size(Gl)..., 1))  # Add singleton dimension
     if method == :physical
@@ -612,7 +612,11 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
         println(can_use_gpu ? "✅ GPU detected, using CUDA.jl." : "🖥️  No functional GPU, using CPU.")
         
         if !isnothing(plans)
-            d_filtered = plans[2] * ((plans[1] * device(d_slice)) .* (plans[1] * device(kernel_3d))) 
+            if length(plans)==2
+                d_filtered = plans[2] * ((plans[1] * device(d_slice)) .* (plans[1] * device(kernel_3d))) 
+            else
+                d_filtered = plans[3] * ((plans[1] * device(d_slice)) .* (plans[2] * device(kernel_3d))) 
+            end
         else
             d_filtered = irfft(rfft(device(d_slice), (1,2)) .* rfft(device(kernel_3d), (1,2)), xreflect*Nx, (1,2))
         end

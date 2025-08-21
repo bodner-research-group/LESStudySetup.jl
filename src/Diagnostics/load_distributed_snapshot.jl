@@ -221,8 +221,8 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     Nz_sub = z_end_idx - z_start_idx + 1
 
     # Create subdomain grid with REQUESTED coordinates (not normalized)
-    x_topoloty = (xlims[2] - xlims[1]) > Lx_full - Δx/2 ? Periodic : Bounded
-    y_topoloty = (ylims[2] - ylims[1]) > Ly_full - Δy/2 ? Periodic : Bounded
+    x_topoloty = (xlims[2] - xlims[1]) > Lx_full - Δx/2 ? Oceananigans.Grids.Periodic : Bounded
+    y_topoloty = (ylims[2] - ylims[1]) > Ly_full - Δy/2 ? Oceananigans.Grids.Periodic : Bounded
     grid_topology = (x_topoloty, y_topoloty, Bounded)
     grid = RectilinearGrid(architecture;
                           size = (Nx_sub, Ny_sub, Nz_sub),
@@ -552,7 +552,7 @@ function load_subdomain_snapshot(filename; T=Float32, variables = ("u", "v", "w"
         # 2. Iterate through the saved fields group to find all field names.
         field_names = keys(file["fields"])
         @info "Found fields: $field_names"
-
+ 
         for var in variables
             if var in field_names
                 @info "Loading field $var."
@@ -578,7 +578,7 @@ function load_subdomain_snapshot(filename; T=Float32, variables = ("u", "v", "w"
                                                 x = (-grid.Lx/2,grid.Lx/2),
                                                 y = (0,grid.Ly),
                                                 z = (-grid.Lz/grid.Nz,0),
-                                                topology = (grid.Lx>parameters.Lx-1 ? Periodic : Bounded,grid.Ly>parameters.Ly-1 ? Periodic : Bounded,Bounded))
+                                                topology = (grid.Lx>parameters.Lx-1 ? Oceananigans.Grids.Periodic : Bounded,grid.Ly>parameters.Ly-1 ? Oceananigans.Grids.Periodic : Bounded,Bounded))
                         @info "Loading level $level with one-layer grid $gridl."
                         snapshot[:grid] = gridl
                         snapshot[:level] = level
