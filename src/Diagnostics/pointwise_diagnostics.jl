@@ -636,25 +636,30 @@ function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kerne
     @info "τvvₜ extrema: $(extrema(interior(τvvₜ)))"
     @info "τww extrema: $(extrema(interior(τww)))"
 
+    can_use_gpu = use_gpu && CUDA.functional()
+    # Move the filtered fields to the GPU.
+    c2g(cpu_field) = can_use_gpu ? on_architecture(GPU(), cpu_field) : cpu_field
+    g2c(gpu_field) = can_use_gpu ? on_architecture(CPU(), gpu_field) : gpu_field
+        
     # --- Compute transfer (flux) terms using derivatives ---
     # Note: The derivative operators (∂x, ∂y, ∂z) are assumed to be available.
     # Πₕ: Horizontal transfer term.
-    Πₕ = compute!(Field(-(τuuₜ * ∂x(u̅) +
-                          τvvₜ * ∂y(v̅) +
-                          τuvₜ * ∂y(u̅) +
-                          τvuₜ * ∂x(v̅))))
+    Πₕ = compute!(Field(-(c2g(τuuₜ) * ∂x(c2g(u̅)) +
+                          c2g(τvvₜ) * ∂y(c2g(v̅)) +
+                          c2g(τuvₜ) * ∂y(c2g(u̅)) +
+                          c2g(τvuₜ) * ∂x(c2g(v̅)))))
     @info "Transfer term Πₕ done at $(time() - t0)s, ML-average $(mean(interior(Πₕ, :, :,k0:kT)))"
 
     # Πᵥ: Vertical transfer term.
     if hy
-        Πᵥ = compute!(Field(@at (Center, Center, Center) -(τuw * ∂z(u̅) +
-                                                           τvw * ∂z(v̅))))
+        Πᵥ = compute!(Field(@at (Center, Center, Center) -(c2g(τuw) * ∂z(c2g(u̅)) +
+                                                           c2g(τvw) * ∂z(c2g(v̅)))))
     else
-        Πᵥ = compute!(Field(@at (Center, Center, Center) -(τuw * ∂z(u̅) +
-                                                           τvw * ∂z(v̅) +
-                                                           τww * ∂z(w̅) +
-                                                           τwuₜ * ∂x(w̅) +
-                                                           τwvₜ * ∂y(w̅))))
+        Πᵥ = compute!(Field(@at (Center, Center, Center) -(c2g(τuw) * ∂z(c2g(u̅)) +
+                                                           c2g(τvw) * ∂z(c2g(v̅)) +
+                                                           c2g(τww) * ∂z(c2g(w̅)) +
+                                                           c2g(τwuₜ) * ∂x(c2g(w̅)) +
+                                                           c2g(τwvₜ) * ∂y(c2g(w̅)))))
     end
     @info "Transfer term Πᵥ done at $(time() - t0)s, ML-average $(mean(interior(Πᵥ, :, :,k0:kT)))"
 
@@ -673,7 +678,7 @@ function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kerne
         τwb = CenterField(B.grid,Float32)
         subfilter_stress!(τwb, B, w, B̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
         @info "Transfer term τwb done at $(time() - t0)s, ML-average $(mean(interior(τwb, :, :,k0:kT)))"
-        return τwb, Πₕ, Πᵥ
+        return τwb, g2c(Πₕ), g2c(Πᵥ)
     end
 end
 

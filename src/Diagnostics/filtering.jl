@@ -628,6 +628,7 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
         else
             dl[:, :, zidx] .= Array(d_filtered)[Nx÷2+1-Δi:Nx÷2+Nx-Δi, Ny÷2+1:Ny÷2+Ny,:]
         end
+        d_filtered = nothing
 
         @info "Filtered with GPU=$(can_use_gpu), 3D :spectral method in $(time()-t0)s."   
     end

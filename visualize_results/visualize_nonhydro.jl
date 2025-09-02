@@ -435,42 +435,55 @@ for fileparam in ["subdomain1"]
         file["metadata/z"] = z0
     end
 
+    TKEₛj = file["fields/TKEs"];
+    Πₕj = file["fields/PHs"];
+    Πᵥj = file["fields/PVs"];
+    τwbj = file["fields/Bs"];
+    x = file["metadata/x"];
+    z = file["metadata/z"];
+    nxj,nzj = length(x), length(z)
     using Makie
     fig = Figure(size = (640, 960))
     gab = fig[1, 1] = GridLayout()
     titles = [L"\text{(a) TKE}/w_*^2",L"\text{(b) }P_H/(fw_*^2)",L"\text{(c) }P_V/(fw_*^2)",L"\text{(d) }B/(fw_*^2)"]
-    for (i, var0) in enumerate([TKEₛ, Πₕ, Πᵥ, τwb])
+    for (i, var0) in enumerate([TKEₛj, Πₕj, Πᵥj, τwbj])
         cmap = i==1 ? :amp : :balance
-        x, y, z = nodes(var0);
-        var = interior(var0, :, 640,:) * (i==1 ? 1 : 1e4/wₛ^2);
-        crange = i==1 ? (0, max(var...)) : (-max(abs.(var)...),max(abs.(var)...))
+        #x, y, z = nodes(var0);
+        var = var0#interior(var0, :, 640,:) * (i==1 ? 1 : 1e4/wₛ^2);
+        nx, nz = size(var)
+        crange = i==1 ? (0, max(var...)) : (-50,50)
         ax_a = Axis(gab[i,1]; titlealign = :left, title=titles[i], xlabel=L"x~\text{(km)}", ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
-        ax_b = Axis(gab[i,3]; titlealign = :left, xlabel=L"\text{mean vs. local}",limits=(nothing,(-80,0)))
-        hm_a = heatmap!(ax_a, 1e-3x, z, var; rasterize = true, colormap = cmap, colorrange = crange)
+        ax_b = Axis(gab[i,3]; titlealign = :left, limits=(nothing,(-80,0)))
+        hm_a = heatmap!(ax_a, 1e-3x, z, var[1:nxj, nz-nzj+1:nz]; rasterize = true, colormap = cmap, colorrange = crange)
         Colorbar(gab[i,2], hm_a)
-        idxEm = argmax(var)
-        iEmax, jEmax = idxEm[1], idxEm[2]
+        idxEm = argmax(var[641:end-640,:])
+        iEmax, jEmax = idxEm[1]+640, idxEm[2]
         @info "max at $(x[iEmax]/1e3), $(z[jEmax]): $(var[iEmax,jEmax])"
         scatter!(ax_a, 1e-3x[iEmax], z[jEmax]; marker = :star4, markersize = 10, color = :black)
-        idxs = [argmin(vec(mean(var;dims=2))),argmax(vec(mean(var;dims=2))),iEmax]
+        idxs = [argmin(vec(mean(var;dims=2))[641:end-640])+640,argmax(vec(mean(var;dims=2))[641:end-640])+640,iEmax]
         vlines!(ax_a, 1e-3x[idxs], color = Makie.wong_colors()[2:4], linewidth = 0.8)
-        lines!(ax_a, 1e-3x0, -interior(snapshot[:MLD3],:,640,1), color = :blue, linewidth = 1, label="MLD")
-        axislegend(ax_a, labelsize=10,position = :lb,patchsize = (15, 5), patchlabelgap = 3, rowgap = 1)
+        lines!(ax_a, 1e-3x, -interior(snapshot[:MLD3],:,640,1), color = :blue, linewidth = 1, label="MLD")
         hideydecorations!(ax_b, ticks = false)
         lines!(ax_b, vec(mean(var, dims =(1))), z; linewidth = 2, label="mean")
-        lines!(ax_b, var[idxs[1],:], z; linewidth = 1)
-        lines!(ax_b, var[idxs[2],:], z; linewidth = 1)
-        lines!(ax_b, var[idxs[3],:], z; linewidth = 1)
-        axislegend(ax_b,  labelsize=10, position = :rb,patchsize = (15, 3), patchlabelgap = 3)
+        lines!(ax_b, var[idxs[1],nz-nzj+1:nz], z; linewidth = 1)
+        lines!(ax_b, var[idxs[2],nz-nzj+1:nz], z; linewidth = 1)
+        lines!(ax_b, var[idxs[3],nz-nzj+1:nz], z; linewidth = 1)
         # hlines!(ax_b, -interior(snapshot[:BLD], :, 1497, 1)[[2004,1004,3004]], linestyle = :dash, color = [:orange, :green, :purple], linewidth = 0.8)
         colsize!(gab, 3, Relative(0.3))
         colgap!(gab, 1, 1)
+        colgap!(gab, 2, 5)
         resize_to_layout!(fig)
+        if i==1
+            axislegend(ax_a, labelsize=10,position = :lb,patchsize = (15, 5), patchlabelgap = 3, rowgap = 1)
+            axislegend(ax_b,  labelsize=10, position = :rb,patchsize = (15, 3), patchlabelgap = 3)
+        end
         if i<4
             hidexdecorations!(ax_a, ticks = false)
-            hidexdecorations!(ax_b, ticks = false)
+        else
+            ax_b.xlabel = xlabel=L"\text{mean vs. local}"
         end
     end
+    rowgap!(gab, 1)
     save(filesave * "TKE3Ps_" * fileparam * "_44h_iter$(iteration)_cg3hm.pdf", fig; pt_per_unit = 1)
 end
 println("Finished plotting TKE and P fields")
