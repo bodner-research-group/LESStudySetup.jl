@@ -847,8 +847,9 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
         wˢbˢ = compute!(Field(Bˢ*wˢ))
         @info "Transfer term wˢbˢ done at $(time() - t0)s"
         CUDA.pool_status()
-
-        return u̅_gpu, v̅_gpu, w̅_gpu, B̅_gpu, uᵃ_avg, vᵃ_avg, wᵃ_avg, Bᵃ_avg, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww_gpu, τwb, Πₕ, Πᵥ, Pᵃ, Pˢ, Pᵀ, wˢbˢ
+        
+        g2c(gpu_field) = on_architecture(CPU(), gpu_field)
+        return u̅, v̅, w̅, B̅, g2c(uᵃ_avg), g2c(vᵃ_avg), g2c(wᵃ_avg), g2c(Bᵃ_avg), g2c(uˢ), g2c(vˢ), g2c(wˢ), g2c(Bˢ), τuu, τvv, τww, τwb, g2c(Πₕ), g2c(Πᵥ), g2c(Pᵃ), g2c(Pˢ), g2c(Pᵀ), g2c(wˢbˢ)
     end
 end
 
