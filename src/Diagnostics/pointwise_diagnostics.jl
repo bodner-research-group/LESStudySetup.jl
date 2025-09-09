@@ -2,9 +2,11 @@ using Oceananigans.Operators: div_xyᶜᶜᶜ
 using Oceananigans.Operators
 using Oceananigans.Utils: launch!
 using Oceananigans.Architectures: on_architecture
+using Oceananigans.Fields: interpolate!
 using KernelAbstractions: @kernel, @index
 using Statistics: mean, var
 using Interpolations
+using Oceananigans.Operators                 
 
 """ propagate a diagnostic over the timeseries found in snapshots 
     and save the results in a FieldTimeSeries object that is backed up in 
@@ -538,11 +540,14 @@ coarse-graining (filtering) procedure based on a specified kernel and cutoff. It
 periodic boundary conditions (so that FFTs can be used) and the use of Oceananigans Field
 types.
 """
-function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
-                                          border=:circular, method=:physical,use_gpu=false,plans=nothing, m₀ = 60)
+function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
+                                          border=:circular, method=:physical,use_gpu=false,plans=nothing, m₀ = 60,to_grid=nothing)
     t0 = time()
 
     set_value!(; Δh, Lx, Ly, m₀)
+    @info "to grid $(!isnothing(to_grid)): $(to_grid)"
+    can_use_gpu = CUDA.functional()
+    @info "Using GPU: $(can_use_gpu)"
 
     # Extract snapshot fields.
     u0 = i >= 1 ? snapshots[:u][i] : snapshots[:u]
@@ -568,19 +573,9 @@ function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kerne
     # Construct background (U,V) fields.
     U = XFaceField(u.grid,Float32)
     V = YFaceField(v.grid,Float32)
-    xu, yu, zu = nodes(u)
-    xv, yv, _ = nodes(v)
-    Nz0, Nz = size(U,3), length(zu)
-    for k = 1:length(zu)
-        itpU = interpolate(ipU, iU[:, :, Nz0-Nz+k], Gridded(Linear(Interpolations.Periodic())))
-        itpV = interpolate(ipV, iV[:, :, Nz0-Nz+k], Gridded(Linear(Interpolations.Periodic())))
-        etpU = extrapolate(itpU, Interpolations.Periodic())
-        etpV = extrapolate(itpV, Interpolations.Periodic())
-        interior(U, :, :, k) .= Float32.(etpU.(xu,yu'))
-        interior(V, :, :, k) .= Float32.(etpV.(xv,yv'))
-    end
-    fill_halo_regions!(U)
-    fill_halo_regions!(V)
+    interpolate!(U, iU)
+    interpolate!(V, iV)
+    @info "Interpolated U size $(size(interior(U)))"
 
     # Retrieve physical parameters.
     α = parameters.α
@@ -603,6 +598,119 @@ function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kerne
         coarse_graining!(orig, filt; kernel, cutoff, border, method,use_gpu,plans)
     end
     @info "Computed filtered fields at $(time() - t0)s..."
+
+    # Move the filtered fields to the GPU.
+    # Pre-transfer all needed fields once
+    if can_use_gpu
+        if !isnothing(to_grid)
+            itp_u̅ = XFaceField(to_grid,Float32)
+            itp_v̅ = YFaceField(to_grid,Float32)
+            itp_w̅ = ZFaceField(to_grid,Float32)
+            itp_B̅ = CenterField(to_grid,Float32)
+            itp_U̅ = XFaceField(to_grid,Float32)
+            itp_V̅ = YFaceField(to_grid,Float32)
+            itp_τuuₜ = CenterField(to_grid,Float32)
+            itp_τvvₜ = CenterField(to_grid,Float32)
+            itp_τuvₜ = CenterField(to_grid,Float32)
+            itp_τvuₜ = CenterField(to_grid,Float32)
+            itp_τuw = CenterField(to_grid,Float32)
+            itp_τvw = CenterField(to_grid,Float32)
+            interpolate!(itp_u̅, u̅)
+            interpolate!(itp_v̅, v̅)
+            interpolate!(itp_w̅, w̅)
+            interpolate!(itp_B̅, B̅)
+            interpolate!(itp_U̅, U̅)
+            interpolate!(itp_V̅, V̅)
+        end
+        u̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_u̅ : u̅)
+        v̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_v̅ : v̅)
+        w̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_w̅ : w̅)
+        B̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_B̅ : B̅)
+        U̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_U̅ : U̅)
+        V̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_V̅ : V̅)
+    else
+        u̅_gpu = u̅
+        v̅_gpu = v̅
+        w̅_gpu = w̅
+        U̅_gpu = U̅
+        V̅_gpu = V̅
+    end
+    @info "Interpolated filtered fields at $(time() - t0)s..."
+    @info "Interpolated u̅_gpu size $(size(interior(u̅_gpu)))"     
+    du_dx = compute!(Field(∂x(u̅_gpu))) 
+    du_dy = compute!(Field(∂y(u̅_gpu))) 
+    du_dz = compute!(Field(∂z(u̅_gpu))) 
+    dv_dx = compute!(Field(∂x(v̅_gpu))) 
+    dv_dy = compute!(Field(∂y(v̅_gpu))) 
+    dv_dz = compute!(Field(∂z(v̅_gpu))) 
+    dw_dx = compute!(Field(∂x(w̅_gpu))) 
+    dw_dy = compute!(Field(∂y(w̅_gpu))) 
+    dw_dz = compute!(Field(∂z(w̅_gpu)))   
+    CUDA.pool_status()
+
+    if !hy
+        # Compute area averages and broadcast them to full fields
+        uᵃ_avg = mean(u̅_gpu, dims=(1,2))
+        vᵃ_avg = mean(v̅_gpu, dims=(1,2))
+        wᵃ_avg = mean(w̅_gpu, dims=(1,2))
+        Bᵃ_avg = mean(B̅_gpu, dims=(1,2))
+
+        # Create full fields from the averaged values for GPU kernel compatibility
+        grid = u̅_gpu.grid
+        uᵃ = Field{Center, Center, Center}(grid); set!(uᵃ, uᵃ_avg)
+        vᵃ = Field{Center, Center, Center}(grid); set!(vᵃ, vᵃ_avg)
+        wᵃ = Field{Center, Center, Face}(grid);   set!(wᵃ, wᵃ_avg)
+        Bᵃ = Field{Center, Center, Center}(grid); set!(Bᵃ, Bᵃ_avg)
+        @info "average velocities and buoyancy done at $(time() - t0)s"
+
+        # Compute deviations in-place
+        uˢ = compute!(Field(u̅_gpu - uᵃ))
+        vˢ = compute!(Field(v̅_gpu - vᵃ))
+        wˢ = compute!(Field(w̅_gpu - wᵃ))
+        Bˢ = compute!(Field(B̅_gpu - Bᵃ))
+        uᵃwˢ = compute!(Field(uᵃ * wˢ))
+        vᵃwˢ = compute!(Field(vᵃ * wˢ))
+        wᵃuˢ = compute!(Field(wᵃ * (uˢ+U̅_gpu)))
+        wᵃvˢ = compute!(Field(wᵃ * (vˢ+V̅_gpu)))
+        @info "submeso velocities and buoyancy done at $(time() - t0)s"
+        CUDA.pool_status()
+
+        # Compute Pᵃ
+        Pᵃₕ = compute!(Field(uᵃ * ((uˢ+U̅_gpu) * du_dx + (vˢ+V̅_gpu) * du_dy) + 
+                                vᵃ * ((uˢ+U̅_gpu) * dv_dx + (vˢ+V̅_gpu) * dv_dy)))
+        @info "Transfer term Pᵃₕ done at $(time() - t0)s"
+        Pᵃᵥ = compute!(Field(uᵃwˢ * du_dz + vᵃwˢ * dv_dz +
+                             wᵃuˢ * dw_dx + wᵃvˢ * dw_dy + wˢ^2 * dw_dz))
+        @info "Transfer term Pᵃᵥ done at $(time() - t0)s"
+        Pᵃ = compute!(Field(Pᵃₕ + Pᵃᵥ))
+        @info "Transfer term Pᵃ done at $(time() - t0)s"
+        CUDA.pool_status()
+
+        # Compute averages of submeso velocities
+        uˢuˢ_avg = Field{Center, Center, Center}(grid)
+        uˢvˢ_avg = Field{Center, Center, Center}(grid)
+        uˢwˢ_avg = Field{Center, Center, Center}(grid)
+        vˢvˢ_avg = Field{Center, Center, Center}(grid)
+        vˢwˢ_avg = Field{Center, Center, Center}(grid)
+        wˢwˢ_avg = Field{Center, Center, Face}(grid)
+        set!(uˢuˢ_avg, mean(uˢ^2, dims=(1,2)))
+        set!(uˢvˢ_avg, mean(uˢ*vˢ, dims=(1,2)))
+        set!(uˢwˢ_avg, mean(uˢ*wˢ, dims=(1,2)))
+        set!(vˢvˢ_avg, mean(vˢ^2, dims=(1,2)))
+        set!(vˢwˢ_avg, mean(vˢ*wˢ, dims=(1,2)))
+        set!(wˢwˢ_avg, mean(wˢ^2, dims=(1,2)))
+        @info "average submeso velocities done at $(time() - t0)s"
+        CUDA.pool_status()
+
+        # Compute Pˢ
+        Pˢₕ = compute!(Field(-(uˢuˢ_avg * du_dx + uˢvˢ_avg * du_dy  +
+                                uˢvˢ_avg * dv_dx + vˢvˢ_avg * dv_dy)))
+        Pˢᵥ = compute!(Field(-(uˢwˢ_avg * du_dz + vˢwˢ_avg * dv_dz + 
+                                uˢwˢ_avg * dw_dx + vˢwˢ_avg * dw_dy + wˢwˢ_avg * dw_dz)))
+        Pˢ = compute!(Field(Pˢₕ + Pˢᵥ))
+        @info "Transfer term Pˢ done at $(time() - t0)s"
+        CUDA.pool_status()
+    end
 
     # --- Compute subfilter stresses ---
     # First set: fluxes associated with the u-momentum.
@@ -630,38 +738,77 @@ function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kerne
         subfilter_stress!(τwuₜ, u+U, w, u̅+U̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
         subfilter_stress!(τwvₜ, v+V, w, v̅+V̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
     end
+
+    τuu = XFaceField(u.grid,Float32)
+    τvv = YFaceField(v.grid,Float32)
+    subfilter_stress!(τuu, u, u, u̅, u̅; kernel, cutoff, border, method,use_gpu,plans)
+    subfilter_stress!(τvv, v, v, v̅, v̅; kernel, cutoff, border, method,use_gpu,plans)
     @info "Computed residual stress terms at $(time() - t0)s..."
 
     @info "τuuₜ extrema: $(extrema(interior(τuuₜ)))"
     @info "τvvₜ extrema: $(extrema(interior(τvvₜ)))"
     @info "τww extrema: $(extrema(interior(τww)))"
 
-    can_use_gpu = use_gpu && CUDA.functional()
-    # Move the filtered fields to the GPU.
-    c2g(cpu_field) = can_use_gpu ? on_architecture(GPU(), cpu_field) : cpu_field
-    g2c(gpu_field) = can_use_gpu ? on_architecture(CPU(), gpu_field) : gpu_field
-        
+    if can_use_gpu
+        if !isnothing(to_grid)
+            interpolate!(itp_τuuₜ, τuuₜ)
+            interpolate!(itp_τvvₜ, τvvₜ)
+            interpolate!(itp_τuvₜ, τuvₜ)
+            interpolate!(itp_τvuₜ, τvuₜ)
+            interpolate!(itp_τuw, τuw)
+            interpolate!(itp_τvw, τvw)
+            if !hy  
+                itp_τwuₜ = CenterField(to_grid,Float32)
+                itp_τwvₜ = CenterField(to_grid,Float32)
+                itp_τww = CenterField(to_grid,Float32)
+                interpolate!(itp_τwuₜ, τwuₜ)
+                interpolate!(itp_τwvₜ, τwvₜ)
+                interpolate!(itp_τww, τww)
+            end
+        end
+        τuuₜ_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τuuₜ : τuuₜ)
+        τvvₜ_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τvvₜ : τvvₜ)
+        τuvₜ_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τuvₜ : τuvₜ)
+        τvuₜ_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τvuₜ : τvuₜ)
+        τuw_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τuw : τuw)
+        τvw_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τvw : τvw)
+        if !hy  
+            τwuₜ_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τwuₜ : τwuₜ)
+            τwvₜ_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τwvₜ : τwvₜ)
+            τww_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_τww : τww)
+        end
+    else
+        τuuₜ_gpu = τuuₜ
+        τvvₜ_gpu = τvvₜ
+        τuvₜ_gpu = τuvₜ
+        τvuₜ_gpu = τvuₜ
+        τuw_gpu = τuw
+        τvw_gpu = τvw
+        if !hy  
+            τwuₜ_gpu = τwuₜ
+            τwvₜ_gpu = τwvₜ
+            τww_gpu = τww
+        end
+    end
+
     # --- Compute transfer (flux) terms using derivatives ---
     # Note: The derivative operators (∂x, ∂y, ∂z) are assumed to be available.
     # Πₕ: Horizontal transfer term.
-    Πₕ = compute!(Field(-(c2g(τuuₜ) * ∂x(c2g(u̅)) +
-                          c2g(τvvₜ) * ∂y(c2g(v̅)) +
-                          c2g(τuvₜ) * ∂y(c2g(u̅)) +
-                          c2g(τvuₜ) * ∂x(c2g(v̅)))))
-    @info "Transfer term Πₕ done at $(time() - t0)s, ML-average $(mean(interior(Πₕ, :, :,k0:kT)))"
+    Πₕ = compute!(Field(-(τuuₜ_gpu * du_dx + τvvₜ_gpu * dv_dy +
+                          τuvₜ_gpu * du_dy + τvuₜ_gpu * dv_dx)))
+
+    @info "Transfer term Πₕ done at $(time() - t0)s"
+    CUDA.pool_status()
 
     # Πᵥ: Vertical transfer term.
     if hy
-        Πᵥ = compute!(Field(@at (Center, Center, Center) -(c2g(τuw) * ∂z(c2g(u̅)) +
-                                                           c2g(τvw) * ∂z(c2g(v̅)))))
+        Πᵥ = compute!(Field(-(τuw_gpu * ∂z(u̅_gpu) + τvw_gpu * ∂z(v̅_gpu))))
     else
-        Πᵥ = compute!(Field(@at (Center, Center, Center) -(c2g(τuw) * ∂z(c2g(u̅)) +
-                                                           c2g(τvw) * ∂z(c2g(v̅)) +
-                                                           c2g(τww) * ∂z(c2g(w̅)) +
-                                                           c2g(τwuₜ) * ∂x(c2g(w̅)) +
-                                                           c2g(τwvₜ) * ∂y(c2g(w̅)))))
+        Πᵥ = compute!(Field(-(τuw_gpu * ∂z(u̅_gpu) + τvw_gpu * ∂z(v̅_gpu) +
+                              τww_gpu * ∂z(w̅_gpu) + τwuₜ_gpu * dw_dx + τwvₜ_gpu * dw_dy)))
     end
-    @info "Transfer term Πᵥ done at $(time() - t0)s, ML-average $(mean(interior(Πᵥ, :, :,k0:kT)))"
+    @info "Transfer term Πᵥ done at $(time() - t0)s"
+    CUDA.pool_status()
 
     if hy
         # Πδ: Diagonal (divergence-related) transfer term.
@@ -669,16 +816,39 @@ function coarse_grained_fluxes(snapshots, ipU, ipV, iU, iV; i=0, hy=false, kerne
         println("Transfer term Πδ done at $(time() - t0)s")
 
         # Πvgl: Flux transfer term associated with buoyancy gradients, scaled by 1/f.
-        Πvgl = compute!(Field(@at (Center, Center, Center) -(τuw * ∂z(-∂y(B̅)) +
-                                                            τvw * ∂z(∂x(B̅))) / f))
+        Πvgl = compute!(Field( -(τuw * ∂z(-∂y(B̅)) + τvw * ∂z(∂x(B̅))) / f))
         println("Transfer term Πvgl done at $(time() - t0)s")
 
         return Πₕ, Πδ, Πᵥ, Πvgl
     else
         τwb = CenterField(B.grid,Float32)
         subfilter_stress!(τwb, B, w, B̅, w̅; kernel, cutoff, border, method,use_gpu,plans)
-        @info "Transfer term τwb done at $(time() - t0)s, ML-average $(mean(interior(τwb, :, :,k0:kT)))"
-        return τwb, g2c(Πₕ), g2c(Πᵥ)
+        @info "Transfer term τwb done at $(time() - t0)s"
+
+
+        # Compute Pᵀ
+        τuuₜˢ = compute!(Field(τuuₜ_gpu - mean(τuuₜ_gpu, dims=(1,2))))
+        τvvₜˢ = compute!(Field(τvvₜ_gpu - mean(τvvₜ_gpu, dims=(1,2))))
+        τuvₜˢ = compute!(Field(τuvₜ_gpu - mean(τuvₜ_gpu, dims=(1,2))))
+        τvuₜˢ = compute!(Field(τvuₜ_gpu - mean(τvuₜ_gpu, dims=(1,2))))
+        τuwˢ = compute!(Field(τuw_gpu - mean(τuw_gpu, dims=(1,2))))
+        τvwˢ = compute!(Field(τvw_gpu - mean(τvw_gpu, dims=(1,2))))
+        τwwˢ = compute!(Field(τww_gpu - mean(τww_gpu, dims=(1,2))))
+        τwuₜˢ = compute!(Field(τwuₜ_gpu - mean(τwuₜ_gpu, dims=(1,2))))
+        τwvₜˢ = compute!(Field(τwvₜ_gpu - mean(τwvₜ_gpu, dims=(1,2))))
+        Pᵀₕ = compute!(Field(τuuₜˢ * du_dx + τvvₜˢ * dv_dy +
+                             τuvₜˢ * du_dy + τvuₜˢ * dv_dx))
+        Pᵀᵥ = compute!(Field(τuwˢ * du_dz + τvwˢ * dv_dz +
+                             τwwˢ * dw_dz + τwuₜˢ * dw_dx + τwvₜˢ * dw_dy))
+        Pᵀ = compute!(Field(Pᵀₕ + Pᵀᵥ))
+        @info "Transfer term Pᵀ done at $(time() - t0)s"
+        CUDA.pool_status()
+
+        wˢbˢ = compute!(Field(Bˢ*wˢ))
+        @info "Transfer term wˢbˢ done at $(time() - t0)s"
+        CUDA.pool_status()
+
+        return u̅_gpu, v̅_gpu, w̅_gpu, B̅_gpu, uᵃ_avg, vᵃ_avg, wᵃ_avg, Bᵃ_avg, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww_gpu, τwb, Πₕ, Πᵥ, Pᵃ, Pˢ, Pᵀ, wˢbˢ
     end
 end
 

@@ -737,6 +737,7 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     snapshot = load_subdomain_snapshot(output_filename;variables = ("u","v","T","MLD3","Ew3"),level=224);
 
     x, y, z = nodes(snapshot[:T])
+    idxEwm = argmax(interior(snapshot[:Ew3]))
     grid = snapshot[:u].grid
     u̅  = XFaceField(grid);
     v̅  = YFaceField(grid);
@@ -830,6 +831,7 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     hmb = heatmap!(axb, 1e-3x, 1e-3y, interior(snapshot[:MLD3], :, :, 1)/h₀; rasterize = true, colormap=:deep)
     hmc = heatmap!(axc, 1e-3xc, 1e-3yc, interior(TKEₛ, :, :, idxTKEm[3]); rasterize = true, colormap = :amp, colorrange = (0, max(interior(TKEₛ, :, :, idxTKEm[3])...)))
     hmd = heatmap!(axd, 1e-3xd, 1e-3yd, interior(SKEₛ, :, :, idxSKEm[3]); rasterize = true, colormap = :amp, colorrange = (0, max(interior(SKEₛ, :, :, idxSKEm[3])...)))
+    scatter!(axb, 1e-3x[idxEwm[1]], 1e-3y[idxEwm[2]]; marker = :star4, markersize = 10, color = :white)
     scatter!(axc, 1e-3xc[idxTKEm[1]], 1e-3yc[idxTKEm[2]]; marker = :star4, markersize = 10, color = :black)
     scatter!(axd, 1e-3xd[idxSKEm[1]], 1e-3yd[idxSKEm[2]]; marker = :star4, markersize = 10, color = :black)
     Colorbar(fig[1, 2], hmT)
@@ -960,44 +962,44 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     return arclength/1e5, Sn, σn_cfront, h_cfront, cd_Cu[1], cd_Cu[2], ζ_cfront, δ_cfront, TKE_cfront, SKE_cfront
 end
 
-# shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
-# filename0 = "./hydrostatic_snapshots_init.jld2"
-# snapshots = load_snapshots(filename0);
-# v0 = snapshots[:v][1];
-# T0 = snapshots[:T][1];
-# xT, yT, zT = nodes(T0);
-# initfile = "./hydrostatic_snapshots_free.jld2"
-# initsnaps = load_snapshots(initfile)
-# Ub = initsnaps[:u][1];
-# Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
-# xU,yU,zU = nodes(Ub);
-# itpU = interpolate((xU,yU), interior(Ub, :, :, length(zU)), Gridded(Linear(Interpolations.Periodic())))
-# etpU = extrapolate(itpU, Interpolations.Periodic())
-# xV,yV,zV = nodes(Vb);
-# itpV = interpolate((xV,yV), interior(Vb, :, :, length(zV)), Gridded(Linear(Interpolations.Periodic())))
-# etpV = extrapolate(itpV, Interpolations.Periodic())
-# σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
-# xn,yn,zn = nodes(σn);
-# itpn = interpolate((xn,yn), interior(σn, :, :, length(zn)), Gridded(Linear(Interpolations.Periodic())))
-# etpn = extrapolate(itpn, Interpolations.Periodic())
+shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
+filename0 = "./hydrostatic_snapshots_init.jld2"
+snapshots = load_snapshots(filename0);
+v0 = snapshots[:v][1];
+T0 = snapshots[:T][1];
+xT, yT, zT = nodes(T0);
+initfile = "./hydrostatic_snapshots_free.jld2"
+initsnaps = load_snapshots(initfile)
+Ub = initsnaps[:u][1];
+Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
+xU,yU,zU = nodes(Ub);
+itpU = interpolate((xU,yU), interior(Ub, :, :, length(zU)), Gridded(Linear(Interpolations.Periodic())))
+etpU = extrapolate(itpU, Interpolations.Periodic())
+xV,yV,zV = nodes(Vb);
+itpV = interpolate((xV,yV), interior(Vb, :, :, length(zV)), Gridded(Linear(Interpolations.Periodic())))
+etpV = extrapolate(itpV, Interpolations.Periodic())
+σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
+xn,yn,zn = nodes(σn);
+itpn = interpolate((xn,yn), interior(σn, :, :, length(zn)), Gridded(Linear(Interpolations.Periodic())))
+etpn = extrapolate(itpn, Interpolations.Periodic())
 
-# Nresample = 10240
-# s3 = zeros(Float32, 3, Nresample)
-# S3 = zeros(Float32, 3, Nresample)
-# σ3 = zeros(Float32, 3, Nresample)
-# d3 = zeros(Float32, 3, Nresample)
-# h3 = zeros(Float32, 3, Nresample)
-# C3 = zeros(Float32, 3, Nresample)
-# ζ3 = zeros(Float32, 3, Nresample)
-# δ3 = zeros(Float32, 3, Nresample)
-# TKE3 = zeros(Float32, 3, Nresample)
-# SKE3 = zeros(Float32, 3, Nresample)
+Nresample = 10240
+s3 = zeros(Float32, 3, Nresample)
+S3 = zeros(Float32, 3, Nresample)
+σ3 = zeros(Float32, 3, Nresample)
+d3 = zeros(Float32, 3, Nresample)
+h3 = zeros(Float32, 3, Nresample)
+C3 = zeros(Float32, 3, Nresample)
+ζ3 = zeros(Float32, 3, Nresample)
+δ3 = zeros(Float32, 3, Nresample)
+TKE3 = zeros(Float32, 3, Nresample)
+SKE3 = zeros(Float32, 3, Nresample)
 
-# fileparam = "xband1sublevels"
-# for (i, iteration) in enumerate([37003])
-#     s3[i,:],S3[i,:],σ3[i,:],h3[i,:],d3[i,:],C3[i,:],ζ3[i,:],δ3[i,:],TKE3[i,:],SKE3[i,:] = plot_front_properties(filehead,fileparam,iteration,Nresample)
-#     set_value!(; Lx = 1e5)
-# end
+fileparam = "xband1sublevels"
+for (i, iteration) in enumerate([37003])
+    s3[i,:],S3[i,:],σ3[i,:],h3[i,:],d3[i,:],C3[i,:],ζ3[i,:],δ3[i,:],TKE3[i,:],SKE3[i,:] = plot_front_properties(filehead,fileparam,iteration,Nresample)
+    set_value!(; Lx = 1e5)
+end
 
 # jldopen(filesave * "along_front_" * fileparam * "_cg3hm_29h30h31h.jld2", "w") do file
 #     file["s"] = s3
@@ -1012,189 +1014,13 @@ end
 #     file["SKE"] = SKE3
 # end
 
-using GaussianProcesses, Optim, LinearAlgebra
-"""
-    fit_preprocess_pipeline(X::Matrix{Float64})
-
-Fits a preprocessing pipeline (standardization + PCA) to the data.
-
-# Arguments
-- `X`: Input data matrix (features in rows, samples in columns).
-
-# Returns
-- `μ`: Mean vector for standardization.
-- `σ`: Standard deviation vector for standardization.
-- `pca_rotation`: PCA rotation matrix (principal components as columns).
-"""
-function fit_preprocess_pipeline(X::Matrix{Float64})
-    # 1. Standardization
-    μ = mean(X, dims=2)
-    σ = std(X, dims=2)
-    
-    # Avoid division by zero for constant features
-    σ[σ .== 0] .= 1.0
-
-    X_std = (X .- μ) ./ σ
-
-    # 2. PCA for decorrelation
-    # Covariance matrix of standardized data
-    C = cov(X_std') 
-    # Get eigenvectors (principal components)
-    F = eigen(C)
-    # Sort eigenvectors by eigenvalue in descending order
-    pca_rotation = F.vectors[:, sortperm(F.values, rev=true)]
-
-    return μ, σ, pca_rotation
-end
-
-"""
-    apply_preprocess_pipeline(X::Matrix{Float64}, μ::Vector, σ::Vector, pca_rotation::Matrix)
-
-Applies a fitted preprocessing pipeline to new data.
-"""
-function apply_preprocess_pipeline(X::Matrix{Float64}, μ, σ, pca_rotation)
-    X_std = (X .- μ) ./ σ
-    X_processed = pca_rotation' * X_std
-    return X_processed
-end
-
-"""
-    train_and_evaluate_gp(X_train, y_train)
-
-Trains a Gaussian Process model and returns the optimized model and its log marginal likelihood.
-
-# Arguments
-- `X_train`: A matrix of training inputs. Each column is a data point, each row is a feature.
-- `y_train`: A vector of training targets.
-
-# Returns
-- `gp`: The optimized GP object.
-- `lml`: The log marginal likelihood of the optimized model.
-"""
-function train_and_evaluate_gp(X_train::Matrix{Float64}, y_train::Vector{Float64})
-    # Define the GP model components
-    # ZeroMean is a common choice for the mean function
-    mean_func = MeanZero()
-
-    # Squared Exponential kernel with Automatic Relevance Determination (ARD).
-    # This allows the model to learn the importance of each input feature.
-    # SEArd uses inverse length-scales squared (iℓ2) and signal variance (σ2)
-    num_dims = size(X_train, 1)
-    
-    # Initialize inverse length-scales squared (iℓ2) and signal variance (σ2)
-    # Starting with iℓ2 = 1.0 corresponds to length-scales of 1.0
-    initial_il2 = ones(num_dims)  # inverse length-scales squared
-    initial_sigma2 = 1.0          # signal variance
-    
-    kernel = SEArd(initial_il2, initial_sigma2)
-
-    # Initialize the log noise standard deviation (log(σ_n))
-    log_noise = -1.0
-
-    # Create the GP object
-    gp = GP(X_train, y_train, mean_func, kernel, log_noise)
-
-    # Optimize the GP's hyperparameters (length-scales, noise, etc.)
-    # This is the "training" step. It maximizes the log marginal likelihood.
-    println("Optimizing hyperparameters for a ", num_dims, "-dimensional input GP...")
-    optimize!(gp; method=LBFGS(), iterations=1000)
-
-    # Get the optimized log marginal likelihood
-    lml = gp.mll
-    println("Optimization complete. Log Marginal Likelihood = ", lml)
-    
-    # Extract learned parameters from the optimized kernel
-    println("Optimized hyperparameters:")
-    #println("  Noise variance: ", exp(2.0 * gp.logNoise))
-    #println("  Signal variance (σ²): ", gp.kernel.σ2)
-    
-    # Convert inverse length-scales squared back to length-scales
-    # iℓ2 = 1/ℓ², so ℓ = 1/√(iℓ2)
-    learned_length_scales = 1.0 ./ sqrt.(gp.kernel.iℓ2)
-    println("  Learned ARD length-scales: ", learned_length_scales)
-    
-    # The inverse length-scales squared show relative importance
-    # Higher iℓ2 means shorter length-scale, meaning that dimension is more important
-    println("  Inverse length-scales squared (iℓ²): ", gp.kernel.iℓ2)
-
-    return gp, lml
-end
-
-filename = filesave * "along_front_" * fileparam * "_cg3hm_29h30h31h.jld2";
-file = jldopen(filename, "r")
-s3 = file["s"];
-S3 = file["S"];
-σ3 = file["σ"];
-TKE3 = file["TKE"];
-SKE3 = file["SKE"];
-ζ3 = file["ζ"];
-δ3 = file["δ"];
-close(file)
-
-for i = 1:2
-    Sn_coarse, s_coarse = coarsen_binned_vectorized(S3[i,:], s3[i,:], 256)
-    SKE_coarse, _ = coarsen_binned_vectorized(SKE3[i,:], s3[i,:], 256)
-    ζ_coarse, _ = coarsen_binned_vectorized(ζ3[i,:], s3[i,:], 256)
-    δ_coarse, _ = coarsen_binned_vectorized(δ3[i,:], s3[i,:], 256)
-    TKE_coarse, _ = coarsen_binned_vectorized(TKE3[i,:], s3[i+1,:], 256)
-    TKE2_coarse, _ = coarsen_binned_vectorized(TKE3[i+1,:], s3[i+1,:], 256)
-    SKE2_coarse, _ = coarsen_binned_vectorized(SKE3[i+1,:], s3[i+1,:], 256)
-
-    # For Hypothesis H0 (TKE depends on SKE and s*)
-    X0_raw = Matrix(reshape(s_coarse),(1,:)) # vcat(s_coarse',δ_coarse') # 2x1000 matrix
-    y_train = Float64.(log.(TKE2_coarse)) .- Float64.(log.(TKE_coarse))
-    # Fit and apply the preprocessing pipeline
-    μ0, σ0, rotation0 = fit_preprocess_pipeline(X0_raw)
-    X0_processed = apply_preprocess_pipeline(X0_raw, μ0, σ0, rotation0)
-    gp_H0, lml_H0 = train_and_evaluate_gp(X0_processed, y_train)
-    
-    # For Hypothesis H1 (TKE depends on S, SKE, and s*)
-    for var2 in [Sn_coarse,ζ_coarse,δ_coarse,log.(SKE_coarse)]
-        X1_raw = vcat(s_coarse',var2')#,Sn_coarse') # 3x1000 matrix
-        # Fit and apply the preprocessing pipeline
-        μ1, σ1, rotation1 = fit_preprocess_pipeline(X1_raw)
-        X1_processed = apply_preprocess_pipeline(X1_raw, μ1, σ1, rotation1)
-        gp_H1, lml_H1 = train_and_evaluate_gp(X1_processed, y_train)
-
-        # Perform the Bayesian model comparison
-        log_bayes_factor = lml_H1 - lml_H0
-        println("\n--- TKE Results ---")
-        println("Log Bayes Factor (LML_H1 - LML_H0): ", log_bayes_factor)
-
-        if log_bayes_factor > 1.0
-            println("Result: Substantial evidence FOR a direct S -> TKE causal link.")
-        elseif log_bayes_factor > 0.0
-            println("Result: Weak evidence for a direct link.")
-        else
-            println("Result: Evidence supports the MEDIATED-ONLY pathway (S -> SKE -> TKE).")
-        end
-    end
-
-#     Z0_raw = vcat(s_coarse',Sn_coarse',ζ_coarse',δ_coarse')
-#     z_train = Float64.(log.(SKE2_coarse)) .- Float64.(log.(SKE_coarse))
-#     # Fit and apply the preprocessing pipeline
-#     μ0, σ0, rotation0 = fit_preprocess_pipeline(Z0_raw)
-#     Z0_processed = apply_preprocess_pipeline(Z0_raw, μ0, σ0, rotation0)
-#     gp_H0z, lml_H0z = train_and_evaluate_gp(Z0_processed, z_train)
-
-#     for var2 in [log.(TKE_coarse)]
-#         Z1_raw = vcat(s_coarse',Sn_coarse',ζ_coarse',δ_coarse',var2') # log.(TKE_coarse')) # 3x1000 matrix
-#         # Fit and apply the preprocessing pipeline
-#         μ1, σ1, rotation1 = fit_preprocess_pipeline(Z1_raw)
-#         Z1_processed = apply_preprocess_pipeline(Z1_raw, μ1, σ1, rotation1)
-#         gp_H1z, lml_H1z = train_and_evaluate_gp(Z1_processed, z_train)
-
-#         # Perform the Bayesian model comparison
-#         log_bayes_factorz = lml_H1z - lml_H0z
-#         println("\n--- SKE Results ---")
-#         println("Log Bayes Factor (LML_H1 - LML_H0): ", log_bayes_factorz)
-
-#         if log_bayes_factorz > 1.0
-#             println("Result: Substantial evidence FOR a direct TKE -> SKE causal link.")
-#         elseif log_bayes_factorz > 0.0
-#             println("Result: Weak evidence for a direct link.")
-#         else
-#             println("Result: Evidence supports the S-ONLY pathway (S -> SKE).")
-#         end
-#     end
-end
+# filename = filesave * "along_front_" * fileparam * "_cg3hm_29h30h31h.jld2";
+# file = jldopen(filename, "r")
+# s3 = file["s"];
+# S3 = file["S"];
+# σ3 = file["σ"];
+# TKE3 = file["TKE"];
+# SKE3 = file["SKE"];
+# ζ3 = file["ζ"];
+# δ3 = file["δ"];
+# close(file)

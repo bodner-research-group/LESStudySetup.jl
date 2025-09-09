@@ -6,6 +6,7 @@ using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_distributed_checkpoint,load_subdomain_snapshot
 using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes
 using LESStudySetup.Diagnostics: coarse_graining!, TKE, MLD
+using Oceananigans.Fields: interpolate
 set_theme!(theme_latexfonts(), fontsize=12, figure_padding = 10)
 using JLD2, CUDA
 set_value!(; Δh = 4.8828125)
@@ -58,9 +59,9 @@ initfile = "./hydrostatic_snapshots_free.jld2"
 initsnaps = load_snapshots(initfile)
 Ub = initsnaps[:u][1];
 Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
-iUb, iVb = interior(Ub), interior(Vb);
-iUb, iVb = [iUb[size(xu,1)÷2+1:end, :, :]; iUb[1:size(xu,1)÷2, :, :]],[iVb[size(xv,1)÷2+1:end, :, :]; iVb[1:size(xv,1)÷2, :, :]];
-ipU, ipV = (xu .- 5e4,vec(yu)), (xv .- 5e4,vec(yv))
+# iUb, iVb = interior(Ub), interior(Vb);
+# iUb, iVb = [iUb[size(xu,1)÷2+1:end, :, :]; iUb[1:size(xu,1)÷2, :, :]],[iVb[size(xv,1)÷2+1:end, :, :]; iVb[1:size(xv,1)÷2, :, :]];
+# ipU, ipV = (xu .- 5e4,vec(yu)), (xv .- 5e4,vec(yv))
 # σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
 # σs = compute!(Field((∂y(Ub)+∂x(Vb))/2));
 # @info "σn extrema: $(extrema(interior(σn)))"
@@ -270,7 +271,7 @@ ipU, ipV = (xu .- 5e4,vec(yu)), (xv .- 5e4,vec(yv))
 ##############################
 # # --- Simulation and Subdomain Parameters ---
 # fileparam = "xband1surf9"
-iteration = 49086
+iteration = 37003
 
 # # 1. Define the filename of the saved snapshot
 # output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
@@ -404,30 +405,56 @@ iteration = 49086
 # save(filesave * "spectra_" * fileparam * "_44h4m_iter$(iteration).pdf", fig; pt_per_unit = 1)
 
 #############################
-for fileparam in ["subdomain1"]
+for (i,fileparam) in enumerate(["subdomain1","subdomain2","subdomain3","subdomain4"])
+    @info "Computing and saving data for $fileparam"
     # 1. Define the filename of the saved snapshot
     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
 
     # 2. Load the snapshot using the new function
     snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T", "MLD3"));
 
-    τwb, Πₕ, Πᵥ = coarse_grained_fluxes(snapshot,ipU, ipV, iUb, iVb; cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
+    x0, y0, z0 = nodes(snapshot[:T])
+    to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
+                              size = (length(x0), 400*2, length(z0)),
+                              x = (-12500,12500),
+                              y = (25e3(i-1)-parameters.Δh*400,25e3(i-1)+parameters.Δh*400),
+                              z = (-81,0),
+                              topology = (Bounded, Bounded, Bounded))
+
+    u̅, v̅, w̅, B̅, uᵃ, vᵃ, wᵃ, Bᵃ, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww, τwb, Πₕ, Πᵥ, Pᵃ, Pˢ, Pᵀ, wˢbˢ = coarse_grained_fluxes(snapshot, Ub, Vb; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
     
-    _, _, _, τuu, τvv, τww = TKE(snapshot; cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
     @info "τuu extrema: $(extrema(interior(τuu)))"
     @info "τvv extrema: $(extrema(interior(τvv)))"
     @info "τww extrema: $(extrema(interior(τww)))"
     # 3. Plot the TKE fields
-    Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
-    wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
-    TKEₛ = compute!(Field((τvv + τuu + τww)/2/wₛ^2));
+    # Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
+    # wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
+    # TKEₛ = compute!(Field(@at (Center, Center, Center) (τvv + τuu + τww)/2/wₛ^2));
 
-    x0, y0, z0 = nodes(TKEₛ)
-    jldopen(filehead * "subdomains/TKEphysical_"*fileparam*"_iter$(iteration)_cg3hm.jld2", "w") do file
-        file["fields/TKEs"] = interior(TKEₛ, :, 640, :)
-        file["fields/PHs"] = interior(Πₕ, :, 640, :)./ (parameters.f * wₛ^2)
-        file["fields/PVs"] = interior(Πᵥ, :, 640, :)./ (parameters.f * wₛ^2)
-        file["fields/Bs"] = interior(τwb, :, 640, :)./ (parameters.f * wₛ^2)
+    itp2nodes(field) = Array([interpolate((x, y0[640], z), field) for x in x0, z in z0'])
+    jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_cg3hm.jld2", "w") do file
+        file["fields/bcg"] = itp2nodes(B̅)
+        file["fields/ucg"] = itp2nodes(u̅)
+        file["fields/vcg"] = itp2nodes(v̅)
+        file["fields/wcg"] = itp2nodes(w̅)
+        file["fields/ua"]  = Array(interior(uᵃ))
+        file["fields/va"]  = Array(interior(vᵃ))
+        file["fields/wa"]  = Array(interior(wᵃ))
+        file["fields/ba"]  = Array(interior(Bᵃ))
+        file["fields/us"]  = itp2nodes(uˢ)
+        file["fields/vs"]  = itp2nodes(vˢ)
+        file["fields/ws"]  = itp2nodes(wˢ)
+        file["fields/bs"]  = itp2nodes(Bˢ)
+        file["fields/τwb"] = itp2nodes(τwbj)
+        file["fields/wbs"] = itp2nodes(wˢbˢ)
+        file["fields/τuu"] = itp2nodes(τuu)
+        file["fields/τww"] = itp2nodes(τww)
+        file["fields/τuv"] = itp2nodes(τvv)
+        file["fields/PHs"] = itp2nodes(Πₕ) #./ (parameters.f * wₛ^2)
+        file["fields/PVs"] = itp2nodes(Πᵥ) #./ (parameters.f * wₛ^2)
+        file["fields/Pas"] = itp2nodes(Pᵃ) #./ (parameters.f * wₛ^2)
+        file["fields/Pss"] = itp2nodes(Pˢ) #./ (parameters.f * wₛ^2)
+        file["fields/PTs"] = itp2nodes(Pᵀ) #./ (parameters.f * wₛ^2)
         
         file["metadata/iteration"] = iteration
         file["metadata/x"] = x0
@@ -435,58 +462,58 @@ for fileparam in ["subdomain1"]
         file["metadata/z"] = z0
     end
 
-    TKEₛj = file["fields/TKEs"];
-    Πₕj = file["fields/PHs"];
-    Πᵥj = file["fields/PVs"];
-    τwbj = file["fields/Bs"];
-    x = file["metadata/x"];
-    z = file["metadata/z"];
-    nxj,nzj = length(x), length(z)
-    using Makie
-    fig = Figure(size = (640, 960))
-    gab = fig[1, 1] = GridLayout()
-    titles = [L"\text{(a) TKE}/w_*^2",L"\text{(b) }P_H/(fw_*^2)",L"\text{(c) }P_V/(fw_*^2)",L"\text{(d) }B/(fw_*^2)"]
-    for (i, var0) in enumerate([TKEₛj, Πₕj, Πᵥj, τwbj])
-        cmap = i==1 ? :amp : :balance
-        #x, y, z = nodes(var0);
-        var = var0#interior(var0, :, 640,:) * (i==1 ? 1 : 1e4/wₛ^2);
-        nx, nz = size(var)
-        crange = i==1 ? (0, max(var...)) : (-50,50)
-        ax_a = Axis(gab[i,1]; titlealign = :left, title=titles[i], xlabel=L"x~\text{(km)}", ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
-        ax_b = Axis(gab[i,3]; titlealign = :left, limits=(nothing,(-80,0)))
-        hm_a = heatmap!(ax_a, 1e-3x, z, var[1:nxj, nz-nzj+1:nz]; rasterize = true, colormap = cmap, colorrange = crange)
-        Colorbar(gab[i,2], hm_a)
-        idxEm = argmax(var[641:end-640,:])
-        iEmax, jEmax = idxEm[1]+640, idxEm[2]
-        @info "max at $(x[iEmax]/1e3), $(z[jEmax]): $(var[iEmax,jEmax])"
-        scatter!(ax_a, 1e-3x[iEmax], z[jEmax]; marker = :star4, markersize = 10, color = :black)
-        idxs = [argmin(vec(mean(var;dims=2))[641:end-640])+640,argmax(vec(mean(var;dims=2))[641:end-640])+640,iEmax]
-        vlines!(ax_a, 1e-3x[idxs], color = Makie.wong_colors()[2:4], linewidth = 0.8)
-        lines!(ax_a, 1e-3x, -interior(snapshot[:MLD3],:,640,1), color = :blue, linewidth = 1, label="MLD")
-        hideydecorations!(ax_b, ticks = false)
-        lines!(ax_b, vec(mean(var, dims =(1))), z; linewidth = 2, label="mean")
-        lines!(ax_b, var[idxs[1],nz-nzj+1:nz], z; linewidth = 1)
-        lines!(ax_b, var[idxs[2],nz-nzj+1:nz], z; linewidth = 1)
-        lines!(ax_b, var[idxs[3],nz-nzj+1:nz], z; linewidth = 1)
-        # hlines!(ax_b, -interior(snapshot[:BLD], :, 1497, 1)[[2004,1004,3004]], linestyle = :dash, color = [:orange, :green, :purple], linewidth = 0.8)
-        colsize!(gab, 3, Relative(0.3))
-        colgap!(gab, 1, 1)
-        colgap!(gab, 2, 5)
-        resize_to_layout!(fig)
-        if i==1
-            axislegend(ax_a, labelsize=10,position = :lb,patchsize = (15, 5), patchlabelgap = 3, rowgap = 1)
-            axislegend(ax_b,  labelsize=10, position = :rb,patchsize = (15, 3), patchlabelgap = 3)
-        end
-        if i<4
-            hidexdecorations!(ax_a, ticks = false)
-        else
-            ax_b.xlabel = xlabel=L"\text{mean vs. local}"
-        end
-    end
-    rowgap!(gab, 1)
-    save(filesave * "TKE3Ps_" * fileparam * "_44h_iter$(iteration)_cg3hm.pdf", fig; pt_per_unit = 1)
+    # TKEₛj = file["fields/TKEs"];
+    # Πₕj = file["fields/PHs"];
+    # Πᵥj = file["fields/PVs"];
+    # τwbj = file["fields/Bs"];
+    # x = file["metadata/x"];
+    # z = file["metadata/z"];
+    # nxj,nzj = length(x), length(z)
+    # using Makie
+    # fig = Figure(size = (640, 960))
+    # gab = fig[1, 1] = GridLayout()
+    # titles = [L"\text{(a) TKE}/w_*^2",L"\text{(b) }P_H/(fw_*^2)",L"\text{(c) }P_V/(fw_*^2)",L"\text{(d) }B/(fw_*^2)"]
+    # for (i, var0) in enumerate([TKEₛj, Πₕj, Πᵥj, τwbj])
+    #     cmap = i==1 ? :amp : :balance
+    #     #x, y, z = nodes(var0);
+    #     var = var0#interior(var0, :, 640,:) * (i==1 ? 1 : 1e4/wₛ^2);
+    #     nx, nz = size(var)
+    #     crange = i==1 ? (0, max(var...)) : (-50,50)
+    #     ax_a = Axis(gab[i,1]; titlealign = :left, title=titles[i], xlabel=L"x~\text{(km)}", ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+    #     ax_b = Axis(gab[i,3]; titlealign = :left, limits=(nothing,(-80,0)))
+    #     hm_a = heatmap!(ax_a, 1e-3x, z, var[1:nxj, nz-nzj+1:nz]; rasterize = true, colormap = cmap, colorrange = crange)
+    #     Colorbar(gab[i,2], hm_a)
+    #     idxEm = argmax(var[641:end-640,:])
+    #     iEmax, jEmax = idxEm[1]+640, idxEm[2]
+    #     @info "max at $(x[iEmax]/1e3), $(z[jEmax]): $(var[iEmax,jEmax])"
+    #     scatter!(ax_a, 1e-3x[iEmax], z[jEmax]; marker = :star4, markersize = 10, color = :black)
+    #     idxs = [argmin(vec(mean(var;dims=2))[641:end-640])+640,argmax(vec(mean(var;dims=2))[641:end-640])+640,iEmax]
+    #     vlines!(ax_a, 1e-3x[idxs], color = Makie.wong_colors()[2:4], linewidth = 0.8)
+    #     lines!(ax_a, 1e-3x, -interior(snapshot[:MLD3],:,640,1), color = :blue, linewidth = 1, label="MLD")
+    #     hideydecorations!(ax_b, ticks = false)
+    #     lines!(ax_b, vec(mean(var, dims =(1))), z; linewidth = 2, label="mean")
+    #     lines!(ax_b, var[idxs[1],nz-nzj+1:nz], z; linewidth = 1)
+    #     lines!(ax_b, var[idxs[2],nz-nzj+1:nz], z; linewidth = 1)
+    #     lines!(ax_b, var[idxs[3],nz-nzj+1:nz], z; linewidth = 1)
+    #     # hlines!(ax_b, -interior(snapshot[:BLD], :, 1497, 1)[[2004,1004,3004]], linestyle = :dash, color = [:orange, :green, :purple], linewidth = 0.8)
+    #     colsize!(gab, 3, Relative(0.3))
+    #     colgap!(gab, 1, 1)
+    #     colgap!(gab, 2, 5)
+    #     resize_to_layout!(fig)
+    #     if i==1
+    #         axislegend(ax_a, labelsize=10,position = :lb,patchsize = (15, 5), patchlabelgap = 3, rowgap = 1)
+    #         axislegend(ax_b,  labelsize=10, position = :rb,patchsize = (15, 3), patchlabelgap = 3)
+    #     end
+    #     if i<4
+    #         hidexdecorations!(ax_a, ticks = false)
+    #     else
+    #         ax_b.xlabel = xlabel=L"\text{mean vs. local}"
+    #     end
+    # end
+    # rowgap!(gab, 1)
+    # save(filesave * "TKE3Ps_" * fileparam * "_44h_iter$(iteration)_cg3hm.pdf", fig; pt_per_unit = 1)
 end
-println("Finished plotting TKE and P fields")
+println("Finished plotting TKE, SKE, and P fields")
 
 # file = jldopen(filehead * "TKEphysical_"*fileparam*"_iter$(iteration).jld2")
 # TKEw = file["fields/τww"]/2
