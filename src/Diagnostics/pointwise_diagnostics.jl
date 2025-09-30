@@ -2,7 +2,7 @@ using Oceananigans.Operators: div_xyᶜᶜᶜ
 using Oceananigans.Operators
 using Oceananigans.Utils: launch!
 using Oceananigans.Architectures: on_architecture
-using Oceananigans.Fields: interpolate!
+using Oceananigans.Fields: interpolate!, interpolate
 using KernelAbstractions: @kernel, @index
 using Statistics: mean, var
 using Interpolations
@@ -530,6 +530,73 @@ function TKE(snapshot; kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, 
     end
 end
 
+function along_front_averages(snapshots; i=0, kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
+    border=:circular, method=:physical, use_gpu=false,plans=nothing, m₀ = 60,to_grid=nothing)
+    t0 = time()
+
+    set_value!(; Δh, Lx, Ly, m₀)
+    @info "to grid $(!isnothing(to_grid)): $(to_grid)"
+
+    # Extract snapshot fields.
+    u0 = i >= 1 ? snapshots[:u][i] : snapshots[:u]
+    v0 = i >= 1 ? snapshots[:v][i] : snapshots[:v]
+    w0 = i >= 1 ? snapshots[:w][i] : snapshots[:w]
+    T0 = i >= 1 ? snapshots[:T][i] : snapshots[:T]
+    u = XFaceField(u0.grid,Float32)
+    v = YFaceField(v0.grid,Float32)
+    w = ZFaceField(w0.grid,Float32)
+    T = CenterField(T0.grid,Float32)
+    set!(u, interior(u0))
+    set!(v, interior(v0))
+    set!(w, interior(w0))
+    set!(T, interior(T0))
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    fill_halo_regions!(w)
+    fill_halo_regions!(T)
+
+    # Retrieve physical parameters.
+    α = parameters.α
+    g = parameters.g
+
+    # Compute the buoyancy field B = α*g*T.
+    B = compute!(Field(α * g * T))
+
+    # Allocate filtered velocity and buoyancy fields.
+    u̅ = XFaceField(u.grid,Float32)
+    v̅ = YFaceField(v.grid,Float32)
+    w̅ = ZFaceField(w.grid,Float32)
+    B̅ = CenterField(B.grid,Float32)
+
+    # --- Coarse-grain (filter) the primary fields. ---
+    for (orig, filt) in ((u, u̅), (v, v̅), (w, w̅), (B, B̅))
+    coarse_graining!(orig, filt; kernel, cutoff, border, method,use_gpu,plans)
+    end
+    @info "Computed filtered fields at $(time() - t0)s..."
+
+    if !isnothing(to_grid)
+        itp_u̅ = XFaceField(to_grid,Float32)
+        itp_v̅ = YFaceField(to_grid,Float32)
+        itp_w̅ = ZFaceField(to_grid,Float32)
+        itp_B̅ = CenterField(to_grid,Float32)
+        interpolate!(itp_u̅, u̅)
+        interpolate!(itp_v̅, v̅)
+        interpolate!(itp_w̅, w̅)
+        interpolate!(itp_B̅, B̅)
+        uᵃ = mean(itp_u̅, dims=2)
+        vᵃ = mean(itp_v̅, dims=2)
+        wᵃ = mean(itp_w̅, dims=2)
+        Bᵃ = mean(itp_B̅, dims=2)
+    else
+        uᵃ = mean(u̅, dims=2)
+        vᵃ = mean(v̅, dims=2)
+        wᵃ = mean(w̅, dims=2)
+        Bᵃ = mean(B̅, dims=2)
+    end
+    return uᵃ, vᵃ, wᵃ, Bᵃ
+
+end
+
 
 """
     coarse_grained_fluxes(snapshots, i; kernel=:tophat, cutoff=4kilometer)
@@ -540,7 +607,7 @@ coarse-graining (filtering) procedure based on a specified kernel and cutoff. It
 periodic boundary conditions (so that FFTs can be used) and the use of Oceananigans Field
 types.
 """
-function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
+function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=:gaussian, cutoff=100, Δh = 4.8828125, Lx = 1e5, Ly = 1e5, 
                                           border=:circular, method=:physical,use_gpu=false,plans=nothing, m₀ = 60,to_grid=nothing)
     t0 = time()
 
@@ -566,7 +633,7 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
     fill_halo_regions!(v)
     fill_halo_regions!(w)
     fill_halo_regions!(T)
-    _, _, zT = nodes(T)
+    xT, yT, zT = nodes(T)
     kT = length(zT)
     k0 = findlast(zT .< -parameters.m₀)
 
@@ -621,6 +688,7 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
             interpolate!(itp_B̅, B̅)
             interpolate!(itp_U̅, U̅)
             interpolate!(itp_V̅, V̅)
+            xi, _, _ = nodes(itp_B̅)
         end
         u̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_u̅ : u̅)
         v̅_gpu = on_architecture(GPU(), !isnothing(to_grid) ? itp_v̅ : v̅)
@@ -650,17 +718,17 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
 
     if !hy
         # Compute area averages and broadcast them to full fields
-        uᵃ_avg = mean(u̅_gpu, dims=(1,2))
-        vᵃ_avg = mean(v̅_gpu, dims=(1,2))
-        wᵃ_avg = mean(w̅_gpu, dims=(1,2))
-        Bᵃ_avg = mean(B̅_gpu, dims=(1,2))
+        # uᵃ = mean(u̅_gpu, dims=2)
+        # vᵃ = mean(v̅_gpu, dims=2)
+        # wᵃ = mean(w̅_gpu, dims=2)
+        # Bᵃ = mean(B̅_gpu, dims=2)
 
         # Create full fields from the averaged values for GPU kernel compatibility
         grid = u̅_gpu.grid
-        uᵃ = Field{Center, Center, Center}(grid); set!(uᵃ, uᵃ_avg)
-        vᵃ = Field{Center, Center, Center}(grid); set!(vᵃ, vᵃ_avg)
-        wᵃ = Field{Center, Center, Face}(grid);   set!(wᵃ, wᵃ_avg)
-        Bᵃ = Field{Center, Center, Center}(grid); set!(Bᵃ, Bᵃ_avg)
+        uᵃ = Field{Face, Nothing, Center}(grid); set!(uᵃ, varᵃ[1])
+        vᵃ = Field{Center, Nothing, Center}(grid); set!(vᵃ, varᵃ[2])
+        wᵃ = Field{Center, Nothing, Face}(grid);   set!(wᵃ, varᵃ[3])
+        Bᵃ = Field{Center, Nothing, Center}(grid); set!(Bᵃ, varᵃ[4])
         @info "average velocities and buoyancy done at $(time() - t0)s"
 
         # Compute deviations in-place
@@ -687,18 +755,18 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
         CUDA.pool_status()
 
         # Compute averages of submeso velocities
-        uˢuˢ_avg = Field{Center, Center, Center}(grid)
-        uˢvˢ_avg = Field{Center, Center, Center}(grid)
-        uˢwˢ_avg = Field{Center, Center, Center}(grid)
-        vˢvˢ_avg = Field{Center, Center, Center}(grid)
-        vˢwˢ_avg = Field{Center, Center, Center}(grid)
-        wˢwˢ_avg = Field{Center, Center, Face}(grid)
-        set!(uˢuˢ_avg, mean(uˢ^2, dims=(1,2)))
-        set!(uˢvˢ_avg, mean(uˢ*vˢ, dims=(1,2)))
-        set!(uˢwˢ_avg, mean(uˢ*wˢ, dims=(1,2)))
-        set!(vˢvˢ_avg, mean(vˢ^2, dims=(1,2)))
-        set!(vˢwˢ_avg, mean(vˢ*wˢ, dims=(1,2)))
-        set!(wˢwˢ_avg, mean(wˢ^2, dims=(1,2)))
+        uˢuˢ_avg = mean(uˢ^2, dims=2) #Field{Center, Center, Center}(grid)
+        uˢvˢ_avg = mean(uˢ*vˢ, dims=2)#Field{Center, Center, Center}(grid)
+        uˢwˢ_avg = mean(uˢ*wˢ, dims=2)#Field{Center, Center, Center}(grid)
+        vˢvˢ_avg = mean(vˢ^2, dims=2) #Field{Center, Center, Center}(grid)
+        vˢwˢ_avg = mean(vˢ*wˢ, dims=2)#Field{Center, Center, Center}(grid)
+        wˢwˢ_avg = mean(wˢ^2, dims=2) #Field{Center, Center, Face}(grid)
+        # set!(uˢuˢ_avg, mean(uˢ^2, dims=2))
+        # set!(uˢvˢ_avg, mean(uˢ*vˢ, dims=2))
+        # set!(uˢwˢ_avg, mean(uˢ*wˢ, dims=2))
+        # set!(vˢvˢ_avg, mean(vˢ^2, dims=2))
+        # set!(vˢwˢ_avg, mean(vˢ*wˢ, dims=2))
+        # set!(wˢwˢ_avg, mean(wˢ^2, dims=2))
         @info "average submeso velocities done at $(time() - t0)s"
         CUDA.pool_status()
 
@@ -747,6 +815,8 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
 
     @info "τuuₜ extrema: $(extrema(interior(τuuₜ)))"
     @info "τvvₜ extrema: $(extrema(interior(τvvₜ)))"
+    @info "τuu extrema: $(extrema(interior(τuu)))"
+    @info "τvv extrema: $(extrema(interior(τvv)))"
     @info "τww extrema: $(extrema(interior(τww)))"
 
     if can_use_gpu
@@ -827,15 +897,15 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
 
 
         # Compute Pᵀ
-        τuuₜˢ = compute!(Field(τuuₜ_gpu - mean(τuuₜ_gpu, dims=(1,2))))
-        τvvₜˢ = compute!(Field(τvvₜ_gpu - mean(τvvₜ_gpu, dims=(1,2))))
-        τuvₜˢ = compute!(Field(τuvₜ_gpu - mean(τuvₜ_gpu, dims=(1,2))))
-        τvuₜˢ = compute!(Field(τvuₜ_gpu - mean(τvuₜ_gpu, dims=(1,2))))
-        τuwˢ = compute!(Field(τuw_gpu - mean(τuw_gpu, dims=(1,2))))
-        τvwˢ = compute!(Field(τvw_gpu - mean(τvw_gpu, dims=(1,2))))
-        τwwˢ = compute!(Field(τww_gpu - mean(τww_gpu, dims=(1,2))))
-        τwuₜˢ = compute!(Field(τwuₜ_gpu - mean(τwuₜ_gpu, dims=(1,2))))
-        τwvₜˢ = compute!(Field(τwvₜ_gpu - mean(τwvₜ_gpu, dims=(1,2))))
+        τuuₜˢ = compute!(Field(τuuₜ_gpu - mean(τuuₜ_gpu, dims=2)))
+        τvvₜˢ = compute!(Field(τvvₜ_gpu - mean(τvvₜ_gpu, dims=2)))
+        τuvₜˢ = compute!(Field(τuvₜ_gpu - mean(τuvₜ_gpu, dims=2)))
+        τvuₜˢ = compute!(Field(τvuₜ_gpu - mean(τvuₜ_gpu, dims=2)))
+        τuwˢ = compute!(Field(τuw_gpu - mean(τuw_gpu, dims=2)))
+        τvwˢ = compute!(Field(τvw_gpu - mean(τvw_gpu, dims=2)))
+        τwwˢ = compute!(Field(τww_gpu - mean(τww_gpu, dims=2)))
+        τwuₜˢ = compute!(Field(τwuₜ_gpu - mean(τwuₜ_gpu, dims=2)))
+        τwvₜˢ = compute!(Field(τwvₜ_gpu - mean(τwvₜ_gpu, dims=2)))
         Pᵀₕ = compute!(Field(τuuₜˢ * du_dx + τvvₜˢ * dv_dy +
                              τuvₜˢ * du_dy + τvuₜˢ * dv_dx))
         Pᵀᵥ = compute!(Field(τuwˢ * du_dz + τvwˢ * dv_dz +
@@ -849,7 +919,35 @@ function coarse_grained_fluxes(snapshots, iU, iV; i=0, hy=false, kernel=:gaussia
         CUDA.pool_status()
         
         g2c(gpu_field) = on_architecture(CPU(), gpu_field)
-        return u̅, v̅, w̅, B̅, g2c(uᵃ_avg), g2c(vᵃ_avg), g2c(wᵃ_avg), g2c(Bᵃ_avg), g2c(uˢ), g2c(vˢ), g2c(wˢ), g2c(Bˢ), τuu, τvv, τww, τwb, g2c(Πₕ), g2c(Πᵥ), g2c(Pᵃ), g2c(Pˢ), g2c(Pᵀ), g2c(wˢbˢ)
+        yc = 0.5 * (yT[640] + yT[641])
+        itp2nodes(field) = Array([interpolate((x, yc, z), field) for x in xi, z in zT'])
+        τ̅uu = mean(τuu, dims=2)
+        τ̅ww = mean(τww, dims=2)
+        τ̅vv = mean(τvv, dims=2)
+        τ̅wb = mean(τwb, dims=2)
+        τuu = itp2nodes(τuu)
+        τww = itp2nodes(τww)
+        τvv = itp2nodes(τvv)
+        τwb = itp2nodes(τwb)
+        u̅ʸ = mean(itp_u̅, dims=2)
+        v̅ʸ = mean(itp_v̅, dims=2)
+        w̅ʸ = mean(itp_w̅, dims=2)
+        B̅ʸ = mean(itp_B̅, dims=2)
+        u̅ = itp2nodes(u̅)
+        v̅ = itp2nodes(v̅)
+        w̅ = itp2nodes(w̅)
+        B̅ = itp2nodes(B̅)
+        println(τ̅uu)
+      #  τ̅uu = itp2nodes(τ̅uu)
+      #  τ̅ww = itp2nodes(τ̅ww)
+      #  τ̅vv = itp2nodes(τ̅vv)
+      #  τ̅wb = itp2nodes(τ̅wb)
+      #  u̅ʸ = itp2nodes(u̅ʸ)
+      #  v̅ʸ = itp2nodes(v̅ʸ)
+      #  w̅ʸ = itp2nodes(w̅ʸ)
+      #  B̅ʸ = itp2nodes(B̅ʸ)
+
+        return (u̅,u̅ʸ), (v̅,v̅ʸ), (w̅,w̅ʸ), (B̅,B̅ʸ), g2c(uˢ), g2c(vˢ), g2c(wˢ), g2c(Bˢ), (τuu,τ̅uu), (τvv,τ̅vv), (τww,τ̅ww), (τwb,τ̅wb), g2c(Πₕ), g2c(Πᵥ), g2c(Pᵃ), g2c(Pˢ), g2c(Pᵀ), g2c(wˢbˢ)
     end
 end
 

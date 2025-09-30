@@ -5,8 +5,9 @@ using Statistics: mean, std
 using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_distributed_checkpoint,load_subdomain_snapshot
 using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes
-using LESStudySetup.Diagnostics: coarse_graining!, TKE, MLD
+using LESStudySetup.Diagnostics: coarse_graining!, TKE, MLD, along_front_averages
 using Oceananigans.Fields: interpolate
+using MathTeXEngine
 set_theme!(theme_latexfonts(), fontsize=12, figure_padding = 10)
 using JLD2, CUDA
 set_value!(; Δh = 4.8828125)
@@ -45,16 +46,16 @@ filename0 = "./hydrostatic_snapshots_init.jld2"
 snapshots = load_snapshots(filename0);
 v0 = snapshots[:v][1];
 u0 = snapshots[:u][1];
-# T0 = snapshots[:T][1];
+T0 = snapshots[:T][1];
 xu, yu, zu = nodes(u0);
 xv, yv, zv = nodes(v0);
-# xT, yT, zT = nodes(T0);
-# _ , _ , zw = nodes(snapshots[:w][1])
-# h0 = MLD(snapshots,1; threshold = 0.09)
-# f = parameters.f;
-# ζ₀ = compute!(Field(∂x(v0) - ∂y(u0)));
-# x, y, z = nodes(ζ₀);
-# Nz = length(z)
+xT, yT, zT = nodes(T0);
+_ , _ , zw = nodes(snapshots[:w][1])
+h0 = MLD(snapshots,1; threshold = 0.09)
+f = parameters.f;
+ζ₀ = compute!(Field(∂x(v0) - ∂y(u0)));
+x, y, z = nodes(ζ₀);
+Nz = length(z)
 initfile = "./hydrostatic_snapshots_free.jld2"
 initsnaps = load_snapshots(initfile)
 Ub = initsnaps[:u][1];
@@ -405,62 +406,247 @@ iteration = 37003
 # save(filesave * "spectra_" * fileparam * "_44h4m_iter$(iteration).pdf", fig; pt_per_unit = 1)
 
 #############################
-for (i,fileparam) in enumerate(["subdomain1","subdomain2","subdomain3","subdomain4"])
-    @info "Computing and saving data for $fileparam"
+# uᵃ, vᵃ, wᵃ, Bᵃ = 0.0, 0.0, 0.0, 0.0
+# nsubdomains = 1
+# for i = 1:nsubdomains
+#     fileparam = "subdomain" * string(i)
+#     @info "Computing and saving data for $fileparam"
+#     # 1. Define the filename of the saved snapshot
+#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+
+#     # 2. Load the snapshot using the new function
+#     snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T"));
+
+#     x0, y0, z0 = nodes(snapshot[:T])
+#     yc = 0.5 * (y0[640] + y0[641])
+#     to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
+#                               size = (2048*2, 512*2, length(z0)),
+#                               x = (-10000,10000),
+#                               y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
+#                               z = (-81,0),
+#                               topology = (Bounded, Bounded, Bounded))
+
+#     uᵃi, vᵃi, wᵃi, Bᵃi = along_front_averages(snapshot; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
+#     global uᵃ = uᵃ .+ interior(uᵃi)
+#     global vᵃ = vᵃ .+ interior(vᵃi)
+#     global wᵃ = wᵃ .+ interior(wᵃi)
+#     global Bᵃ = Bᵃ .+ interior(Bᵃi)
+# end
+# uᵃ ./= nsubdomains
+# vᵃ ./= nsubdomains
+# wᵃ ./= nsubdomains
+# Bᵃ ./= nsubdomains
+
+# jldopen(filehead * "subdomains/Vavgs_iter$(iteration)_afront.jld2", "w") do file
+#    file["fields/ba"] = Bᵃ
+#    file["fields/ua"] = uᵃ
+#    file["fields/va"] = vᵃ
+#    file["fields/wa"] = wᵃ
+# end
+
+# file = jldopen(filehead * "subdomains/Vavgs_iter$(iteration)_afront.jld2", "r");
+# Bᵃ = file["fields/ba"]
+# uᵃ = file["fields/ua"]
+# vᵃ = file["fields/va"]
+# wᵃ = file["fields/wa"]
+# close(file)
+
+# varᵃ = (uᵃ, vᵃ, wᵃ, Bᵃ)
+# for i = 4:4
+#     fileparam = "subdomain" * string(i)
+#     @info "Computing and saving data for $fileparam"
+#     # 1. Define the filename of the saved snapshot
+#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+
+#     # 2. Load the snapshot using the new function
+#     snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T", "MLD3"));
+
+#     x0, y0, z0 = nodes(snapshot[:T])
+#     yc = 0.5 * (y0[640] + y0[641])
+#     to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
+#                               size = (2048*2, 512*2, length(z0)),
+#                               x = (-10000,10000),
+#                               y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
+#                               z = (-81,0),
+#                               topology = (Bounded, Bounded, Bounded))
+
+#     u̅, v̅, w̅, B̅, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww, τwb, Πₕ, Πᵥ, Pᵃ, Pˢ, Pᵀ, wˢbˢ = coarse_grained_fluxes(snapshot, Ub, Vb, varᵃ; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
+
+#     xi, _, _ = nodes(CenterField(to_grid,Float32))
+#     itp2nodes(field) = Array([interpolate((x, yc, z), field) for x in xi, z in z0'])
+#     jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "w") do file
+#         file["fields/bcg"] = B̅[1]
+#         file["fields/ucg"] = u̅[1]
+#         file["fields/vcg"] = v̅[1]
+#         file["fields/wcg"] = w̅[1]
+#         file["fields/bcga"] = interior(B̅[2])
+#         file["fields/ucga"] = interior(u̅[2])
+#         file["fields/vcga"] = interior(v̅[2])
+#         file["fields/wcga"] = interior(w̅[2])
+#         file["fields/us"]  = itp2nodes(uˢ)
+#         file["fields/vs"]  = itp2nodes(vˢ)
+#         file["fields/ws"]  = itp2nodes(wˢ)
+#         file["fields/bs"]  = itp2nodes(Bˢ)
+#         println(mean(uˢ, dims=2))
+#         file["fields/usa"]  = interior(mean(uˢ, dims=2))
+#         file["fields/vsa"]  = interior(mean(vˢ, dims=2))
+#         file["fields/wsa"]  = interior(mean(wˢ, dims=2))
+#         file["fields/bsa"]  = interior(mean(Bˢ, dims=2))
+#         file["fields/τwb"] = τwb[1]
+#         file["fields/τwba"] = interior(τwb[2])
+#         file["fields/wbs"] = itp2nodes(wˢbˢ)
+#         file["fields/wbsa"] = interior(mean(wˢbˢ, dims=2))
+#         file["fields/τuu"] = τuu[1]
+#         file["fields/τww"] = τww[1]
+#         file["fields/τvv"] = τvv[1]
+#         file["fields/τuua"] = interior(τuu[2])
+#         file["fields/τwwa"] = interior(τww[2])
+#         file["fields/τvva"] = interior(τvv[2])
+#         file["fields/Ph"] = itp2nodes(Πₕ)#, itp2nodes(mean(Πₕ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/Pv"] = itp2nodes(Πᵥ)#, itp2nodes(mean(Πᵥ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/Pas"] = itp2nodes(Pᵃ)#, itp2nodes(mean(Pᵃ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/Pss"] = itp2nodes(Pˢ)#, itp2nodes(mean(Pˢ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/PTs"] = itp2nodes(Pᵀ)#, itp2nodes(mean(Pᵀ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/Pha"] = interior(mean(Πₕ, dims=2))
+#         file["fields/Pva"] = interior(mean(Πᵥ, dims=2))
+#         file["fields/Pasa"] = interior(mean(Pᵃ, dims=2))
+#         file["fields/Pssa"] = interior(mean(Pˢ, dims=2))
+#         file["fields/PTsa"] = interior(mean(Pᵀ, dims=2))
+        
+#         file["metadata/iteration"] = iteration
+#         file["metadata/x"] = xi
+#         file["metadata/y"] = yc
+#         file["metadata/z"] = z0
+#     end
+# end
+# println("Finished plotting TKE, SKE, and P fields")
+
+# 3. Plot the TKE fields
+Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
+wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
+alphabet = [letter for letter in 'a':'z'];
+using Makie
+fig = Figure(size = (640, 680))
+gab = fig[1, 1] = GridLayout()
+cmap = :amp
+ylabels = [L"y=18.75~\text{km}",L"y=43.75~\text{km}",L"y=68.75~\text{km}",L"y=93.75~\text{km}"]
+for i = 1:4
+    fileparam = "subdomain$(5-i)"
+    @info "Ploting vslices for $fileparam"
     # 1. Define the filename of the saved snapshot
     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
 
     # 2. Load the snapshot using the new function
-    snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T", "MLD3"));
+    snapshot = load_subdomain_snapshot(output_filename; variables = ("MLD", "MLD3"));
+    slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
+    x, y, z = slices["metadata/x"], slices["metadata/y"], slices["metadata/z"]
+    TKEₛi = (slices["fields/τvv"] + slices["fields/τuu"] + slices["fields/τww"])/2/wₛ^2;
+    SKEₛi = (slices["fields/us"].^2 + slices["fields/vs"].^2 + slices["fields/ws"].^2)/2/wₛ^2;
+    # var1i = slices["fields/Ph"]/(parameters.f * wₛ^2)
+    # var2i = slices["fields/Pv"]/(parameters.f * wₛ^2)
+    bcgi = slices["fields/bcg"][:,1,:]
+    close(slices)
 
-    x0, y0, z0 = nodes(snapshot[:T])
-    to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
-                              size = (length(x0), 400*2, length(z0)),
-                              x = (-12500,12500),
-                              y = (25e3(i-1)-parameters.Δh*400,25e3(i-1)+parameters.Δh*400),
-                              z = (-81,0),
-                              topology = (Bounded, Bounded, Bounded))
-
-    u̅, v̅, w̅, B̅, uᵃ, vᵃ, wᵃ, Bᵃ, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww, τwb, Πₕ, Πᵥ, Pᵃ, Pˢ, Pᵀ, wˢbˢ = coarse_grained_fluxes(snapshot, Ub, Vb; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
-    
-    @info "τuu extrema: $(extrema(interior(τuu)))"
-    @info "τvv extrema: $(extrema(interior(τvv)))"
-    @info "τww extrema: $(extrema(interior(τww)))"
-    # 3. Plot the TKE fields
-    # Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
-    # wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
-    # TKEₛ = compute!(Field(@at (Center, Center, Center) (τvv + τuu + τww)/2/wₛ^2));
-
-    itp2nodes(field) = Array([interpolate((x, y0[640], z), field) for x in x0, z in z0'])
-    jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_cg3hm.jld2", "w") do file
-        file["fields/bcg"] = itp2nodes(B̅)
-        file["fields/ucg"] = itp2nodes(u̅)
-        file["fields/vcg"] = itp2nodes(v̅)
-        file["fields/wcg"] = itp2nodes(w̅)
-        file["fields/ua"]  = Array(interior(uᵃ))
-        file["fields/va"]  = Array(interior(vᵃ))
-        file["fields/wa"]  = Array(interior(wᵃ))
-        file["fields/ba"]  = Array(interior(Bᵃ))
-        file["fields/us"]  = itp2nodes(uˢ)
-        file["fields/vs"]  = itp2nodes(vˢ)
-        file["fields/ws"]  = itp2nodes(wˢ)
-        file["fields/bs"]  = itp2nodes(Bˢ)
-        file["fields/τwb"] = itp2nodes(τwb)
-        file["fields/wbs"] = itp2nodes(wˢbˢ)
-        file["fields/τuu"] = itp2nodes(τuu)
-        file["fields/τww"] = itp2nodes(τww)
-        file["fields/τuv"] = itp2nodes(τvv)
-        file["fields/Ph"] = itp2nodes(Πₕ) #./ (parameters.f * wₛ^2)
-        file["fields/Pv"] = itp2nodes(Πᵥ) #./ (parameters.f * wₛ^2)
-        file["fields/Pas"] = itp2nodes(Pᵃ) #./ (parameters.f * wₛ^2)
-        file["fields/Pss"] = itp2nodes(Pˢ) #./ (parameters.f * wₛ^2)
-        file["fields/PTs"] = itp2nodes(Pᵀ) #./ (parameters.f * wₛ^2)
-        
-        file["metadata/iteration"] = iteration
-        file["metadata/x"] = x0
-        file["metadata/y"] = y0[640]
-        file["metadata/z"] = z0
+    title1 = "("*alphabet[i]*")" 
+    title2 = "("*alphabet[4+i]*")" 
+    ax1 = Axis(gab[i,1]; titlealign = :left, title=title1, titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+    ax2 = Axis(gab[i,3]; titlealign = :left, title=title2, titlefont=texfont(), limits=(nothing,(-80,0)))
+    hm1 = heatmap!(ax1, 1e-3x, z, TKEₛi[:,1,:]; rasterize = true, colormap = cmap, colorrange = (0, 40))
+    hm2 = heatmap!(ax2, 1e-3x, z, SKEₛi[:,1,:]; rasterize = true, colormap = cmap, colorrange = (0, 150))
+    # hm2 = heatmap!(ax2, 1e-3x, z, var2i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
+    # hm1 = heatmap!(ax1, 1e-3x, z, var1i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
+    lines!(ax1, 1e-3x, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+    lines!(ax2, 1e-3x, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+    # We can use Makie's tick finders to get some nice looking contour levels:
+    levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(bcgi)...)
+    contour!(ax1, 1e-3x, z, bcgi; color = :black)
+    contour!(ax2, 1e-3x, z, bcgi; color = :black) 
+    hideydecorations!(ax2, ticks = false)
+    if i<4
+        hidexdecorations!(ax1, ticks = false)
+        hidexdecorations!(ax2, ticks = false)
+    else
+        ax1.xlabel = L"x~\text{(km)}"
+        ax2.xlabel = L"x~\text{(km)}"
+        Colorbar(gab[1:4,2], hm1)
+        Colorbar(gab[1:4,4], hm2)
     end
+    Label(gab[i, 1, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+    Label(gab[i, 3, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+end
+Label(gab[1:4, 2, Top()], L"\text{TKE}/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+Label(gab[1:4, 4, Top()], L"\text{SKE}/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+rowgap!(gab, 3)
+colgap!(gab, 1, 0)
+colgap!(gab, 2, 5)
+colgap!(gab, 3, 0)
+resize_to_layout!(fig)
+save(filesave * "TKESKE_vslices_30h_iter$(iteration)_afront.pdf", fig; pt_per_unit = 1)
+# for i = 1:4
+#     fileparam = "subdomain$(5-i)"
+#     @info "Ploting vslices for $fileparam"
+#     # 1. Define the filename of the saved snapshot
+#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+
+#     # 2. Load the snapshot using the new function
+#     snapshot = load_subdomain_snapshot(output_filename; variables = ("MLD", "MLD3"));
+#     slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
+#     x, y, z = slices["metadata/x"], slices["metadata/y"], slices["metadata/z"]
+#     @info "y = $(1e-3y)km"
+#     # TKEₛi = (slices["fields/τuv"] + slices["fields/τuu"] + slices["fields/τww"])/2/wₛ^2;
+#     # SKEₛi = (slices["fields/us"].^2 + slices["fields/vs"].^2 + slices["fields/ws"].^2)/2/wₛ^2;
+#     var1i = slices["fields/Pas"]/(parameters.f * wₛ^2)
+#     var2i = slices["fields/Pss"]/(parameters.f * wₛ^2)
+#     var3i = slices["fields/PTs"]/(parameters.f * wₛ^2)
+#     bcgi = slices["fields/bcg"][:,1,:]
+#     close(slices)
+
+#     title1 = "("*alphabet[i]*")" 
+#     title2 = "("*alphabet[4+i]*")" 
+#     title3 = "("*alphabet[8+i]*")" 
+#     ax1 = Axis(gab[i,1]; titlealign = :left, title=title1, titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+#     ax2 = Axis(gab[i,3]; titlealign = :left, title=title2, titlefont=texfont(), limits=(nothing,(-80,0)))
+#     ax3 = Axis(gab[i,5]; titlealign = :left, title=title3, titlefont=texfont(), limits=(nothing,(-80,0)))
+#     hm1 = heatmap!(ax1, 1e-3x, z, var1i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
+#     hm2 = heatmap!(ax2, 1e-3x, z, var2i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
+#     hm3 = heatmap!(ax3, 1e-3x, z, var3i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
+#     lines!(ax1, 1e-3x, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+#     lines!(ax2, 1e-3x, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+#     lines!(ax3, 1e-3x, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+#     # We can use Makie's tick finders to get some nice looking contour levels:
+#     levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(bcgi)...)
+#     contour!(ax1, 1e-3x, z, bcgi; color = :black)
+#     contour!(ax2, 1e-3x, z, bcgi; color = :black) 
+#     contour!(ax3, 1e-3x, z, bcgi; color = :black) 
+#     hideydecorations!(ax2, ticks = false)
+#     hideydecorations!(ax3, ticks = false)
+#     if i<4
+#         hidexdecorations!(ax1, ticks = false)
+#         hidexdecorations!(ax2, ticks = false)
+#         hidexdecorations!(ax3, ticks = false)
+#     else
+#         ax1.xlabel = L"x~\text{(km)}"
+#         ax2.xlabel = L"x~\text{(km)}"
+#         ax3.xlabel = L"x~\text{(km)}"
+#         Colorbar(gab[1:4,2], hm1)
+#         Colorbar(gab[1:4,4], hm2)
+#         Colorbar(gab[1:4,6], hm3)
+#     end
+#     Label(gab[i, 1, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+#     Label(gab[i, 3, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+#     Label(gab[i, 5, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+# end
+# Label(gab[1:4, 2, Top()], L"P^a/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+# Label(gab[1:4, 4, Top()], L"P^s/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+# Label(gab[1:4, 6, Top()], L"P^\prime/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+# rowgap!(gab, 3)
+# colgap!(gab, 1, 0)
+# colgap!(gab, 2, 5)
+# colgap!(gab, 3, 0)
+# colgap!(gab, 4, 5)
+# colgap!(gab, 5, 0)
+# resize_to_layout!(fig)
+# save(filesave * "PaPsPT_vslices_30h_iter$(iteration)_afront.pdf", fig; pt_per_unit = 1)
 
     # TKEₛj = file["fields/TKEs"];
     # Πₕj = file["fields/PHs"];
@@ -469,9 +655,6 @@ for (i,fileparam) in enumerate(["subdomain1","subdomain2","subdomain3","subdomai
     # x = file["metadata/x"];
     # z = file["metadata/z"];
     # nxj,nzj = length(x), length(z)
-    # using Makie
-    # fig = Figure(size = (640, 960))
-    # gab = fig[1, 1] = GridLayout()
     # titles = [L"\text{(a) TKE}/w_*^2",L"\text{(b) }P_H/(fw_*^2)",L"\text{(c) }P_V/(fw_*^2)",L"\text{(d) }B/(fw_*^2)"]
     # for (i, var0) in enumerate([TKEₛj, Πₕj, Πᵥj, τwbj])
     #     cmap = i==1 ? :amp : :balance
@@ -512,8 +695,6 @@ for (i,fileparam) in enumerate(["subdomain1","subdomain2","subdomain3","subdomai
     # end
     # rowgap!(gab, 1)
     # save(filesave * "TKE3Ps_" * fileparam * "_44h_iter$(iteration)_cg3hm.pdf", fig; pt_per_unit = 1)
-end
-println("Finished plotting TKE, SKE, and P fields")
 
 # file = jldopen(filehead * "TKEphysical_"*fileparam*"_iter$(iteration).jld2")
 # TKEw = file["fields/τww"]/2
