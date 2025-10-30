@@ -1,11 +1,11 @@
 using LESStudySetup
-using CairoMakie
+using CairoMakie, Makie
 using Printf, Dates
-using Statistics: mean, std
+using Statistics: mean, std, quantile
 using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_distributed_checkpoint,load_subdomain_snapshot
 using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes
-using LESStudySetup.Diagnostics: coarse_graining!, TKE, MLD, along_front_averages
+using LESStudySetup.Diagnostics: coarse_graining!, TKE, MLD, along_front_averages, MixedLayerDepth
 using Oceananigans.Fields: interpolate
 using MathTeXEngine
 set_theme!(theme_latexfonts(), fontsize=12, figure_padding = 10)
@@ -41,6 +41,9 @@ function get_iterations_regex(filehead, fileparam, directory="."; subdirparam="s
 end
 
 ##########################
+f = parameters.f;
+α = parameters.α;
+g = parameters.g;
 shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
 filename0 = "./hydrostatic_snapshots_init.jld2"
 snapshots = load_snapshots(filename0);
@@ -50,12 +53,13 @@ T0 = snapshots[:T][1];
 xu, yu, zu = nodes(u0);
 xv, yv, zv = nodes(v0);
 xT, yT, zT = nodes(T0);
-# _ , _ , zw = nodes(snapshots[:w][1])
-# h0 = MLD(snapshots,1; threshold = 0.09)
-# f = parameters.f;
-# ζ₀ = compute!(Field(∂x(v0) - ∂y(u0)));
-# x, y, z = nodes(ζ₀);
-# Nz = length(z)
+_ , _ , zw = nodes(snapshots[:w][1])
+h0 = MLD(snapshots,1; threshold = 0.09)
+hfront = shift(interior(h0,:,:,1))[320-5:326,:]
+@info "hfront: mean = $(mean(hfront)/60), 10th = $(quantile(vec(hfront), 0.1)/60), 90th = $(quantile(vec(hfront), 0.9)/60)"
+ζ₀ = compute!(Field(∂x(v0) - ∂y(u0)));
+x, y, z = nodes(ζ₀);
+Nz = length(z)
 initfile = "./hydrostatic_snapshots_free.jld2"
 initsnaps = load_snapshots(initfile)
 Ub = initsnaps[:u][1];
@@ -63,37 +67,42 @@ Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
 iUb, iVb = interior(Ub), interior(Vb);
 iUb, iVb = [iUb[size(xu,1)÷2+1:end, :, :]; iUb[1:size(xu,1)÷2, :, :]],[iVb[size(xv,1)÷2+1:end, :, :]; iVb[1:size(xv,1)÷2, :, :]];
 ipU, ipV = (xu .- 5e4,vec(yu)), (xv .- 5e4,vec(yv))
-# σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
-# σs = compute!(Field((∂y(Ub)+∂x(Vb))/2));
-# @info "σn extrema: $(extrema(interior(σn)))"
-# @info "σs extrema: $(extrema(interior(σs)))"
+σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
+σs = compute!(Field((∂y(Ub)+∂x(Vb))/2));
+ζb = compute!(Field(∂x(Vb)-∂y(Ub)));
+@info "σn extrema: $(extrema(interior(σn)))"
+@info "σs extrema: $(extrema(interior(σs)))"
 iarrow = 2:32:640
 k = length(zT)
 
-# fig = Figure(size = (640, 270))
+# fig = Figure(size = (640, 750))
 # gab = fig[1, 1] = GridLayout()
 # axis_kwargs1 = (titlealign = :left, xlabel = "x (km)", ylabel = "y (km)", aspect = 1, limits = ((-50, 50), (0, 100)))
 # axis_kwargs2 = NamedTuple{(:titlealign,:xlabel,:limits,:aspect)}(axis_kwargs1)
-# ax_σ = Axis(gab[1,1]; title=L"\text{(a)}~S_n~\text{(10^{-6}s^{-1})},~z=-0.56~\text{m}", axis_kwargs1...)
-# ax_T = Axis(gab[1,3]; title=L"\text{(b)}~T_i~\text{({^\circ}C)},~z=-0.56~\text{m}", axis_kwargs1...)
-# ax_v = Axis(gab[1,5]; title=L"\text{(c)}~v_0~\text{(m~s^{-1})},~z=-0.56~\text{m}", axis_kwargs1...)
-# σmin, σmax = 1.1e6*minimum(interior(σn,:,:,k)), 1.1e6*maximum(interior(σn,:,:,k))
-# hm_σ = heatmap!(ax_σ, 1e-3xT.-50, 1e-3yT, 1e6*shift(interior(σn,:,:,k)); rasterize = true, colormap = :diff, colorrange = (σmin, σmax))
+# ax_σ = Axis(gab[1,1]; title=L"\text{(a)}~\sigma_n/f,~z=-0.56~\text{m}", axis_kwargs1...)
+# ax_ζ = Axis(gab[1,3]; title=L"\text{(b)}~\zeta_e/f,~z=-0.56~\text{m}", axis_kwargs1...)
+# ax_T = Axis(gab[3,1]; title=L"\text{(c)}~T_i~\text{({^\circ}C)},~z=-0.56~\text{m}", axis_kwargs1...)
+# ax_v = Axis(gab[3,3]; title=L"\text{(d)}~v_0~\text{(m~s^{-1})},~z=-0.56~\text{m}", axis_kwargs1...)
+# σmin, σmax = extrema(interior(σn,:,:,k))
+# hm_σ = heatmap!(ax_σ, 1e-3xT.-50, 1e-3yT, shift(interior(σn,:,:,k))/f; rasterize = true, colormap = :diff, colorrange = (1.1σmin/f, 1.1σmax/f))
 # Colorbar(gab[1, 2], hm_σ)
 # hidexdecorations!(ax_σ, ticks = false)
 # arrows!(ax_σ,xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :white, arrowcolor = :white, linewidth = 0.2)
+# hm_ζ = heatmap!(ax_ζ, 1e-3xT.-50, 1e-3yT, shift(interior(ζb,:,:,k))/f; rasterize = true, colormap = :curl)
+# Colorbar(gab[1, 4], hm_ζ)
+# hidexdecorations!(ax_ζ, ticks = false)
+# hideydecorations!(ax_ζ, ticks = false)
 # Tmin, Tmax = minimum(interior(T0,:,:,k))-0.5, maximum(interior(T0,:,:,k))
 # hm_T = heatmap!(ax_T, 1e-3xT.-50, 1e-3yT, shift(interior(T0,:,:,k)); rasterize = true, colormap = :thermal, colorrange = (Tmin, Tmax))
 # hidexdecorations!(ax_T, ticks = false)
-# hideydecorations!(ax_T, ticks = false)
-# Colorbar(gab[1, 4], hm_T)
+# Colorbar(gab[3, 2], hm_T)
 # arrows!(ax_T, [0], [50], [-15*sqrt(3)],[-15],linecolor = :black, arrowcolor =:black)
 # text!(ax_T, -10*sqrt(3), 50, text = L"\text{Wind}", color = :black, align = (:right, :top))
 # vbnd = maximum(abs.(interior(v0,:,:,k)))
 # hm_v = heatmap!(ax_v, 1e-3xv.-50, 1e-3yv, shift(interior(v0,:,:,k)); rasterize = true, colormap = :balance, colorrange = (-vbnd, vbnd))
 # hideydecorations!(ax_v, ticks = false)
 # hidexdecorations!(ax_v, ticks = false)
-# Colorbar(gab[1, 6], hm_v)
+# Colorbar(gab[3, 4], hm_v)
 # arrows!(ax_v,xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2)
 # text!(ax_T, 25, 25, text = L"\text{Warm eddy}", color = :red, align = (:center, :center))
 # text!(ax_T, 25, 75, text = L"\text{Cold eddy}", color = :blue, align = (:center, :center))
@@ -109,64 +118,126 @@ k = length(zT)
 # axis_kwargs1 = NamedTuple{(:xlabel,:limits)}(axis_kwargs0)
 # ax_a = Axis(gab[2,1]; titlealign = :left, title=L"y=0~\text{km}", axis_kwargs0...)
 # ax_b = Axis(gab[2,3]; titlealign = :left, title=L"y=50~\text{km}", axis_kwargs0...)
-# ax_c = Axis(gab[2,5]; titlealign = :left, title=L"y=50~\text{km}", axis_kwargs0...)
-# hm_a = heatmap!(ax_a, 1e-3xT.-50, zT[kz:Nz], 1e6*shift(interior(σn, :, 1, kz:Nz)); rasterize = true, colormap = :diff, colorrange = (σmin, σmax))
+# ax_c = Axis(gab[4,1]; titlealign = :left, title=L"y=50~\text{km}", axis_kwargs0...)
+# ax_d = Axis(gab[4,3]; titlealign = :left, title=L"y=50~\text{km}", axis_kwargs0...)
+# hm_a = heatmap!(ax_a, 1e-3xT.-50, zT[kz:Nz], shift(interior(σn, :, 1, kz:Nz))/f; rasterize = true, colormap = :diff, colorrange = (1.1σmin/f, 1.1σmax/f))
 # Colorbar(gab[2, 2], hm_a)
-# Tmin, Tmax = minimum(interior(T0,:,ja,kz:Nz)), maximum(interior(T0,:,ja,kz:Nz))
-# hm_b = heatmap!(ax_b, 1e-3xT.-50, zT[kz:Nz], shift(interior(T0,:,ja,kz:Nz)); rasterize = true, colormap = :thermal, colorrange = (Tmin, Tmax))
+# hm_b = heatmap!(ax_b, 1e-3xT.-50, zT[kz:Nz], shift(interior(ζb, :, ΔN, kz:Nz))/f; rasterize = true, colormap = :curl)
 # hideydecorations!(ax_b, ticks = false)
 # Colorbar(gab[2, 4], hm_b)
-# lines!(ax_b, 1e-3xT.-50, -vec(shift(interior(h0,:,ja))); color = :white, linewidth = 0.8)
-# hm_c = heatmap!(ax_c, 1e-3xv.-50, zv[kz:Nz], shift(interior(v0,:,ja,kz:Nz)); rasterize = true, colormap = :balance, colorrange = (-vbnd, vbnd))
-# hideydecorations!(ax_c, ticks = false)
+# Tmin, Tmax = minimum(interior(T0,:,ja,kz:Nz)), maximum(interior(T0,:,ja,kz:Nz))
+# hm_c = heatmap!(ax_c, 1e-3xT.-50, zT[kz:Nz], shift(interior(T0,:,ja,kz:Nz)); rasterize = true, colormap = :thermal, colorrange = (Tmin, Tmax))
+# Colorbar(gab[4, 2], hm_c)
+# lines!(ax_c, 1e-3xT.-50, -vec(shift(interior(h0,:,ja))); color = :white, linewidth = 0.8)
+# hm_d = heatmap!(ax_d, 1e-3xv.-50, zv[kz:Nz], shift(interior(v0,:,ja,kz:Nz)); rasterize = true, colormap = :balance, colorrange = (-vbnd, vbnd))
+# hideydecorations!(ax_d, ticks = false)
 # idxz = 1:10:Nz
 # arrows!(ax_a,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,1,idxz)), 0*shift(interior(Ub,iarrow,1,idxz)), arrowsize = 3, lengthscale = 1e2,linecolor = :white, arrowcolor = :white, linewidth = 0.2)
-# arrows!(ax_c,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,ja,idxz)), 0*shift(interior(Ub,iarrow,ja,idxz)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2)
-# Colorbar(gab[2, 6], hm_c,ticks = -0.2:0.2:0.2)
+# arrows!(ax_d,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,ja,idxz)), 0*shift(interior(Ub,iarrow,ja,idxz)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2)
+# Colorbar(gab[4, 4], hm_d,ticks = -0.2:0.2:0.2)
 
-# rowgap!(gab, 0)
+# rowgap!(gab, 1, 0)
+# rowgap!(gab, 3, 0)
+# rowgap!(gab, 2, 5)
 # colgap!(gab, 1, 1)
 # colgap!(gab, 3, 1)
-# colgap!(gab, 5, 1)
 # colgap!(gab, 2, 10)
-# colgap!(gab, 4, 10)
-# rowsize!(gab, 2, Relative(0.22))
+# for row = [2,4]
+#     rowsize!(gab, row, Relative(0.1))
+# end
 # resize_to_layout!(fig)
-# save(filesave * "sMT0v0fields.pdf", fig)
+# save(filesave * "SnZeT0v0fields.pdf", fig)
 
-use_gpu = true
-A=rand(Float32,20480,20480,1);
-if use_gpu && CUDA.functional()
-    p = CUDA.CUFFT.plan_rfft(CuArray(A), (1,2));
-    pk = CUDA.CUFFT.plan_rfft(CuArray(A[:,:,1:1]), (1,2));
-    ip = CUDA.CUFFT.plan_irfft(p * CuArray(A), 20480, (1,2));
-else
-    @error "CUDA not available"
-end
-fileparam = "sublevels"
+#################
+# Load parameters and simulation results
+# T0 = snapshots[:T][1]
+# ρ₀ = parameters.ρ₀
+# threshold = 3e-4/g*ρ₀
+# surface,stratification=true,false
+# h    = MixedLayerDepth(T0.grid, (; T=T0); ΔT = abs(threshold / ρ₀ / α), surface,stratification)
+# stratification = true
+# Nh² = MixedLayerDepth(T0.grid, (; T=T0); ΔT = abs(threshold / ρ₀ / α), surface,stratification)
+# us = sqrt(parameters.τw/ρ₀)
+# Qᵘ = parameters.Q/(ρ₀ * parameters.cp) * α * g
+# λₛ=compute!(Field(Qᵘ*h/us^3))
+# Rₕ=compute!(Field(Nh² * h^2/us^2))
+# Rₕw = compute!(Field(Rₕ/λₛ^(2/3)))
+
+# fig = Figure(size = (640, 590))
+# gab = fig[1, 1] = GridLayout()
+# axis_kwargs1 = (xlabel = "x (km)", ylabel = "y (km)", aspect = 1,
+#                 limits = ((-50, 50), (0, 100)))
+# axis_kwargs2 = NamedTuple{(:xlabel,:limits,:aspect)}(axis_kwargs1)
+
+# ax_a = Axis(gab[1,1]; titlealign = :left, title=L"\text{(a)}~\lambda_s=\frac{-B_0 h}{u_*^3}", axis_kwargs1...)
+# ax_b = Axis(gab[1,3]; titlealign = :left, title=L"\text{(b)}~R_h=(\frac{N_h h}{u_*})^2", axis_kwargs2...)
+# ax_c = Axis(gab[2,1]; titlealign = :left, title=L"\text{(c)}~f/N_h", axis_kwargs1...)
+# ax_d = Axis(gab[2,3]; titlealign = :left, title=L"\text{(d)}~R^*_h=(\frac{N_h h}{w_*})^2", axis_kwargs2...)
+
+# hidexdecorations!(ax_a, ticks = false)
+# hidexdecorations!(ax_b, ticks = false)
+# hideydecorations!(ax_b, ticks = false)
+# hideydecorations!(ax_d, ticks = false)
+
+# hm_a = heatmap!(ax_a, 1e-3xT.-50, 1e-3yT, shift(interior(λₛ,:,:,1)); rasterize = true, colormap = :amp, colorscale = log10)
+# hm_b = heatmap!(ax_b, 1e-3xT.-50, 1e-3yT, shift(interior(Rₕ,:,:,1)); rasterize = true, colormap = :balance, colorrange = (10^(2.27), 10^(3.73)), colorscale = log10)
+# hm_c = heatmap!(ax_c, 1e-3xT.-50, 1e-3yT, f ./ sqrt.(shift(interior(Nh²,:,:,1))); rasterize = true, colormap = Reverse(:balance), colorrange = (10^(-2.11), 10^(-1.39)), colorscale = log10)
+# hm_d = heatmap!(ax_d, 1e-3xT.-50, 1e-3yT, shift(interior(Rₕw,:,:,1)); rasterize = true, colormap = :balance, colorrange = (10^(2.2), 10^(3.8)),colorscale = log10)
+
+# Colorbar(gab[1, 2], hm_a)
+# Colorbar(gab[1, 4], hm_b)
+# Colorbar(gab[2, 2], hm_c)
+# Colorbar(gab[2, 4], hm_d)
+# colgap!(gab, 1, 0)
+# colgap!(gab, 3, 0)
+# colgap!(gab, 2, 5)
+# rowgap!(gab, 1, 3)
+
+# save(filesave * "fields_init_mldass_d0.pdf", fig)
+
+# use_gpu = true
+# A=rand(Float32,20480,20480,1);
+# if use_gpu && CUDA.functional()
+#     p = CUDA.CUFFT.plan_rfft(CuArray(A), (1,2));
+#     pk = CUDA.CUFFT.plan_rfft(CuArray(A[:,:,1:1]), (1,2));
+#     ip = CUDA.CUFFT.plan_irfft(p * CuArray(A), 20480, (1,2));
+# else
+#     @error "CUDA not available"
+# end
+# fileparam = "sublevels"
+# output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter37003.jld2"
+# snapshot = load_subdomain_snapshot(output_filename;variables = ("v","u"),level=224);
+# grid = snapshot[:u].grid
+# u̅  = XFaceField(grid);
+# v̅  = YFaceField(grid);
+# _, _, zi = nodes(snapshot[:v]);
+# Nzi = length(zi)
+# coarse_graining!(snapshot[:v] , v̅; kernel=:gaussian, cutoff=300, border = :circular, method = :spectral, use_gpu,plans=(p,ip));
+# coarse_graining!(snapshot[:u] , u̅; kernel=:gaussian, cutoff=300, border = :circular, method = :spectral, use_gpu,plans=(p,ip));
+# ζ̄i = compute!(Field((∂x(v̅-mean(v̅,dims=2))-∂y(u̅))));
+
+filename = "./hydrostatic_snapshots_40_Q.jld2"
+snapshots = load_snapshots(filename);
+times = snapshots[:T].times
+v30 = snapshots[:v][length(times)];
+u30 = snapshots[:u][length(times)];
+ζ̄i = compute!(Field((∂x(v30-mean(v30,dims=2))-∂y(u30))));
+
 fig = Figure(size = (640, 600))
 g4 = fig[1, 1] = GridLayout()
 aspect = 1
 crange = (-3, 3)
 axis_kwargs = (xlabel = L"x~\text{(km)}", ylabel = L"y~\text{(km)}", limits = ((-50,50),(0,100)), aspect=aspect)
-ax = Axis(g4[1,1]; title=L"\overline{\zeta}/f,~t=30~\text{h}", axis_kwargs...) 
-output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter26066.jld2"
-snapshot = load_subdomain_snapshot(output_filename;variables = ("v","u"),level=224);
-grid = snapshot[:u].grid
-u̅  = XFaceField(grid);
-v̅  = YFaceField(grid);
-_, _, zi = nodes(snapshot[:v]);
+ax = Axis(g4[1,1]; title=L"{\zeta}^s/f,~t=30~\text{h},~z=0.56~\text{m}", axis_kwargs...) 
+xi, yi, zi = nodes(ζ̄i);
 Nzi = length(zi)
-coarse_graining!(snapshot[:v] , v̅; kernel=:gaussian, cutoff=300, border = :circular, method = :spectral, use_gpu,plans=(p,ip));
-coarse_graining!(snapshot[:u] , u̅; kernel=:gaussian, cutoff=300, border = :circular, method = :spectral, use_gpu,plans=(p,ip));
-ζ̄i = compute!(Field((∂x(v̅)-∂y(u̅))));
-xi, yi, _ = nodes(ζ̄i);
-hm = heatmap!(axs[i], 1e-3xi, 1e-3yi, (interior(ζ̄i,:,:,Nzi))./parameters.f; rasterize = true, colormap = :curl, colorrange = crange)
+hm = heatmap!(ax, 1e-3xi .- 50, 1e-3yi, shift(interior(ζ̄i,:,:,Nzi))./parameters.f; rasterize = true, colormap = :curl, colorrange = crange)
 arrows!(ax,xT[iarrow]/1e3 .- 50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2,alpha=0.5)
 Colorbar(g4[1,2], hm)
 colgap!(g4, 1, 1)
 resize_to_layout!(fig)
-save(filesave * "curl_" * fileparam * "_16h_cg3hm.pdf", fig; pt_per_unit = 1)
+save(filesave * "curls_surface_hydrostatic_t30h.pdf", fig; pt_per_unit = 1)
+
 # use_gpu = true
 # A=rand(Float32,10240,20480,1);
 # if use_gpu && CUDA.functional()
@@ -180,16 +251,17 @@ save(filesave * "curl_" * fileparam * "_16h_cg3hm.pdf", fig; pt_per_unit = 1)
 # fig = Figure(size = (640, 580))
 # g4 = fig[1, 1] = GridLayout()
 # aspect = 0.25
-# crange = (-5, 5)
+# crange = (-1, 1)
 # axis_kwargs = (xlabel = L"x~\text{(km)}", limits = ((-12.5,12.5),(0,100)), aspect=aspect)
-# ax_a = Axis(g4[1,1]; titlealign = :left, title=L"\text{(a)}~\zeta_0/f", ylabel = L"y~\text{(km)}", axis_kwargs...)
-# ax_b = Axis(g4[1,2]; titlealign = :left, title=L"\text{(b)}~\overline{\zeta}/f,~t=16~\text{h}", axis_kwargs...)
-# ax_c = Axis(g4[1,3]; titlealign = :left, title=L"\text{(c)}~\overline{\zeta}/f,~t=30~\text{h}", axis_kwargs...) 
-# ax_d = Axis(g4[1,4]; titlealign = :left, title=L"\text{(d)}~\overline{\zeta}/f,~t=44~\text{h}", axis_kwargs...) 
+# ax_a = Axis(g4[1,1]; titlealign = :left, title=L"\text{(a)}~\delta_0/f", ylabel = L"y~\text{(km)}", axis_kwargs...)
+# ax_b = Axis(g4[1,2]; titlealign = :left, title=L"\text{(b)}~\overline{\delta}/f,~t=16~\text{h}", axis_kwargs...)
+# ax_c = Axis(g4[1,3]; titlealign = :left, title=L"\text{(c)}~\overline{\delta}/f,~t=30~\text{h}", axis_kwargs...) 
+# ax_d = Axis(g4[1,4]; titlealign = :left, title=L"\text{(d)}~\overline{\delta}/f,~t=44~\text{h}", axis_kwargs...) 
 # hideydecorations!(ax_b, ticks = false)
 # hideydecorations!(ax_c, ticks = false)
 # hideydecorations!(ax_d, ticks = false)
-# hm_a = heatmap!(ax_a, 1e-3x .- 50, 1e-3y, shift(interior(ζ₀,:,:,Nz))./f; rasterize = true, colormap = :curl, colorrange = crange)
+# ζ₀ = compute!(Field(∂y(v0) + ∂x(u0)));
+# hm_a = heatmap!(ax_a, 1e-3x .- 50, 1e-3y, shift(interior(ζ₀,:,:,Nz))./f; rasterize = true, colormap = :diff, colorrange = crange)
 # arrows!(ax_a,xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2,alpha=0.5)
 # axs = [ax_b, ax_c, ax_d]
 # iterations = [26066,37003,49086]
@@ -203,9 +275,10 @@ save(filesave * "curl_" * fileparam * "_16h_cg3hm.pdf", fig; pt_per_unit = 1)
 #     Nzi = length(zi)
 #     coarse_graining!(snapshot[:v] , v̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
 #     coarse_graining!(snapshot[:u] , u̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
-#     ζ̄i = compute!(Field((∂x(v̅)-∂y(u̅))));
+#     # ζ̄i = compute!(Field((∂x(v̅)-∂y(u̅))));
+#     ζ̄i = compute!(Field((∂y(v̅)+∂x(u̅))));
 #     xi, yi, _ = nodes(ζ̄i);
-#     hm_i = heatmap!(axs[i], 1e-3xi, 1e-3yi, (interior(ζ̄i,:,:,Nzi))./f; rasterize = true, colormap = :curl, colorrange = crange)
+#     hm_i = heatmap!(axs[i], 1e-3xi, 1e-3yi, (interior(ζ̄i,:,:,Nzi))./f; rasterize = true, colormap = :diff, colorrange = crange)
 #     arrows!(axs[i],xT[iarrow]/1e3.-50, yT[iarrow]/1e3, shift(interior(Ub,iarrow,iarrow,k)), shift(interior(Vb,iarrow,iarrow,k)), arrowsize = 3, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.2,alpha=0.5)
 # end
 # Colorbar(g4[1,5], hm_a)
@@ -214,7 +287,7 @@ save(filesave * "curl_" * fileparam * "_16h_cg3hm.pdf", fig; pt_per_unit = 1)
 # colgap!(g4, 3, 5)
 # colgap!(g4, 4, 1)
 # resize_to_layout!(fig)
-# save(filesave * "curl_" * fileparam * "_0_16_30_44h_cg3hm.pdf", fig; pt_per_unit = 1)
+# save(filesave * "div_" * fileparam * "_0_16_30_44h_cg3hm.pdf", fig; pt_per_unit = 1)
 
 # meshgrid(x::AbstractVector, y::AbstractVector) =
 #         repeat(x, 1, length(y)), repeat(y', length(x), 1)
@@ -440,7 +513,7 @@ iteration = 37003
 
 #############################
 # uᵃ, vᵃ, wᵃ, Bᵃ = 0.0, 0.0, 0.0, 0.0
-# nsubdomains = 1
+# nsubdomains = 16
 # for i = 1:nsubdomains
 #     fileparam = "subdomain" * string(i)
 #     @info "Computing and saving data for $fileparam"
@@ -484,6 +557,48 @@ vᵃ = file["fields/va"]
 wᵃ = file["fields/wa"]
 close(file)
 
+# fig = Figure(size = (640, 400))
+# gab = fig[1, 1] = GridLayout()
+# fileparam = "subdomain1"
+# slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
+# xi, zi = slices["metadata/x"], slices["metadata/z"]
+# close(slices)
+
+# ax1 = Axis(gab[1,1]; titlealign = :left, title="(a)", titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+# ax2 = Axis(gab[1,3]; titlealign = :left, title="(b)", titlefont=texfont(), limits=(nothing,(-80,0)))
+# ax3 = Axis(gab[2,1]; titlealign = :left, title="(c)", titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+# ax4 = Axis(gab[2,3]; titlealign = :left, title="(d)", titlefont=texfont(), limits=(nothing,(-80,0)))
+# hm1 = heatmap!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]/α/g; rasterize = true, colormap = :thermal)
+# hm2 = heatmap!(ax2, 1e-3xi, zi, vᵃ[:,1,:]; rasterize = true, colorrange = (-0.12,0.12), colormap = :balance)
+# hm3 = heatmap!(ax3, 1e-3xi, zi, uᵃ[:,1,:]; rasterize = true, colorrange = (-0.08,0.08), colormap = :balance)
+# hm4 = heatmap!(ax4, 1e-3xi, zi, wᵃ[:,1,:]; rasterize = true, colorrange = (-4e-4,4e-4), colormap = :delta)
+
+# levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(Bᵃ[:,1,:])...)
+# contour!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black)
+# contour!(ax2, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
+# contour!(ax3, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
+# contour!(ax4, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
+# hideydecorations!(ax2, ticks = false)
+# hideydecorations!(ax4, ticks = false)
+# hidexdecorations!(ax1, ticks = false)
+# hidexdecorations!(ax2, ticks = false)
+# ax3.xlabel = L"x~\text{(km)}"
+# ax4.xlabel = L"x~\text{(km)}"
+# Colorbar(gab[1,2], hm1)
+# Colorbar(gab[1,4], hm2)
+# Colorbar(gab[2,2], hm3)
+# Colorbar(gab[2,4], hm4)
+# Label(gab[1, 1, Top()], L"T^a~({^\circ}C)", valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+# Label(gab[1, 3, Top()], L"v^a~(\text{m s^{-1}})", valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+# Label(gab[2, 1, Top()], L"u^a~(\text{m s^{-1}})", valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+# Label(gab[2, 3, Top()], L"w^a~(\text{m s^{-1}})", valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+# rowgap!(gab, 3)
+# colgap!(gab, 1, 0)
+# colgap!(gab, 2, 5)
+# colgap!(gab, 3, 0)
+# resize_to_layout!(fig)
+# save(filesave * "afrontfields_vslices_30h_iter$(iteration).pdf", fig; pt_per_unit = 1)
+
 # varᵃ = (uᵃ, vᵃ, wᵃ, Bᵃ)
 # for i = 4:4
 #     fileparam = "subdomain" * string(i)
@@ -503,7 +618,7 @@ close(file)
 #                               z = (-81,0),
 #                               topology = (Bounded, Bounded, Bounded))
 
-#     u̅, v̅, w̅, B̅, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww, τwb, Πₕ, Πᵥ, Pᵃ, Pˢ, Pᵀ, wˢbˢ = coarse_grained_fluxes(snapshot, Ub, Vb, varᵃ; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
+#     u̅, v̅, w̅, B̅, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww, τwb, Πₕ, Πᵥ, Πᵥg, Pᵃ, Pᵃᵥg, Pˢ, Pˢᵥg, Pᵀ, wˢbˢ = coarse_grained_fluxes(snapshot, Ub, Vb, varᵃ; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
 
 #     xi, _, _ = nodes(CenterField(to_grid,Float32))
 #     itp2nodes(field) = Array([interpolate((x, yc, z), field) for x in xi, z in z0'])
@@ -537,8 +652,11 @@ close(file)
 #         file["fields/τvva"] = interior(τvv[2])
 #         file["fields/Ph"] = itp2nodes(Πₕ)#, itp2nodes(mean(Πₕ, dims=2))] #./ (parameters.f * wₛ^2)
 #         file["fields/Pv"] = itp2nodes(Πᵥ)#, itp2nodes(mean(Πᵥ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/Pvg"] = itp2nodes(Πᵥg)
 #         file["fields/Pas"] = itp2nodes(Pᵃ)#, itp2nodes(mean(Pᵃ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/Pasg"] = itp2nodes(Pᵃᵥg)
 #         file["fields/Pss"] = itp2nodes(Pˢ)#, itp2nodes(mean(Pˢ, dims=2))] #./ (parameters.f * wₛ^2)
+#         file["fields/Pssg"] = itp2nodes(Pˢᵥg)
 #         file["fields/PTs"] = itp2nodes(Pᵀ)#, itp2nodes(mean(Pᵀ, dims=2))] #./ (parameters.f * wₛ^2)
 #         file["fields/Pha"] = interior(mean(Πₕ, dims=2))
 #         file["fields/Pva"] = interior(mean(Πᵥ, dims=2))
@@ -555,176 +673,184 @@ close(file)
 # println("Finished plotting TKE, SKE, and P fields")
 
 # 3. Plot the TKE fields
-# Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
-# wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
-# alphabet = [letter for letter in 'a':'z'];
-# using Makie
-# cmap = :amp
-# ylabels = [L"y=18.75~\text{km}",L"y=43.75~\text{km}",L"y=68.75~\text{km}",L"y=93.75~\text{km}"]
-# iarrow = [320-32, 320+32]
-# idxz = findfirst(zu .> -80) : 10 : length(zu)
-# skwargs = (; markersize = 15, strokewidth = 1, color = :transparent, strokecolor = :black)
-# skwargs1 = (; markersize=15, marker=:xcross, color=:black)
-# skwargs3 = (; markersize=3, color=:black)
-# xmarkers = vec([-5*ones(4) 5*ones(4)])
-# zmarkers = vec(repeat(-70.:20.:-10., 2, 1))
-# fig = Figure(size = (640, 680))
-# gab = fig[1, 1] = GridLayout()
-# for i = 1:4
-#     fileparam = "subdomain$(5-i)"
-#     @info "Ploting vslices for $fileparam"
-#     # 1. Define the filename of the saved snapshot
-#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
+wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
+alphabet = [letter for letter in 'a':'z'];
+cmap = :balance
+ylabels = [L"y=18.75~\text{km}",L"y=43.75~\text{km}",L"y=68.75~\text{km}",L"y=93.75~\text{km}"]
+iarrow = [320-32, 320+32]
+idxz = findfirst(zu .> -80) : 10 : length(zu)
+skwargs = (; markersize = 15, strokewidth = 1, color = :transparent, strokecolor = :black)
+skwargs1 = (; markersize=15, marker=:xcross, color=:black)
+skwargs3 = (; markersize=3, color=:black)
+xmarkers = vec([-5*ones(4) 5*ones(4)])
+zmarkers = vec(repeat(-70.:20.:-10., 2, 1))
+fig = Figure(size = (640, 680))
+gab = fig[1, 1] = GridLayout()
+for i = 1:4
+    fileparam = "subdomain$(5-i)"
+    @info "Ploting vslices for $fileparam"
+    # 1. Define the filename of the saved snapshot
+    output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
 
-#     # 2. Load the snapshot using the new function
-#     snapshot = load_subdomain_snapshot(output_filename; variables = ("MLD", "MLD3"));
-#     slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
-#     xi, yi, zi = slices["metadata/x"], slices["metadata/y"], slices["metadata/z"]
-#     TKEₛi = (slices["fields/τvv"] + slices["fields/τuu"] + slices["fields/τww"])/2/wₛ^2;
-#     SKEₛi = (slices["fields/us"].^2 + slices["fields/vs"].^2 + slices["fields/ws"].^2)/2/wₛ^2;
-#     # var1i = slices["fields/τwb"]/(parameters.f * wₛ^2)
-#     # var2i = slices["fields/wbs"]/(parameters.f * wₛ^2)
-#     bcgi = slices["fields/bcg"][:,1,:]
-#     close(slices)
+    # 2. Load the snapshot using the new function
+    snapshot = load_subdomain_snapshot(output_filename; variables = ("MLD", "MLD3"));
+    slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
+    xi, yi, zi = slices["metadata/x"], slices["metadata/y"], slices["metadata/z"]
+    # TKEₛi = (slices["fields/τvv"] + slices["fields/τuu"] + slices["fields/τww"])/2/wₛ^2;
+    # SKEₛi = (slices["fields/us"].^2 + slices["fields/vs"].^2 + slices["fields/ws"].^2)/2/wₛ^2;
+    var1i = slices["fields/Ph"]/(parameters.f * wₛ^2)
+    var2i = slices["fields/Pv"]/(parameters.f * wₛ^2)
+    bcgi = slices["fields/bcg"][:,1,:]
+    close(slices)
 
-#     title1 = "("*alphabet[i]*")" 
-#     title2 = "("*alphabet[4+i]*")" 
-#     ax1 = Axis(gab[i,1]; titlealign = :left, title=title1, titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
-#     ax2 = Axis(gab[i,3]; titlealign = :left, title=title2, titlefont=texfont(), limits=(nothing,(-80,0)))
-#     hm1 = heatmap!(ax1, 1e-3xi, zi, TKEₛi[:,1,:]; rasterize = true, colormap = cmap, colorrange = (0, 40))
-#     hm2 = heatmap!(ax2, 1e-3xi, zi, SKEₛi[:,1,:]; rasterize = true, colormap = cmap, colorrange = (0, 160))
+    title1 = "("*alphabet[2i-1]*")" 
+    title2 = "("*alphabet[2i]*")" 
+    ax1 = Axis(gab[i,1]; titlealign = :left, title=title1, titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+    ax2 = Axis(gab[i,3]; titlealign = :left, title=title2, titlefont=texfont(), limits=(nothing,(-80,0)))
+    lim1 = maximum(abs.(var1i[1025:3096,1,:]))
+    lim2 = maximum(abs.(var2i[1025:3096,1,:]))
+    hm1 = heatmap!(ax1, 1e-3xi, zi, var1i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-lim1, lim1))
+    hm2 = heatmap!(ax2, 1e-3xi, zi, var2i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-lim2, lim2))
 
-#     if (5-i) % 2 == 0
-#         arrows!(ax1,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8)
-#         arrows!(ax2,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8) 
-#     else
-#         scatter!(ax1,xmarkers, zmarkers; skwargs...)
-#         scatter!(ax2,xmarkers, zmarkers; skwargs...)
-#     end
-#     if (5-i) == 1
-#         scatter!(ax1,xmarkers, zmarkers; skwargs1...)
-#         scatter!(ax2,xmarkers, zmarkers; skwargs1...)
-#     elseif (5-i) == 3
-#         scatter!(ax1,xmarkers, zmarkers; skwargs3...)
-#         scatter!(ax2,xmarkers, zmarkers; skwargs3...)
-#     end
-#     # hm2 = heatmap!(ax2, 1e-3x, z, var2i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
-#     # hm1 = heatmap!(ax1, 1e-3x, z, var1i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
-#     lines!(ax1, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
-#     lines!(ax2, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
-#     # We can use Makie's tick finders to get some nice looking contour levels:
-#     levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(bcgi)...)
-#     contour!(ax1, 1e-3xi, zi, bcgi; color = :black)
-#     contour!(ax2, 1e-3xi, zi, bcgi; color = :black) 
-#     contour!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash)
-#     contour!(ax2, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash) 
-#     hideydecorations!(ax2, ticks = false)
-#     if i<4
-#         hidexdecorations!(ax1, ticks = false)
-#         hidexdecorations!(ax2, ticks = false)
-#     else
-#         ax1.xlabel = L"x~\text{(km)}"
-#         ax2.xlabel = L"x~\text{(km)}"
-#         Colorbar(gab[1:4,2], hm1)
-#         Colorbar(gab[1:4,4], hm2)
-#     end
-#     Label(gab[i, 1, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
-#     Label(gab[i, 3, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
-# end
-# Label(gab[1:4, 2, Top()], L"\text{TKE}/w_*^2", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
-# Label(gab[1:4, 4, Top()], L"\text{SKE}/w_*^2", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
-# rowgap!(gab, 3)
-# colgap!(gab, 1, 0)
-# colgap!(gab, 2, 5)
-# colgap!(gab, 3, 0)
-# resize_to_layout!(fig)
-# save(filesave * "TKESKE_vslices_30h_iter$(iteration)_afront.pdf", fig; pt_per_unit = 1)
-# for i = 1:4
-#     fileparam = "subdomain$(5-i)"
-#     @info "Ploting vslices for $fileparam"
-#     # 1. Define the filename of the saved snapshot
-#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+    if (5-i) % 2 == 0
+        arrows!(ax1,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8)
+        arrows!(ax2,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8) 
+    else
+        scatter!(ax1,xmarkers, zmarkers; skwargs...)
+        scatter!(ax2,xmarkers, zmarkers; skwargs...)
+    end
+    if (5-i) == 1
+        scatter!(ax1,xmarkers, zmarkers; skwargs1...)
+        scatter!(ax2,xmarkers, zmarkers; skwargs1...)
+    elseif (5-i) == 3
+        scatter!(ax1,xmarkers, zmarkers; skwargs3...)
+        scatter!(ax2,xmarkers, zmarkers; skwargs3...)
+    end
+    # hm2 = heatmap!(ax2, 1e-3x, z, var2i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
+    # hm1 = heatmap!(ax1, 1e-3x, z, var1i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-50,50))
+    lines!(ax1, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+    lines!(ax2, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+    # We can use Makie's tick finders to get some nice looking contour levels:
+    levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(bcgi)...)
+    contour!(ax1, 1e-3xi, zi, bcgi; color = :black)
+    contour!(ax2, 1e-3xi, zi, bcgi; color = :black) 
+    contour!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash)
+    contour!(ax2, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash) 
+    hideydecorations!(ax2, ticks = false)
+    if i<4
+        hidexdecorations!(ax1, ticks = false)
+        hidexdecorations!(ax2, ticks = false)
+    else
+        ax1.xlabel = L"x~\text{(km)}"
+        ax2.xlabel = L"x~\text{(km)}"
+    end
+    Colorbar(gab[i,2], hm1)
+    Colorbar(gab[i,4], hm2)
+    Label(gab[i, 1, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+    Label(gab[i, 3, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+    Label(gab[i, 2, Top()], L"P_H/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+    Label(gab[i, 4, Top()], L"P_V/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+end
+rowgap!(gab, 3)
+colgap!(gab, 1, 0)
+colgap!(gab, 2, 10)
+colgap!(gab, 3, 0)
+resize_to_layout!(fig)
+save(filesave * "PhPv_vslices_30h_iter$(iteration)_afront.pdf", fig; pt_per_unit = 1)
 
-#     # 2. Load the snapshot using the new function
-#     snapshot = load_subdomain_snapshot(output_filename; variables = ("MLD", "MLD3"));
-#     slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
-#     xi, yi, zi = slices["metadata/x"], slices["metadata/y"], slices["metadata/z"]
-#     @info "yi = $(1e-3y)km"
-#     # TKEₛi = (slices["fields/τuv"] + slices["fields/τuu"] + slices["fields/τww"])/2/wₛ^2;
-#     # SKEₛi = (slices["fields/us"].^2 + slices["fields/vs"].^2 + slices["fields/ws"].^2)/2/wₛ^2;
-#     var1i = slices["fields/Pas"]/(parameters.f * wₛ^2)
-#     var2i = slices["fields/Pss"]/(parameters.f * wₛ^2)
-#     var3i = slices["fields/PTs"]/(parameters.f * wₛ^2)
-#     bcgi = slices["fields/bcg"][:,1,:]
-#     close(slices)
+cmap = :balance
+fig = Figure(size = (640, 540))
+gab = fig[1, 1] = GridLayout()
+for i = 1:4
+    fileparam = "subdomain$(5-i)"
+    @info "Ploting vslices for $fileparam"
+    # 1. Define the filename of the saved snapshot
+    output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
 
-#     title1 = "("*alphabet[i]*")" 
-#     title2 = "("*alphabet[4+i]*")" 
-#     title3 = "("*alphabet[8+i]*")" 
-#     ax1 = Axis(gab[i,1]; titlealign = :left, title=title1, titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
-#     ax2 = Axis(gab[i,3]; titlealign = :left, title=title2, titlefont=texfont(), limits=(nothing,(-80,0)))
-#     ax3 = Axis(gab[i,5]; titlealign = :left, title=title3, titlefont=texfont(), limits=(nothing,(-80,0)))
-#     hm1 = heatmap!(ax1, 1e-3xi, zi, var1i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-75,75))
-#     hm2 = heatmap!(ax2, 1e-3xi, zi, var2i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-75,75))
-#     hm3 = heatmap!(ax3, 1e-3xi, zi, var3i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-75,75))
-#     lines!(ax1, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
-#     lines!(ax2, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
-#     lines!(ax3, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
-#     if (5-i) % 2 == 0
-#         arrows!(ax1,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8)
-#         arrows!(ax2,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8) 
-#         arrows!(ax3,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8) 
-#     else
-#         scatter!(ax1,xmarkers, zmarkers; skwargs...)
-#         scatter!(ax2,xmarkers, zmarkers; skwargs...)
-#         scatter!(ax3,xmarkers, zmarkers; skwargs...)
-#     end
-#     if (5-i) == 1
-#         scatter!(ax1,xmarkers, zmarkers; skwargs1...)
-#         scatter!(ax2,xmarkers, zmarkers; skwargs1...)
-#         scatter!(ax3,xmarkers, zmarkers; skwargs1...)
-#     elseif (5-i) == 3
-#         scatter!(ax1,xmarkers, zmarkers; skwargs3...)
-#         scatter!(ax2,xmarkers, zmarkers; skwargs3...)
-#         scatter!(ax3,xmarkers, zmarkers; skwargs3...)
-#     end
-#     # We can use Makie's tick finders to get some nice looking contour levels:
-#     levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(bcgi)...)
-#     contour!(ax1, 1e-3xi, zi, bcgi; color = :black)
-#     contour!(ax2, 1e-3xi, zi, bcgi; color = :black) 
-#     contour!(ax3, 1e-3xi, zi, bcgi; color = :black) 
-#     contour!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash)
-#     contour!(ax2, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash) 
-#     contour!(ax3, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash)
-#     hideydecorations!(ax2, ticks = false)
-#     hideydecorations!(ax3, ticks = false)
-#     if i<4
-#         hidexdecorations!(ax1, ticks = false)
-#         hidexdecorations!(ax2, ticks = false)
-#         hidexdecorations!(ax3, ticks = false)
-#     else
-#         ax1.xlabel = L"x~\text{(km)}"
-#         ax2.xlabel = L"x~\text{(km)}"
-#         ax3.xlabel = L"x~\text{(km)}"
-#         Colorbar(gab[1:4,2], hm1)
-#         Colorbar(gab[1:4,4], hm2)
-#         Colorbar(gab[1:4,6], hm3)
-#     end
-#     Label(gab[i, 1, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
-#     Label(gab[i, 3, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
-#     Label(gab[i, 5, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
-# end
-# Label(gab[1:4, 2, Top()], L"P^a/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
-# Label(gab[1:4, 4, Top()], L"P^s/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
-# Label(gab[1:4, 6, Top()], L"P^\prime/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
-# rowgap!(gab, 3)
-# colgap!(gab, 1, 0)
-# colgap!(gab, 2, 5)
-# colgap!(gab, 3, 0)
-# colgap!(gab, 4, 5)
-# colgap!(gab, 5, 0)
-# resize_to_layout!(fig)
-# save(filesave * "PaPsPT_vslices_30h_iter$(iteration)_afront.pdf", fig; pt_per_unit = 1)
+    # 2. Load the snapshot using the new function
+    snapshot = load_subdomain_snapshot(output_filename; variables = ("MLD", "MLD3"));
+    slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
+    xi, yi, zi = slices["metadata/x"], slices["metadata/y"], slices["metadata/z"]
+    @info "yi = $(1e-3y)km"
+    # TKEₛi = (slices["fields/τuv"] + slices["fields/τuu"] + slices["fields/τww"])/2/wₛ^2;
+    # SKEₛi = (slices["fields/us"].^2 + slices["fields/vs"].^2 + slices["fields/ws"].^2)/2/wₛ^2;
+    var1i = slices["fields/Ph"]/(parameters.f * wₛ^2)
+    var2i = slices["fields/Pv"]/(parameters.f * wₛ^2)
+    var3i = slices["fields/Pvg"]/(parameters.f * wₛ^2)
+    bcgi = slices["fields/bcg"][:,1,:]
+    close(slices)
+
+    title1 = "("*alphabet[3i-2]*")" 
+    title2 = "("*alphabet[3i-1]*")" 
+    title3 = "("*alphabet[3i]*")" 
+    ax1 = Axis(gab[i,1]; titlealign = :left, title=title1, titlefont=texfont(), ylabel=L"z~\text{(m)}",limits=(nothing,(-80,0)))
+    ax2 = Axis(gab[i,3]; titlealign = :left, title=title2, titlefont=texfont(), limits=(nothing,(-80,0)))
+    ax3 = Axis(gab[i,5]; titlealign = :left, title=title3, titlefont=texfont(), limits=(nothing,(-80,0)))
+    lim1 = maximum(abs.(var1i[1025:3096,1,:]))
+    lim2 = maximum(abs.(var2i[1025:3096,1,:]))
+    lim3 = maximum(abs.(var3i[1025:3096,1,:]))
+    hm1 = heatmap!(ax1, 1e-3xi, zi, var1i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-lim1,lim1))
+    hm2 = heatmap!(ax2, 1e-3xi, zi, var2i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-lim2,lim2))
+    hm3 = heatmap!(ax3, 1e-3xi, zi, var3i[:,1,:]; rasterize = true, colormap = cmap, colorrange = (-lim3,lim3))
+    lines!(ax1, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+    lines!(ax2, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+    lines!(ax3, 1e-3xi, -interior(snapshot[:MLD3],513:4608,640,1), color = :blue, linewidth = 1)
+    if (5-i) % 2 == 0
+        arrows!(ax1,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8)
+        arrows!(ax2,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8) 
+        arrows!(ax3,xu[iarrow]/1e3.-50, zu[idxz], shift(interior(Ub,iarrow,160(5-i)-40,idxz)), 0*shift(interior(Ub,iarrow,160i,idxz)), arrowsize = 6, lengthscale = 1e2,linecolor = :black, arrowcolor = :black, linewidth = 0.8) 
+    else
+        scatter!(ax1,xmarkers, zmarkers; skwargs...)
+        scatter!(ax2,xmarkers, zmarkers; skwargs...)
+        scatter!(ax3,xmarkers, zmarkers; skwargs...)
+    end
+    if (5-i) == 1
+        scatter!(ax1,xmarkers, zmarkers; skwargs1...)
+        scatter!(ax2,xmarkers, zmarkers; skwargs1...)
+        scatter!(ax3,xmarkers, zmarkers; skwargs1...)
+    elseif (5-i) == 3
+        scatter!(ax1,xmarkers, zmarkers; skwargs3...)
+        scatter!(ax2,xmarkers, zmarkers; skwargs3...)
+        scatter!(ax3,xmarkers, zmarkers; skwargs3...)
+    end
+    # We can use Makie's tick finders to get some nice looking contour levels:
+    levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(bcgi)...)
+    contour!(ax1, 1e-3xi, zi, bcgi; color = :black)
+    contour!(ax2, 1e-3xi, zi, bcgi; color = :black) 
+    contour!(ax3, 1e-3xi, zi, bcgi; color = :black) 
+    contour!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash)
+    contour!(ax2, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash) 
+    contour!(ax3, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black, linestyle=:dash)
+    hideydecorations!(ax2, ticks = false)
+    hideydecorations!(ax3, ticks = false)
+    if i<4
+        hidexdecorations!(ax1, ticks = false)
+        hidexdecorations!(ax2, ticks = false)
+        hidexdecorations!(ax3, ticks = false)
+    else
+        ax1.xlabel = L"x~\text{(km)}"
+        ax2.xlabel = L"x~\text{(km)}"
+        ax3.xlabel = L"x~\text{(km)}"
+    end
+    Colorbar(gab[i,2], hm1)
+    Colorbar(gab[i,4], hm2)
+    Colorbar(gab[i,6], hm3)
+    Label(gab[i, 1, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+    Label(gab[i, 3, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+    Label(gab[i, 5, Top()], ylabels[5-i], valign = :bottom,font = texfont(),padding = (0, 0, 5, 0))
+    Label(gab[i, 2, Top()], L"P_H/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+    Label(gab[i, 4, Top()], L"P_V/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+    Label(gab[i, 6, Top()], L"P_{Vg}/(fw_*^2)", valign = :bottom, font = texfont(), padding = (0, 0, 5, 0))
+end
+rowgap!(gab, 3)
+colgap!(gab, 1, 0)
+colgap!(gab, 2, 8)
+colgap!(gab, 3, 0)
+colgap!(gab, 4, 8)
+colgap!(gab, 5, 0)
+resize_to_layout!(fig)
+save(filesave * "PhPvPvg_vslices_30h_iter$(iteration)_afront.pdf", fig; pt_per_unit = 1)
 
     # TKEₛj = file["fields/TKEs"];
     # Πₕj = file["fields/PHs"];

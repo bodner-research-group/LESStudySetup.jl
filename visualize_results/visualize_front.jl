@@ -1,6 +1,7 @@
 using LESStudySetup
 using CairoMakie
 using Printf, Dates
+using SpecialFunctions: erf  # Gaussian error function
 using Statistics: mean, std
 using Oceananigans.Architectures: on_architecture
 using LESStudySetup.Diagnostics
@@ -23,6 +24,117 @@ filesave = "results/"
 c2g(field) = on_architecture(GPU(),field)
 g2c(field) = on_architecture(CPU(),field)
 println(CUDA.pool_status())
+
+# ------------------------------------------------------------------
+# 1.  Non-dimensional parameters   (Appendix A.1 and γ=0.1)
+# ------------------------------------------------------------------
+const Ro   = 1.0
+const Bu   = 0.1
+const Fr   = Ro / Bu
+γ₁         = 0.03           # strain rate in X
+γ₂         = 0.00           # strain rate in solution
+ϵ          = 0.00           # small parameter for geostrophic departure
+t_max      = 22.0           # blow-up time
+t_early    = 0.4            # diagnostic snapshot
+x_min,x_max = -4, 4
+z_min,z_max =  0.0, 1.0
+
+# computational grids (moderate resolution; raise if desired)
+nx, nz = 201, 101
+x = collect(range(x_min, x_max; length = nx))   # <- make it a Vector!
+z = collect(range(z_min, z_max; length = nz))   # (z isn’t mutated, but keep symmetrical)
+dx = x[2] - x[1]
+
+# ------------------------------------------------------------------
+# 2.  Background buoyancy and its derivatives
+# ------------------------------------------------------------------
+invs2π = 1 / √(2π)
+
+B0(X)   = 0.5 .* erf.(X ./ √2)
+dB0(X)  = @. exp(-0.5 * X^2) * invs2π
+d2B0(X) = @. -X * exp(-0.5 * X^2) * invs2π
+
+# ------------------------------------------------------------------
+# 3.  Vectorised Newton solve for the mapping X(x,z,T)
+# ------------------------------------------------------------------
+function solve_X_vec(x_vec, z_val, T; γ₁ = 0, γ₂ = 0, ϵ = 0, maxiter = 100, tol = 1e-12)
+    eT = exp(γ₂*T)
+    X  = exp(γ₁*T) .* x_vec                     # this is a Vector (mutable)
+    A = (eT-ϵ*cos(sqrt(1-γ₂^2)*T)+γ₂*(ϵ-2)*sin(sqrt(1-γ₂^2)*T)/sqrt(1-γ₂^2))
+    for _ in 1:maxiter
+        Bp  = dB0(X)
+        Bpp = d2B0(X)
+        f   = X .- exp(γ₁*T) .* (x_vec .+ Ro^2 * (z_val - 0.5) * A * Bp)
+        df  = 1 .- exp(γ₁*T) * Ro^2 * (z_val - 0.5) * A * Bpp 
+        dX  = f ./ df
+        X  .-= dX
+        maximum(abs, dX) < tol && break
+    end
+    return X
+end
+
+# ------------------------------------------------------------------
+# 4.  Inviscid fields at any given time T
+# ------------------------------------------------------------------
+function fields_at_time(T; γ₁ = 0, γ₂ = 0, ϵ = 0, sg = false)
+    eT= exp(γ₂*T)
+
+    b = Matrix{Float64}(undef, nz, nx)
+    v = similar(b)
+    w = similar(b)
+    u = similar(b)
+    ψ = similar(b)
+
+    if sg
+        A = eT
+        B = γ₂ * eT
+        C = 2γ₂ * eT
+    else
+        A = (eT-ϵ*cos(sqrt(1-γ₂^2)*T)+γ₂*(ϵ-2)*sin(sqrt(1-γ₂^2)*T)/sqrt(1-γ₂^2))
+        B = (γ₂ * (eT-cos(sqrt(1-γ₂^2)*T))+(ϵ-2γ₂^2)*sin(sqrt(1-γ₂^2)*T)/2/sqrt(1-γ₂^2))
+        C = (2γ₂ * (eT-cos(sqrt(1-γ₂^2)*T))+(ϵ-2γ₂^2)*sin(sqrt(1-γ₂^2)*T)/sqrt(1-γ₂^2))
+    end
+        
+    for (k, zz) in enumerate(z)
+        Xvals = solve_X_vec(x, zz, T; γ₁, γ₂, ϵ)
+
+        Bp  = dB0(Xvals)
+        Bpp = d2B0(Xvals)
+
+        dvdX = Bpp .* (zz - 0.5) * A
+        dvdZ = Bp * A
+        v[k,:] =  Bp  .* (zz - 0.5) * A                            # (b)
+        w[k,:] =  Ro * B .* Bpp .* eT .* zz*(zz-1) ./ (1 .- Ro^2 * eT .* dvdX) # (c)
+        u[k,:] = -Ro * (C * Bp .* (zz - 0.5) .+ Ro * w[k,:] .* dvdZ)   # (d)
+        ψ[k,:] = -Ro * B .* Bp .* eT .* zz*(zz-1)
+
+        #intZ   = 0.5*zz^2 - 0.5*zz
+        #Δb     = -(Ro^2)/(Fr^2) * A .* Bpp .* intZ
+        b[k,:] =  B0(Xvals) #.+ 1/Fr^2*zz .+ Δb                               # (a)
+    end
+
+    #ψ = -cumsum(w0; dims = 2) * dx      # integrate w = −∂ψ/∂x, ψ=0 at x_min
+    return b', v', ψ', w', u'
+end
+dt = 0.2
+t_all = 0:dt:t_max
+nt = length(t_all)
+df, d1 = zeros(nt), zeros(nt)
+df2, d12 = zeros(nt), zeros(nt)
+for i = 1:nt
+    bf, _, _, _, _ = fields_at_time(t_all[i]; γ₁, γ₂=γ₁)
+    b1, _, _, _, _ = fields_at_time(t_all[i]; γ₁)
+    dbfdx = (bf[3:end,:].-bf[1:end-2,:])./(2*dx)
+    df[i] = invs2π/maximum(abs, dbfdx)
+    db1dx = (b1[3:end,:].-b1[1:end-2,:])./(2*dx)
+    d1[i] = invs2π/maximum(abs, db1dx)
+    bf, _, _, _, _ = fields_at_time(t_all[i]; γ₁=-γ₁, γ₂=-γ₁)
+    b1, _, _, _, _ = fields_at_time(t_all[i]; γ₁=-γ₁)
+    dbfdx = (bf[3:end,:].-bf[1:end-2,:])./(2*dx)
+    df2[i] = invs2π/maximum(abs, dbfdx)
+    db1dx = (b1[3:end,:].-b1[1:end-2,:])./(2*dx)
+    d12[i] = invs2π/maximum(abs, db1dx)
+end
 
 """
     coarsen_binned_vectorized(f, s, n_target)
@@ -608,7 +720,7 @@ function get_time_series(filehead,filesave;fileparam = "xband1sublevels",use_gpu
     if isfile(filesave * "ts_d_h_Cub_Ewmax_" * fileparam * "_cg3hm.jld2")
         file = jldopen(filesave * "ts_d_h_Cub_Ewmax_" * fileparam * "_cg3hm.jld2", "r");
         width3 = [ones(1,3); file["widths"]];
-        MLD3_front = [60*ones(1,3); file["MLDs_front"]];
+        MLD3_front = [60*[1 0.97515 1.02485]; file["MLDs_front"]];
         Cu4 = [zeros(1,4); file["Cus"]];
         Ewmax = [0; file["Ewmax"]];
         close(file)
@@ -702,6 +814,10 @@ function get_time_series(filehead,filesave;fileparam = "xband1sublevels",use_gpu
         hidexdecorations!(axh, ticks=false)
         lines!(axw, t, width3[idx,1], color=wcolors[1])
         fill_between!(axw, t, width3[idx,2], width3[idx,3]; color = wcolors[1], alpha = 0.25)
+        #lines!(axw, t_all/parameters.f/3600, d1; color=:black, label = "advection")
+        lines!(axw, t_all/parameters.f/3600, df; color=:black, linestyle=:dash, label = "full")
+        #lines!(axw, t_all/parameters.f/3600, d12; color=:red)
+        lines!(axw, t_all/parameters.f/3600, df2; color=:red, linestyle=:dash)
         lines!(axh, t, MLD3_front[idx,1]/h₀, color=wcolors[2])
         fill_between!(axh, t, MLD3_front[idx,2]/h₀, MLD3_front[idx,3]/h₀; color = wcolors[2], alpha = 0.25)
         # lines!(axc, t, Cu3[:,1], color=wcolors[3])
@@ -740,20 +856,6 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
 
     x, y, z = nodes(snapshot[:T])
     idxEwm = argmax(interior(snapshot[:Ew3]))
-    grid = snapshot[:u].grid
-    T̅  = CenterField(grid);
-    u̅  = XFaceField(grid);
-    v̅  = YFaceField(grid);
-    coarse_graining!(snapshot[:T] , T̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
-    coarse_graining!(snapshot[:v] , v̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
-    coarse_graining!(snapshot[:u] , u̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,ip));
-    u̅g, v̅g = c2g(u̅), c2g(v̅)
-    ζ̅g = (compute!(Field(∂x(v̅g) - ∂y(u̅g))));
-    δ̅g = (compute!(Field(∂x(u̅g) + ∂y(v̅g))));
-    ζ̅, δ̅ = g2c(ζ̅g), g2c(δ̅g)
-    b̅g = compute!(Field(α * g * c2g(T̅)));
-    B̅h = g2c(compute!(Field(-(∂x(b̅g)^2 * ∂x(u̅g) + ∂y(b̅g)^2 * ∂y(v̅g))-∂x(b̅g)*∂y(b̅g)*(∂x(v̅g) + ∂y(u̅g)))));
-    Db̅² = g2c(compute!(Field(∂x(b̅g)^2 + ∂y(b̅g)^2)));
 
     # Call the function to get the analysis results
     clevel, levels_T, points_x, points_y, _ = analyze_frontal_properties(snapshot,iteration;use_gpu,plans=(p,ip));
@@ -777,22 +879,6 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     h_cfront = Float32.(etph.(cps_x, cps_y));
     Cu = 2α * g * (max(levels_T...) - min(levels_T...)) / f^2 * h_cfront ./ cd_Cu[1] .* cd_Cu[2];
     @info "Cu extrema: $(extrema(Cu))"
-    xζ, yζ, _ = nodes(ζ̅);
-    itpζ = interpolate((Float32.(xζ),Float32.(yζ)), Float32.(interior(ζ̅, :, :, 1)), Gridded(Constant(Interpolations.Periodic())))
-    etpζ = extrapolate(itpζ, Interpolations.Periodic())
-    ζ_cfront = Float32.(etpζ.(cps_x, cps_y));
-    xδ, yδ, _ = nodes(δ̅);
-    itpδ = interpolate((Float32.(xδ),Float32.(yδ)), Float32.(interior(δ̅, :, :, 1)), Gridded(Constant(Interpolations.Periodic())))
-    etpδ = extrapolate(itpδ, Interpolations.Periodic())
-    δ_cfront = Float32.(etpδ.(cps_x, cps_y));
-    xB, yB, _ = nodes(B̅h);
-    itpB = interpolate((Float32.(xB),Float32.(yB)), Float32.(interior(B̅h, :, :, 1)), Gridded(Constant(Interpolations.Periodic())))
-    etpB = extrapolate(itpB, Interpolations.Periodic())
-    B_cfront = Float32.(etpB.(cps_x, cps_y));
-    xDb, yDb, _ = nodes(Db̅²);
-    itpDb = interpolate((Float32.(xDb),Float32.(yDb)), Float32.(interior(Db̅², :, :, 1)), Gridded(Constant(Interpolations.Periodic())))
-    etpDb = extrapolate(itpDb, Interpolations.Periodic())
-    D_cfront = Float32.(etpDb.(cps_x, cps_y));
 
     A=rand(Float32,10240,20480,4);
     if use_gpu && CUDA.functional()
@@ -805,9 +891,9 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     println(CUDA.pool_status())
     fileparam = "xband1surf4"
     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
-    snapshot2 = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w"));
+    snapshot2 = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T"));
     u̅, v̅, w̅, τuu, τvv, τww = TKE(snapshot2; cutoff=300, border=:ycircular, Lx = snapshot2[:grid].Lx, Ly = snapshot2[:grid].Ly,
-                                        method=:spectral,use_gpu,plans=(p,pk,ip));
+                                                           method=:spectral,use_gpu,plans=(p,pk,ip));
     t0 = time()
     TKEₛg = (compute!(Field((τvv + τuu + τww)/2/wₛ^2)));
     @info "TKE compute time: $(time() - t0)"
@@ -825,6 +911,35 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     @info "SKE maximum at x=$(xd[idxSKEm[1]]/1e3)km, y=$(yd[idxSKEm[2]]/1e3)km, z=$(zd[idxSKEm[3]])m"
     k = length(zT)
     println(CUDA.pool_status())
+
+    grid = snapshot2[:u].grid
+    T̅  = CenterField(grid);
+    coarse_graining!(snapshot2[:T] , T̅; kernel=:gaussian, cutoff=300, border = :ycircular, method = :spectral, use_gpu,plans=(p,pk,ip));
+    b̅ = g2c(compute!(Field(α * g * T̅)))
+    bˢ = compute!(Field(b̅ - mean(b̅, dims=2)))
+    Db² = compute!(Field(∂x(bˢ)^2 + ∂y(bˢ)^2));
+    uˢc, vˢc = g2c(u̅ - mean(u̅;dims=2)), g2c(v̅ - mean(v̅;dims=2));
+    Bh = compute!(Field(-(∂x(bˢ)^2 * ∂x(uˢc) + ∂y(bˢ)^2 * ∂y(vˢc))-∂x(bˢ)*∂y(bˢ)*(∂x(vˢc) + ∂y(uˢc))));
+    ζˢg = (compute!(Field(∂x(v̅ - mean(v̅;dims=2)) - ∂y(u̅ - mean(u̅;dims=2)))));
+    δˢg = (compute!(Field(∂x(u̅ - mean(u̅;dims=2)) + ∂y(v̅ - mean(v̅;dims=2)))));
+    ζˢ , δˢ = g2c(ζˢg), g2c(δˢg)
+    xζ, yζ, zζ = nodes(ζˢ);
+    itpζ = interpolate((Float32.(xζ),Float32.(yζ)), Float32.(interior(ζˢ, :, :,length(zζ))), Gridded(Constant(Interpolations.Periodic())))
+    etpζ = extrapolate(itpζ, Interpolations.Periodic())
+    ζ_cfront = Float32.(etpζ.(cps_x, cps_y));
+    xδ, yδ, _ = nodes(δˢ);
+    itpδ = interpolate((Float32.(xδ),Float32.(yδ)), Float32.(interior(δˢ, :, :, idxSKEm[3])), Gridded(Constant(Interpolations.Periodic())))
+    etpδ = extrapolate(itpδ, Interpolations.Periodic())
+    δ_cfront = Float32.(etpδ.(cps_x, cps_y));
+    xB, yB, _ = nodes(Bh);
+    itpB = interpolate((Float32.(xB),Float32.(yB)), Float32.(interior(Bh, :, :, idxSKEm[3])), Gridded(Constant(Interpolations.Periodic())))
+    etpB = extrapolate(itpB, Interpolations.Periodic())
+    B_cfront = Float32.(etpB.(cps_x, cps_y));
+    xDb, yDb, _ = nodes(Db²);
+    itpDb = interpolate((Float32.(xDb),Float32.(yDb)), Float32.(interior(Db², :, :, idxSKEm[3])), Gridded(Constant(Interpolations.Periodic())))
+    etpDb = extrapolate(itpDb, Interpolations.Periodic())
+    D_cfront = Float32.(etpDb.(cps_x, cps_y));
+
 
     fig = Figure(size = (640, 450))
     aspect = 0.25
@@ -889,12 +1004,14 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     axis_kwargs = (limits, xgridvisible = false,ygridvisible = false)
     axa = Axis(fig[1, 1]; titlealign = :left, title=L"\text{(a)}", ylabel=L"S_n/f", yticklabelcolor = wcolors[1], axis_kwargs...)
     axa2 = Axis(fig[1, 1]; ylabel=L"\sigma_n/f", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
+    hidespines!(axa2);hidexdecorations!(axa2);
     axb = Axis(fig[2, 1]; titlealign = :left, title=L"\text{(b)}", ylabel=L"h/h_0", yticklabelcolor = wcolors[1], axis_kwargs...)
     axb2 = Axis(fig[2, 1]; ylabel=L"d/d_0", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
     hidespines!(axb2);hidexdecorations!(axb2);
     axc = Axis(fig[3, 1]; titlealign = :left, title=L"\text{(c)}", ylabel=L"Cu", yticklabelcolor = wcolors[1], axis_kwargs...)
-    axc2 = Axis(fig[3, 1]; ylabel=L"\overline{\zeta}/f", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
-    axd = Axis(fig[4, 1]; titlealign = :left, title=L"\text{(d)}", ylabel=L"\overline{\delta}/f", yticklabelcolor = wcolors[1], axis_kwargs...)
+    axc2 = Axis(fig[3, 1]; ylabel=L"{\zeta}^s/f", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
+    hidespines!(axc2);hidexdecorations!(axc2);
+    axd = Axis(fig[4, 1]; titlealign = :left, title=L"\text{(d)}", ylabel=L"{\delta}^s/f", yticklabelcolor = wcolors[1], axis_kwargs...)
     axd2 = Axis(fig[4, 1]; ylabel=L"\mathcal{F}_s/(f M_0^4)", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
     hidespines!(axd2);hidexdecorations!(axd2);
     axe = Axis(fig[5, 1]; titlealign = :left, title=L"\text{(e)}", xlabel=L"s/L_y", ylabel=L"\text{TKE}/w_*^2", yticklabelcolor = wcolors[1], axis_kwargs...)
@@ -947,15 +1064,16 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     axd = Axis(fig[4, 1]; title=L"\text{(d)}", limits = (xlimit, ylimitd), xlabel=L"\Delta s/L_y", ylabel=L"CC(\cdot,\cdot)", axis_kwargs...)
     hidexdecorations!(axa, ticks=false)
     hidexdecorations!(axb, ticks=false)
+    hidexdecorations!(axc, ticks=false)
     lines!(axa, l_offsets/1e5, cc_S_h; linewidth=1, label=L"(\sigma_n,h)", color = wcolors[1])
     lines!(axa, l_offsets/1e5, -cc_S_d; linewidth=1, label=L"(\sigma_n,-d)", color = wcolors[2])
     lines!(axa, l_offsets/1e5, -cc_h_d; linewidth=1, label=L"(h,-d)", color = wcolors[3])
     lines!(axb, l_offsets/1e5, cc_S_Cu; linewidth=1, label=L"(|\sigma_n|,Cu)", color = wcolors[1])
-    lines!(axb, l_offsets/1e5, cc_S_ζ; linewidth=1, label=L"(|\sigma_n|,\overline{\zeta})", color = wcolors[2])
-    lines!(axb, l_offsets/1e5, cc_Cu_ζ; linewidth=1, label=L"(Cu,\overline{\zeta})", color = wcolors[3])
-    lines!(axc, l_offsets/1e5, -cc_S_δ; linewidth=1, label=L"(|\sigma_n|,-\overline{\delta})", color = wcolors[1])
+    lines!(axb, l_offsets/1e5, cc_S_ζ; linewidth=1, label=L"(|\sigma_n|,{\zeta}^s)", color = wcolors[2])
+    lines!(axb, l_offsets/1e5, cc_Cu_ζ; linewidth=1, label=L"(Cu,{\zeta}^s)", color = wcolors[3])
+    lines!(axc, l_offsets/1e5, -cc_S_δ; linewidth=1, label=L"(|\sigma_n|,-\delta^s)", color = wcolors[1])
     lines!(axc, l_offsets/1e5, cc_S_B; linewidth=1, label=L"(|\sigma_n|,\mathcal{F}_s)", color = wcolors[2])
-    lines!(axc, l_offsets/1e5, -cc_δ_B; linewidth=1, label=L"(-\overline{\delta},\mathcal{F}_s)", color = wcolors[3])
+    lines!(axc, l_offsets/1e5, -cc_δ_B; linewidth=1, label=L"(-\delta^s,\mathcal{F}_s)", color = wcolors[3])
     lines!(axd, l_offsets/1e5, cc_S_TKE; linewidth=1, label=L"(|\sigma_n|,\text{TKE})", color = wcolors[1])
     lines!(axd, l_offsets/1e5, cc_S_SKE; linewidth=1, label=L"(|\sigma_n|,\text{SKE})", color = wcolors[2])
     lines!(axd, l_offsets/1e5, cc_TKE_SKE; linewidth=1, label=L"(\text{TKE},\text{SKE})", color = wcolors[3])
@@ -970,7 +1088,7 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
 
     fig = Figure(size=(640, 540))
     axis_kwargs = (titlealign = :left, xgridvisible = false, ygridvisible = false)
-    axa = Axis3(fig[1, 1]; azimuth = -0.275 * pi, title=L"\text{(a)}", xlabel = L"-| \nabla \overline{b}|^2 \overline{\delta}/(M_0^4 f)", ylabel=L"\mathcal{F}_s/(M_0^4 f)", zlabel=L"\sigma_n/f", axis_kwargs...)
+    axa = Axis3(fig[1, 1]; azimuth = -0.275 * pi, title=L"\text{(a)}", xlabel = L"-| \nabla {b^s}|^2 \overline{\delta}/(M_0^4 f)", ylabel=L"\mathcal{F}_s/(M_0^4 f)", zlabel=L"\sigma_n/f", axis_kwargs...)
     axb = Axis3(fig[1, 2]; title=L"\text{(b)}", xlabel=L"\text{TKE}/w_*^2", ylabel=L"\mathcal{F}_s/(M_0^4 f)", axis_kwargs...)
     axc = Axis3(fig[2, 1]; title=L"\text{(c)}", xlabel=L"\text{SKE}/w_*^2", ylabel=L"\mathcal{F}_s/(M_0^4 f)", zlabel=L"\sigma_n/f", axis_kwargs...)
     axd = Axis3(fig[2, 2]; title=L"\text{(d)}", xlabel=L"\text{SKE}/w_*^2", ylabel=L"\text{TKE}/w_*^2", axis_kwargs...)
@@ -997,51 +1115,53 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     rowgap!(fig.layout, 1, 3)
     # colgap!(fig.layout, 2, 0)
     hidezdecorations!(axb, ticks=false)
-    hidezdecorations!(axd, ticks=false)
+    # hidezdecorations!(axd, ticks=false)
     resize_to_layout!(fig)
     save(filesave * "cfront_scatters_" * fileparam * "_$(iteration).pdf", fig; pt_per_unit = 1)
 
     return arclength/1e5, Sn, σn_cfront, h_cfront, cd_Cu[1], cd_Cu[2], ζ_cfront, δ_cfront, TKE_cfront, SKE_cfront
 end
 
-shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
-filename0 = "./hydrostatic_snapshots_init.jld2"
-snapshots = load_snapshots(filename0);
-v0 = snapshots[:v][1];
-T0 = snapshots[:T][1];
-xT, yT, zT = nodes(T0);
-initfile = "./hydrostatic_snapshots_free.jld2"
-initsnaps = load_snapshots(initfile)
-Ub = initsnaps[:u][1];
-Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
-xU,yU,zU = nodes(Ub);
-itpU = interpolate((xU,yU), interior(Ub, :, :, length(zU)), Gridded(Linear(Interpolations.Periodic())))
-etpU = extrapolate(itpU, Interpolations.Periodic())
-xV,yV,zV = nodes(Vb);
-itpV = interpolate((xV,yV), interior(Vb, :, :, length(zV)), Gridded(Linear(Interpolations.Periodic())))
-etpV = extrapolate(itpV, Interpolations.Periodic())
-σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
-xn,yn,zn = nodes(σn);
-itpn = interpolate((xn,yn), interior(σn, :, :, length(zn)), Gridded(Linear(Interpolations.Periodic())))
-etpn = extrapolate(itpn, Interpolations.Periodic())
+get_time_series(filehead,filesave)
 
-Nresample = 10240
-s3 = zeros(Float32, 3, Nresample)
-S3 = zeros(Float32, 3, Nresample)
-σ3 = zeros(Float32, 3, Nresample)
-d3 = zeros(Float32, 3, Nresample)
-h3 = zeros(Float32, 3, Nresample)
-C3 = zeros(Float32, 3, Nresample)
-ζ3 = zeros(Float32, 3, Nresample)
-δ3 = zeros(Float32, 3, Nresample)
-TKE3 = zeros(Float32, 3, Nresample)
-SKE3 = zeros(Float32, 3, Nresample)
+# shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
+# filename0 = "./hydrostatic_snapshots_init.jld2"
+# snapshots = load_snapshots(filename0);
+# v0 = snapshots[:v][1];
+# T0 = snapshots[:T][1];
+# xT, yT, zT = nodes(T0);
+# initfile = "./hydrostatic_snapshots_free.jld2"
+# initsnaps = load_snapshots(initfile)
+# Ub = initsnaps[:u][1];
+# Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
+# xU,yU,zU = nodes(Ub);
+# itpU = interpolate((xU,yU), interior(Ub, :, :, length(zU)), Gridded(Linear(Interpolations.Periodic())))
+# etpU = extrapolate(itpU, Interpolations.Periodic())
+# xV,yV,zV = nodes(Vb);
+# itpV = interpolate((xV,yV), interior(Vb, :, :, length(zV)), Gridded(Linear(Interpolations.Periodic())))
+# etpV = extrapolate(itpV, Interpolations.Periodic())
+# σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
+# xn,yn,zn = nodes(σn);
+# itpn = interpolate((xn,yn), interior(σn, :, :, length(zn)), Gridded(Linear(Interpolations.Periodic())))
+# etpn = extrapolate(itpn, Interpolations.Periodic())
 
-fileparam = "xband1sublevels"
-for (i, iteration) in enumerate([37003])
-    s3[i,:],S3[i,:],σ3[i,:],h3[i,:],d3[i,:],C3[i,:],ζ3[i,:],δ3[i,:],TKE3[i,:],SKE3[i,:] = plot_front_properties(filehead,fileparam,iteration,Nresample)
-    set_value!(; Lx = 1e5)
-end
+# Nresample = 10240
+# s3 = zeros(Float32, 3, Nresample)
+# S3 = zeros(Float32, 3, Nresample)
+# σ3 = zeros(Float32, 3, Nresample)
+# d3 = zeros(Float32, 3, Nresample)
+# h3 = zeros(Float32, 3, Nresample)
+# C3 = zeros(Float32, 3, Nresample)
+# ζ3 = zeros(Float32, 3, Nresample)
+# δ3 = zeros(Float32, 3, Nresample)
+# TKE3 = zeros(Float32, 3, Nresample)
+# SKE3 = zeros(Float32, 3, Nresample)
+
+# fileparam = "xband1sublevels"
+# for (i, iteration) in enumerate([37003])
+#     s3[i,:],S3[i,:],σ3[i,:],h3[i,:],d3[i,:],C3[i,:],ζ3[i,:],δ3[i,:],TKE3[i,:],SKE3[i,:] = plot_front_properties(filehead,fileparam,iteration,Nresample)
+#     set_value!(; Lx = 1e5)
+# end
 
 # jldopen(filesave * "along_front_" * fileparam * "_cg3hm_29h30h31h.jld2", "w") do file
 #     file["s"] = s3

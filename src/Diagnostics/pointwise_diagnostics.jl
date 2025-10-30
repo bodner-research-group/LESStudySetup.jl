@@ -704,16 +704,11 @@ function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=
         V̅_gpu = V̅
     end
     @info "Interpolated filtered fields at $(time() - t0)s..."
-    @info "Interpolated u̅_gpu size $(size(interior(u̅_gpu)))"     
-    du_dx = compute!(Field(∂x(u̅_gpu))) 
+    @info "Interpolated u̅_gpu size $(size(interior(u̅_gpu)))" 
+    
     du_dy = compute!(Field(∂y(u̅_gpu))) 
-    du_dz = compute!(Field(∂z(u̅_gpu))) 
-    dv_dx = compute!(Field(∂x(v̅_gpu))) 
-    dv_dy = compute!(Field(∂y(v̅_gpu))) 
-    dv_dz = compute!(Field(∂z(v̅_gpu))) 
-    dw_dx = compute!(Field(∂x(w̅_gpu))) 
+    dv_dy = compute!(Field(∂y(v̅_gpu)))
     dw_dy = compute!(Field(∂y(w̅_gpu))) 
-    dw_dz = compute!(Field(∂z(w̅_gpu)))   
     CUDA.pool_status()
 
     if !hy
@@ -736,30 +731,41 @@ function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=
         vˢ = compute!(Field(v̅_gpu - vᵃ))
         wˢ = compute!(Field(w̅_gpu - wᵃ))
         Bˢ = compute!(Field(B̅_gpu - Bᵃ))
-        uᵃwˢ = compute!(Field(uᵃ * wˢ))
-        vᵃwˢ = compute!(Field(vᵃ * wˢ))
-        wᵃuˢ = compute!(Field(wᵃ * (uˢ+U̅_gpu)))
-        wᵃvˢ = compute!(Field(wᵃ * (vˢ+V̅_gpu)))
         @info "submeso velocities and buoyancy done at $(time() - t0)s"
         CUDA.pool_status()
 
+        uᵃrep = Field{Face, Center, Center}(grid); set!(uᵃrep, repeat(varᵃ[1],1,512*2,1))
+        vᵃrep = Field{Center, Center, Center}(grid); set!(vᵃrep, repeat(varᵃ[2],1,512*2,1))
+        wᵃrep = Field{Center, Center, Face}(grid);   set!(wᵃrep, repeat(varᵃ[3],1,512*2,1))
+        Bᵃrep = Field{Center, Center, Center}(grid); set!(Bᵃrep, repeat(varᵃ[4],1,512*2,1))
+        CUDA.pool_status()
+
         # Compute Pᵃ
-        Pᵃₕ = compute!(Field(uᵃ * ((uˢ+U̅_gpu) * du_dx + (vˢ+V̅_gpu) * du_dy) + 
-                                vᵃ * ((uˢ+U̅_gpu) * dv_dx + (vˢ+V̅_gpu) * dv_dy)))
+        Pᵃₕ = compute!(Field(- uˢ * (uˢ+U̅_gpu) * ∂x(uᵃrep) - vˢ * (uˢ+U̅_gpu) * ∂x(vᵃrep)))
         @info "Transfer term Pᵃₕ done at $(time() - t0)s"
-        Pᵃᵥ = compute!(Field(uᵃwˢ * du_dz + vᵃwˢ * dv_dz +
-                             wᵃuˢ * dw_dx + wᵃvˢ * dw_dy + wˢ^2 * dw_dz))
+        Pᵃᵥg = compute!(Field(- vˢ * wˢ * ∂x(Bᵃrep) / f))
+        Pᵃᵥ = compute!(Field(- (uˢ * wˢ * ∂z(uᵃrep) + vˢ * wˢ * ∂z(vᵃrep) +
+                                wˢ * (uˢ+U̅_gpu) * ∂x(wᵃrep) + wˢ^2 * ∂z(wᵃrep))))
         @info "Transfer term Pᵃᵥ done at $(time() - t0)s"
         Pᵃ = compute!(Field(Pᵃₕ + Pᵃᵥ))
         @info "Transfer term Pᵃ done at $(time() - t0)s"
         CUDA.pool_status()
 
         # Compute averages of submeso velocities
-        uˢuˢ_avg = mean(uˢ^2, dims=2) #Field{Center, Center, Center}(grid)
-        uˢvˢ_avg = mean(uˢ*vˢ, dims=2)#Field{Center, Center, Center}(grid)
-        uˢwˢ_avg = mean(uˢ*wˢ, dims=2)#Field{Center, Center, Center}(grid)
-        vˢvˢ_avg = mean(vˢ^2, dims=2) #Field{Center, Center, Center}(grid)
-        vˢwˢ_avg = mean(vˢ*wˢ, dims=2)#Field{Center, Center, Center}(grid)
+        du_dx = compute!(Field(∂x(uˢ)))  
+        dv_dx = compute!(Field(∂x(vˢ))) 
+        dw_dx = compute!(Field(∂x(wˢ))) 
+        du_dz = compute!(Field(∂z(uˢ)))
+        dv_dz = compute!(Field(∂z(vˢ))) 
+        dw_dz = compute!(Field(∂z(wˢ))) 
+        uˢuˢ_avg = mean(uˢ * (uˢ+U̅_gpu), dims=2) #Field{Center, Center, Center}(grid)
+        uˢvˢ_avg = mean(uˢ * (vˢ+V̅_gpu), dims=2) #Field{Center, Center, Center}(grid)
+        uˢwˢ_avg = mean(uˢ * wˢ, dims=2)#Field{Center, Center, Center}(grid)
+        vˢuˢ_avg = mean(vˢ * (uˢ+U̅_gpu), dims=2) #Field{Center, Center, Center}(grid)
+        vˢvˢ_avg = mean(vˢ * (vˢ+V̅_gpu), dims=2) #Field{Center, Center, Center}(grid)
+        vˢwˢ_avg = mean(vˢ * wˢ, dims=2)#Field{Center, Center, Center}(grid)
+        wˢuˢ_avg = mean(wˢ * (uˢ+U̅_gpu), dims=2) #Field{Center, Center, Center}(grid)
+        wˢvˢ_avg = mean(wˢ * (vˢ+V̅_gpu), dims=2) #Field{Center, Center, Center}(grid)
         wˢwˢ_avg = mean(wˢ^2, dims=2) #Field{Center, Center, Face}(grid)
         # set!(uˢuˢ_avg, mean(uˢ^2, dims=2))
         # set!(uˢvˢ_avg, mean(uˢ*vˢ, dims=2))
@@ -772,9 +778,10 @@ function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=
 
         # Compute Pˢ
         Pˢₕ = compute!(Field(-(uˢuˢ_avg * du_dx + uˢvˢ_avg * du_dy  +
-                                uˢvˢ_avg * dv_dx + vˢvˢ_avg * dv_dy)))
+                                vˢuˢ_avg * dv_dx + vˢvˢ_avg * dv_dy)))
+        Pˢᵥg = compute!(Field(-(-uˢwˢ_avg * ∂y(Bˢ) + vˢwˢ_avg * ∂x(Bˢ))/f))
         Pˢᵥ = compute!(Field(-(uˢwˢ_avg * du_dz + vˢwˢ_avg * dv_dz + 
-                                uˢwˢ_avg * dw_dx + vˢwˢ_avg * dw_dy + wˢwˢ_avg * dw_dz)))
+                                wˢuˢ_avg * dw_dx + wˢvˢ_avg * dw_dy + wˢwˢ_avg * dw_dz)))
         Pˢ = compute!(Field(Pˢₕ + Pˢᵥ))
         @info "Transfer term Pˢ done at $(time() - t0)s"
         CUDA.pool_status()
@@ -864,8 +871,8 @@ function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=
     # --- Compute transfer (flux) terms using derivatives ---
     # Note: The derivative operators (∂x, ∂y, ∂z) are assumed to be available.
     # Πₕ: Horizontal transfer term.
-    Πₕ = compute!(Field(-(τuuₜ_gpu * du_dx + τvvₜ_gpu * dv_dy +
-                          τuvₜ_gpu * du_dy + τvuₜ_gpu * dv_dx)))
+    Πₕ = compute!(Field(-(τuuₜ_gpu * ∂x(u̅_gpu) + τvvₜ_gpu * dv_dy +
+                          τuvₜ_gpu * du_dy + τvuₜ_gpu * ∂x(v̅_gpu))))
 
     @info "Transfer term Πₕ done at $(time() - t0)s"
     CUDA.pool_status()
@@ -875,7 +882,8 @@ function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=
         Πᵥ = compute!(Field(-(τuw_gpu * ∂z(u̅_gpu) + τvw_gpu * ∂z(v̅_gpu))))
     else
         Πᵥ = compute!(Field(-(τuw_gpu * ∂z(u̅_gpu) + τvw_gpu * ∂z(v̅_gpu) +
-                              τww_gpu * ∂z(w̅_gpu) + τwuₜ_gpu * dw_dx + τwvₜ_gpu * dw_dy)))
+                              τww_gpu * ∂z(w̅_gpu) + τwuₜ_gpu * ∂x(w̅_gpu) + τwvₜ_gpu * dw_dy)))
+        Πᵥg = compute!(Field( -(-τuw_gpu * ∂y(B̅_gpu) + τvw_gpu * ∂x(B̅_gpu)) / f))
     end
     @info "Transfer term Πᵥ done at $(time() - t0)s"
     CUDA.pool_status()
@@ -886,7 +894,7 @@ function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=
         println("Transfer term Πδ done at $(time() - t0)s")
 
         # Πvgl: Flux transfer term associated with buoyancy gradients, scaled by 1/f.
-        Πvgl = compute!(Field( -(τuw * ∂z(-∂y(B̅)) + τvw * ∂z(∂x(B̅))) / f))
+        Πvgl = compute!(Field( -(-τuw * ∂y(B̅) + τvw * ∂x(B̅)) / f))
         println("Transfer term Πvgl done at $(time() - t0)s")
 
         return Πₕ, Πδ, Πᵥ, Πvgl
@@ -947,7 +955,7 @@ function coarse_grained_fluxes(snapshots, iU, iV, varᵃ; i=0, hy=false, kernel=
       #  w̅ʸ = itp2nodes(w̅ʸ)
       #  B̅ʸ = itp2nodes(B̅ʸ)
 
-        return (u̅,u̅ʸ), (v̅,v̅ʸ), (w̅,w̅ʸ), (B̅,B̅ʸ), g2c(uˢ), g2c(vˢ), g2c(wˢ), g2c(Bˢ), (τuu,τ̅uu), (τvv,τ̅vv), (τww,τ̅ww), (τwb,τ̅wb), g2c(Πₕ), g2c(Πᵥ), g2c(Pᵃ), g2c(Pˢ), g2c(Pᵀ), g2c(wˢbˢ)
+        return (u̅,u̅ʸ), (v̅,v̅ʸ), (w̅,w̅ʸ), (B̅,B̅ʸ), g2c(uˢ), g2c(vˢ), g2c(wˢ), g2c(Bˢ), (τuu,τ̅uu), (τvv,τ̅vv), (τww,τ̅ww), (τwb,τ̅wb), g2c(Πₕ), g2c(Πᵥ), g2c(Πᵥg), g2c(Pᵃ), g2c(Pᵃᵥg), g2c(Pˢ), g2c(Pˢᵥg), g2c(Pᵀ), g2c(wˢbˢ)
     end
 end
 
