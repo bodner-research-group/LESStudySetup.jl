@@ -14,15 +14,15 @@ set_theme!(theme_latexfonts(), fontsize=12,figure_padding = 10)
 const Ro   = 1.0
 const Bu   = 0.1
 const Fr   = Ro / Bu
-γ          = 0.00           # growth-rate parameter requested
+γ          = 0.03           # growth-rate parameter requested
 ϵ          = 0.00           # small parameter for geostrophic departure
-t_max      = 20.0           # blow-up time
+t_max      = 15.0           # blow-up time
 t_early    = 0.4            # diagnostic snapshot
 x_min,x_max = -4, 4
 z_min,z_max =  0.0, 1.0
 
 # computational grids (moderate resolution; raise if desired)
-nx, nz = 201, 101
+nx, nz = 301, 101
 x = collect(range(x_min, x_max; length = nx))   # <- make it a Vector!
 z = collect(range(z_min, z_max; length = nz))   # (z isn’t mutated, but keep symmetrical)
 dx = x[2] - x[1]
@@ -43,7 +43,7 @@ d2B0(X) = @. -X * exp(-0.5 * X^2) * invs2π
 # ------------------------------------------------------------------
 # 3.  Vectorised Newton solve for the mapping X(x,z,T)
 # ------------------------------------------------------------------
-function solve_X_vec(x_vec, z_val, T; γ = 0, ϵ = 0, maxiter = 50, tol = 1e-12)
+function solve_X_vec(x_vec, z_val, T; γ = 0, ϵ = 0, maxiter = 500, tol = 1e-12)
     eT = exp(γ*T)
     X  = eT .* x_vec                     # this is a Vector (mutable)
     A = (eT-ϵ*cos(sqrt(1-γ^2)*T)+γ*(ϵ-2)*sin(sqrt(1-γ^2)*T)/sqrt(1-γ^2))
@@ -200,7 +200,7 @@ if ϵ<1e-6
         save("figure3_bgvg.pdf", fig1; pt_per_unit = 1)
         #save("figure2_bgvg.png", fig1)
     else
-        dt = 0.2
+        dt = 0.1
         t_all = 0:dt:t_max
         nt = length(t_all)
         ψf, vf, bf, uf, wf = zeros(nt,nx,nz),zeros(nt,nx,nz),zeros(nt,nx,nz),zeros(nt,nx,nz),zeros(nt,nx,nz)
@@ -237,13 +237,13 @@ if ϵ<1e-6
 
         # Create figure and axis
         fig = Figure(size = (640, 640))
-        ax_b = Axis(fig[1, 1]; ylabel = L"d", limits = ((0,20),nothing), titlealign = :left, title = L"\text{(a)}")
-        ax_u = Axis(fig[2, 1]; ylabel = L"u", limits = ((0,20),nothing), titlealign = :left, title = L"\text{(b)}")
-        ax_v = Axis(fig[3, 1]; ylabel = L"v", limits = ((0,20),nothing), titlealign = :left, title = L"\text{(c)}")
-        ax_w = Axis(fig[4, 1]; xlabel = L"t", ylabel = L"w", limits = ((0,20),nothing), titlealign = :left, title = L"\text{(d)}")
+        ax_b = Axis(fig[1, 1]; ylabel = L"d", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(a)}")
+        ax_u = Axis(fig[2, 1]; ylabel = L"u", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(b)}")
+        ax_v = Axis(fig[3, 1]; ylabel = L"v", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(c)}")
+        ax_w = Axis(fig[4, 1]; xlabel = L"t", ylabel = L"w", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(d)}")
         lines!(ax_b, t_all, d1; label = "linear")
-        lines!(ax_b, t_all, df; label = "full")
-        lines!(ax_b, t_all, dsg; label = "SG")
+        lines!(ax_b, t_all, df; label = "ST13")
+        lines!(ax_b, t_all, dsg; label = "HB72")
         lines!(ax_u, t_all, u1f)
         lines!(ax_u, t_all, uff)
         lines!(ax_u, t_all, usg)
@@ -258,89 +258,88 @@ if ϵ<1e-6
         hidexdecorations!(ax_b, ticks=false)
         hidexdecorations!(ax_u, ticks=false)
         hidexdecorations!(ax_v, ticks=false)
-        for i = 1:3
-            rowgap!(fig.layout, i, Relative(0))
-        end
+        rowgap!(fig.layout, 0.2)
         resize_to_layout!(fig)
-        save("filament_duvw.pdf", fig; pt_per_unit = 1)
+        save("duvw_front.pdf", fig; pt_per_unit = 1)
+        println("Time series saved to front_duvw.pdf")
 
-        alphabet = [letter for letter in 'a':'z'];
-        fig = Figure(size = (640, 750))
-        axis_kwargs = (titlealign = :left, titlefont=texfont(), limits = ((-4,4),(0,1)))
-        for i = 1:4
-            ax_1 = Axis(fig[i, 1]; ylabel = L"z", title = "("*alphabet[2*(i-1)+1]*") ", axis_kwargs...)
-            ax_2 = Axis(fig[i, 2]; title = "("*alphabet[2*(i-1)+2]*") ", axis_kwargs...)
-            if i < 4
-                hidexdecorations!(ax_1, ticks=false)
-                hidexdecorations!(ax_2, ticks=false)
-            else
-                ax_1.xlabel = L"x"
-                ax_2.xlabel = L"x"
-            end
-            hideydecorations!(ax_2, ticks=false) 
-            idx = 1+Int((i-1)*5÷dt)
-            cphi = (-0.02, 0.02)
-            hm_1 = heatmap!(ax_1, x, z, γ * ψ1[idx,:,:], colorrange = cphi, colormap = :PuOr)
-            hm_2 = heatmap!(ax_2, x, z, ψf[idx,:,:], colorrange = cphi, colormap = :PuOr)
-            Colorbar(fig[i, 3], hm_1)
-            clevels=-0.4:0.1:0.4
-            ct_1 = contour!(ax_1, x, z, b_e .+ γ * b1[idx,:,:]; levels = clevels, linewidth = 1, color = :black)
-            ct_2 = contour!(ax_2, x, z, bf[idx,:,:];levels = clevels, linewidth = 1, color = :black)
-        end
-        for i = 1:3
-            rowgap!(fig.layout, i, Relative(0))
-        end
-        colgap!(fig.layout, 2, Relative(0))
-        resize_to_layout!(fig)
-        save("filament_phib.pdf", fig; pt_per_unit = 1)
+        # alphabet = [letter for letter in 'a':'z'];
+        # fig = Figure(size = (640, 750))
+        # axis_kwargs = (titlealign = :left, titlefont=texfont(), limits = ((-4,4),(0,1)))
+        # for i = 1:4
+        #     ax_1 = Axis(fig[i, 1]; ylabel = L"z", title = "("*alphabet[2*(i-1)+1]*") ", axis_kwargs...)
+        #     ax_2 = Axis(fig[i, 2]; title = "("*alphabet[2*(i-1)+2]*") ", axis_kwargs...)
+        #     if i < 4
+        #         hidexdecorations!(ax_1, ticks=false)
+        #         hidexdecorations!(ax_2, ticks=false)
+        #     else
+        #         ax_1.xlabel = L"x"
+        #         ax_2.xlabel = L"x"
+        #     end
+        #     hideydecorations!(ax_2, ticks=false) 
+        #     idx = 1+Int((i-1)*5÷dt)
+        #     cphi = (-0.02, 0.02)
+        #     hm_1 = heatmap!(ax_1, x, z, γ * ψ1[idx,:,:], colorrange = cphi, colormap = :PuOr)
+        #     hm_2 = heatmap!(ax_2, x, z, ψf[idx,:,:], colorrange = cphi, colormap = :PuOr)
+        #     Colorbar(fig[i, 3], hm_1)
+        #     clevels=-0.4:0.1:0.4
+        #     ct_1 = contour!(ax_1, x, z, b_e .+ γ * b1[idx,:,:]; levels = clevels, linewidth = 1, color = :black)
+        #     ct_2 = contour!(ax_2, x, z, bf[idx,:,:];levels = clevels, linewidth = 1, color = :black)
+        # end
+        # for i = 1:3
+        #     rowgap!(fig.layout, i, Relative(0))
+        # end
+        # colgap!(fig.layout, 2, Relative(0))
+        # resize_to_layout!(fig)
+        # save("front_phib.pdf", fig; pt_per_unit = 1)
 
-        # Create figure and axis
-        fig = Figure(size = (640, 640))
-        ax_b = Axis(fig[1, 1]; ylabel = L"z", titlealign = :left, title = L"\text{(a) 1st-order buoyancy}~b^1")
-        ax_v = Axis(fig[2, 1]; ylabel = L"z", titlealign = :left, title = L"\text{(b) 1st-order velocity}~v^1")
-        ax_ψ = Axis(fig[3, 1]; xlabel = L"x", ylabel = L"z", titlealign = :left, title = L"\text{(c) 1st-order streamfunction}~\psi^1")
-        hidexdecorations!(ax_b, ticks = false)
-        hidexdecorations!(ax_v, ticks = false)
+        # # Create figure and axis
+        # fig = Figure(size = (640, 640))
+        # ax_b = Axis(fig[1, 1]; ylabel = L"z", titlealign = :left, title = L"\text{(a) 1st-order buoyancy}~b^1")
+        # ax_v = Axis(fig[2, 1]; ylabel = L"z", titlealign = :left, title = L"\text{(b) 1st-order velocity}~v^1")
+        # ax_ψ = Axis(fig[3, 1]; xlabel = L"x", ylabel = L"z", titlealign = :left, title = L"\text{(c) 1st-order streamfunction}~\psi^1")
+        # hidexdecorations!(ax_b, ticks = false)
+        # hidexdecorations!(ax_v, ticks = false)
 
-        # Create the heatmap
-        hm_b = heatmap!(ax_b, x, z, b1[1,:,:], colorrange = (-5,5), colormap = :diff)
-        hm_v = heatmap!(ax_v, x, z, v1[1,:,:], colorrange = (-2,2), colormap = :delta)
-        hm_ψ = heatmap!(ax_ψ, x, z, ψ1[1,:,:], colorrange = (-0.2, 0.2), colormap = :PuOr)
-        levels=-0.4:0.1:0.4
-        ct_b = contour!(ax_b, x, z, b_e .+ γ * b1[1,:,:]; levels = levels, linewidth = 1, color = :black)
-        ct_v = contour!(ax_v, x, z, b_e .+ γ * b1[1,:,:]; levels = levels, linewidth = 1, color = :black)
-        ct_ψ = contour!(ax_ψ, x, z, b_e .+ γ * b1[1,:,:]; levels = levels, linewidth = 1, color = :black)
+        # # Create the heatmap
+        # hm_b = heatmap!(ax_b, x, z, b1[1,:,:], colorrange = (-5,5), colormap = :diff)
+        # hm_v = heatmap!(ax_v, x, z, v1[1,:,:], colorrange = (-2,2), colormap = :delta)
+        # hm_ψ = heatmap!(ax_ψ, x, z, ψ1[1,:,:], colorrange = (-0.2, 0.2), colormap = :PuOr)
+        # levels=-0.4:0.1:0.4
+        # ct_b = contour!(ax_b, x, z, b_e .+ γ * b1[1,:,:]; levels = levels, linewidth = 1, color = :black)
+        # ct_v = contour!(ax_v, x, z, b_e .+ γ * b1[1,:,:]; levels = levels, linewidth = 1, color = :black)
+        # ct_ψ = contour!(ax_ψ, x, z, b_e .+ γ * b1[1,:,:]; levels = levels, linewidth = 1, color = :black)
 
-        # Add colorbar
-        Colorbar(fig[1, 2], hm_b)
-        Colorbar(fig[2, 2], hm_v)
-        Colorbar(fig[3, 2], hm_ψ)
+        # # Add colorbar
+        # Colorbar(fig[1, 2], hm_b)
+        # Colorbar(fig[2, 2], hm_v)
+        # Colorbar(fig[3, 2], hm_ψ)
 
-        # Add title
-        title_obs = Observable(@sprintf("t=%.2f", t_all[1]))
-        fig[0, :] = Label(fig, title_obs, fontsize = 20)
-        colgap!(fig.layout, 1, Relative(0))
-        for i = 1:3
-            rowgap!(fig.layout, i, Relative(0))
-        end
-        resize_to_layout!(fig)
+        # # Add title
+        # title_obs = Observable(@sprintf("t=%.2f", t_all[1]))
+        # fig[0, :] = Label(fig, title_obs, fontsize = 20)
+        # colgap!(fig.layout, 1, Relative(0))
+        # for i = 1:3
+        #     rowgap!(fig.layout, i, Relative(0))
+        # end
+        # resize_to_layout!(fig)
 
-        # Create animation
-        record(fig, "b1v1psi1_evolution_linear.gif", 1:nt; framerate = 10) do i
-            t = t_all[i]
+        # # Create animation
+        # record(fig, "b1v1psi1_evolution_linear.gif", 1:nt; framerate = 10) do i
+        #     t = t_all[i]
             
-            # Update the heatmap data
-            hm_b[3] = b1[i,:,:]
-            hm_v[3] = v1[i,:,:]
-            hm_ψ[3] = ψ1[i,:,:]
-            ct_b[3] = b_e .+ γ * b1[i,:,:]
-            ct_v[3] = b_e .+ γ * b1[i,:,:]
-            ct_ψ[3] = b_e .+ γ * b1[i,:,:]
+        #     # Update the heatmap data
+        #     hm_b[3] = b1[i,:,:]
+        #     hm_v[3] = v1[i,:,:]
+        #     hm_ψ[3] = ψ1[i,:,:]
+        #     ct_b[3] = b_e .+ γ * b1[i,:,:]
+        #     ct_v[3] = b_e .+ γ * b1[i,:,:]
+        #     ct_ψ[3] = b_e .+ γ * b1[i,:,:]
             
-            # Update the title
-            title_obs[] = @sprintf("t=%.2f", t)
-        end
-        println("Animation saved to b1v1psi1_evolution_linear.gif")
+        #     # Update the title
+        #     title_obs[] = @sprintf("t=%.2f", t)
+        # end
+        # println("Animation saved to b1v1psi1_evolution_linear.gif")
 
     end
 else

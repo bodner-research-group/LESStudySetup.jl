@@ -1003,36 +1003,43 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     limits = ((0, arclength[end]/1e5),nothing)
     axis_kwargs = (limits, xgridvisible = false,ygridvisible = false)
     axa = Axis(fig[1, 1]; titlealign = :left, title=L"\text{(a)}", ylabel=L"S_n/f", yticklabelcolor = wcolors[1], axis_kwargs...)
-    axa2 = Axis(fig[1, 1]; ylabel=L"\sigma_n/f", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
+    axa2 = Axis(fig[1, 1]; ylabel=L"\sigma_n/f", yticklabelcolor = :red, yaxisposition = :right, axis_kwargs...)
     hidespines!(axa2);hidexdecorations!(axa2);
     axb = Axis(fig[2, 1]; titlealign = :left, title=L"\text{(b)}", ylabel=L"h/h_0", yticklabelcolor = wcolors[1], axis_kwargs...)
-    axb2 = Axis(fig[2, 1]; ylabel=L"d/d_0", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
+    axb2 = Axis(fig[2, 1]; ylabel=L"d/d_0", yticklabelcolor = :red, yaxisposition = :right, axis_kwargs...)
     hidespines!(axb2);hidexdecorations!(axb2);
     axc = Axis(fig[3, 1]; titlealign = :left, title=L"\text{(c)}", ylabel=L"Cu", yticklabelcolor = wcolors[1], axis_kwargs...)
-    axc2 = Axis(fig[3, 1]; ylabel=L"{\zeta}^s/f", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
+    axc2 = Axis(fig[3, 1]; ylabel=L"{\zeta}^s/f", yticklabelcolor = :red, yaxisposition = :right, axis_kwargs...)
     hidespines!(axc2);hidexdecorations!(axc2);
     axd = Axis(fig[4, 1]; titlealign = :left, title=L"\text{(d)}", ylabel=L"{\delta}^s/f", yticklabelcolor = wcolors[1], axis_kwargs...)
-    axd2 = Axis(fig[4, 1]; ylabel=L"\mathcal{F}_s/(f M_0^4)", yticklabelcolor = wcolors[2], yaxisposition = :right, axis_kwargs...)
+    axd2 = Axis(fig[4, 1]; ylabel=L"\mathcal{F}_s/(f M_0^4)", yticklabelcolor = :red, yaxisposition = :right, axis_kwargs...)
     hidespines!(axd2);hidexdecorations!(axd2);
     axe = Axis(fig[5, 1]; titlealign = :left, title=L"\text{(e)}", xlabel=L"s/L_y", ylabel=L"\text{TKE}/w_*^2", yticklabelcolor = wcolors[1], axis_kwargs...)
-    axe2 = Axis(fig[5, 1]; ylabel=L"\text{SKE}/w_*^2", yticklabelcolor = wcolors[2], yaxisposition = :right,axis_kwargs...)
+    axe2 = Axis(fig[5, 1]; ylabel=L"\text{SKE}/w_*^2", yticklabelcolor = :red, yaxisposition = :right,axis_kwargs...)
     hidexdecorations!(axa, ticks=false)
     hidexdecorations!(axb, ticks=false)
     hidexdecorations!(axc, ticks=false)
     hidexdecorations!(axd, ticks=false)
-    Sn_coarse, s_coarse = coarsen_binned_vectorized(Sn, arclength, 256)
+    # Sn_coarse, s_coarse = coarsen_binned_vectorized(Sn, arclength, 256)
     lines!(axa, arclength/1e5, Sn/f; linewidth=1, color = wcolors[1])
-    lines!(axa, s_coarse/1e5, Sn_coarse/f; linewidth=1, color = wcolors[1], linestyle = :dash)
-    lines!(axa2, arclength/1e5, σn_cfront/f; linewidth=1, color = wcolors[2])
+    # lines!(axa, s_coarse/1e5, Sn_coarse/f; linewidth=1, color = wcolors[1], linestyle = :dash)
+    lines!(axa2, arclength/1e5, σn_cfront/f; linewidth=1, color = :red)
     lines!(axb, arclength/1e5, h_cfront/60; linewidth=1, color = wcolors[1])
-    lines!(axb2, arclength/1e5, cd_Cu[1]/2e3; linewidth=1, color = wcolors[2])
+    lines!(axb2, arclength/1e5, cd_Cu[1]/2e3; linewidth=1, color = :red)
     lines!(axc, arclength/1e5, Cu; linewidth=1, color = wcolors[1])
-    lines!(axc2, arclength/1e5, ζ_cfront/f; linewidth=1, color = wcolors[2])
+    lines!(axc2, arclength/1e5, ζ_cfront/f; linewidth=1, color = :red)
     lines!(axd, arclength/1e5, δ_cfront/f; linewidth=1, color = wcolors[1])
-    lines!(axd2, arclength/1e5, B_cfront/(f*M²₀^2); linewidth=1, color = wcolors[2])
+    lines!(axd2, arclength/1e5, B_cfront/(f*M²₀^2); linewidth=1, color = :red)
     lines!(axe, arclength/1e5, TKE_cfront; linewidth=1, color = wcolors[1])
     #lines!(axe, arclength/1e5, Ew_cfront/wₛ^2; linewidth=1, color = wcolors[1], linestyle = :dash)
-    lines!(axe2, arclength/1e5, SKE_cfront; linewidth=1, color = wcolors[2])
+    lines!(axe2, arclength/1e5, SKE_cfront; linewidth=1, color = :red)
+    iminarc = argmin(σn_cfront)
+    vlines!(axa, arclength[iminarc]/1e5, color=:grey)
+    vlines!(axb, arclength[iminarc]/1e5, color=:grey)
+    vlines!(axc, arclength[iminarc]/1e5, color=:grey)
+    vlines!(axd, arclength[iminarc]/1e5, color=:grey)
+    vlines!(axe, arclength[iminarc]/1e5, color=:grey)
+
     rowgap!(fig.layout, 3)
     resize_to_layout!(fig)
     save(filesave * "along_front_" * fileparam * "_$(iteration).pdf", fig; pt_per_unit = 1)
@@ -1067,16 +1074,16 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     hidexdecorations!(axc, ticks=false)
     lines!(axa, l_offsets/1e5, cc_S_h; linewidth=1, label=L"(\sigma_n,h)", color = wcolors[1])
     lines!(axa, l_offsets/1e5, -cc_S_d; linewidth=1, label=L"(\sigma_n,-d)", color = wcolors[2])
-    lines!(axa, l_offsets/1e5, -cc_h_d; linewidth=1, label=L"(h,-d)", color = wcolors[3])
+    lines!(axa, l_offsets/1e5, -cc_h_d; linewidth=1, label=L"(h,-d)", color = :red)
     lines!(axb, l_offsets/1e5, cc_S_Cu; linewidth=1, label=L"(|\sigma_n|,Cu)", color = wcolors[1])
     lines!(axb, l_offsets/1e5, cc_S_ζ; linewidth=1, label=L"(|\sigma_n|,{\zeta}^s)", color = wcolors[2])
-    lines!(axb, l_offsets/1e5, cc_Cu_ζ; linewidth=1, label=L"(Cu,{\zeta}^s)", color = wcolors[3])
+    lines!(axb, l_offsets/1e5, cc_Cu_ζ; linewidth=1, label=L"(Cu,{\zeta}^s)", color = :red)
     lines!(axc, l_offsets/1e5, -cc_S_δ; linewidth=1, label=L"(|\sigma_n|,-\delta^s)", color = wcolors[1])
     lines!(axc, l_offsets/1e5, cc_S_B; linewidth=1, label=L"(|\sigma_n|,\mathcal{F}_s)", color = wcolors[2])
-    lines!(axc, l_offsets/1e5, -cc_δ_B; linewidth=1, label=L"(-\delta^s,\mathcal{F}_s)", color = wcolors[3])
+    lines!(axc, l_offsets/1e5, -cc_δ_B; linewidth=1, label=L"(-\delta^s,\mathcal{F}_s)", color = :red)
     lines!(axd, l_offsets/1e5, cc_S_TKE; linewidth=1, label=L"(|\sigma_n|,\text{TKE})", color = wcolors[1])
     lines!(axd, l_offsets/1e5, cc_S_SKE; linewidth=1, label=L"(|\sigma_n|,\text{SKE})", color = wcolors[2])
-    lines!(axd, l_offsets/1e5, cc_TKE_SKE; linewidth=1, label=L"(\text{TKE},\text{SKE})", color = wcolors[3])
+    lines!(axd, l_offsets/1e5, cc_TKE_SKE; linewidth=1, label=L"(\text{TKE},\text{SKE})", color = :red)
 
     for ax in [axa, axb, axc, axd]
         fill_between!(ax, l_offsets/1e5, lower_bound, upper_bound; color=:black, alpha=0.5)
@@ -1122,46 +1129,46 @@ function plot_front_properties(filehead,fileparam,iteration,Nresample;use_gpu=tr
     return arclength/1e5, Sn, σn_cfront, h_cfront, cd_Cu[1], cd_Cu[2], ζ_cfront, δ_cfront, TKE_cfront, SKE_cfront
 end
 
-get_time_series(filehead,filesave)
+# get_time_series(filehead,filesave)
 
-# shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
-# filename0 = "./hydrostatic_snapshots_init.jld2"
-# snapshots = load_snapshots(filename0);
-# v0 = snapshots[:v][1];
-# T0 = snapshots[:T][1];
-# xT, yT, zT = nodes(T0);
-# initfile = "./hydrostatic_snapshots_free.jld2"
-# initsnaps = load_snapshots(initfile)
-# Ub = initsnaps[:u][1];
-# Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
-# xU,yU,zU = nodes(Ub);
-# itpU = interpolate((xU,yU), interior(Ub, :, :, length(zU)), Gridded(Linear(Interpolations.Periodic())))
-# etpU = extrapolate(itpU, Interpolations.Periodic())
-# xV,yV,zV = nodes(Vb);
-# itpV = interpolate((xV,yV), interior(Vb, :, :, length(zV)), Gridded(Linear(Interpolations.Periodic())))
-# etpV = extrapolate(itpV, Interpolations.Periodic())
-# σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
-# xn,yn,zn = nodes(σn);
-# itpn = interpolate((xn,yn), interior(σn, :, :, length(zn)), Gridded(Linear(Interpolations.Periodic())))
-# etpn = extrapolate(itpn, Interpolations.Periodic())
+shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
+filename0 = "./hydrostatic_snapshots_init.jld2"
+snapshots = load_snapshots(filename0);
+v0 = snapshots[:v][1];
+T0 = snapshots[:T][1];
+xT, yT, zT = nodes(T0);
+initfile = "./hydrostatic_snapshots_free.jld2"
+initsnaps = load_snapshots(initfile)
+Ub = initsnaps[:u][1];
+Vb = compute!(Field(initsnaps[:v][1] - snapshots[:v][1]));
+xU,yU,zU = nodes(Ub);
+itpU = interpolate((xU,yU), interior(Ub, :, :, length(zU)), Gridded(Linear(Interpolations.Periodic())))
+etpU = extrapolate(itpU, Interpolations.Periodic())
+xV,yV,zV = nodes(Vb);
+itpV = interpolate((xV,yV), interior(Vb, :, :, length(zV)), Gridded(Linear(Interpolations.Periodic())))
+etpV = extrapolate(itpV, Interpolations.Periodic())
+σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
+xn,yn,zn = nodes(σn);
+itpn = interpolate((xn,yn), interior(σn, :, :, length(zn)), Gridded(Linear(Interpolations.Periodic())))
+etpn = extrapolate(itpn, Interpolations.Periodic())
 
-# Nresample = 10240
-# s3 = zeros(Float32, 3, Nresample)
-# S3 = zeros(Float32, 3, Nresample)
-# σ3 = zeros(Float32, 3, Nresample)
-# d3 = zeros(Float32, 3, Nresample)
-# h3 = zeros(Float32, 3, Nresample)
-# C3 = zeros(Float32, 3, Nresample)
-# ζ3 = zeros(Float32, 3, Nresample)
-# δ3 = zeros(Float32, 3, Nresample)
-# TKE3 = zeros(Float32, 3, Nresample)
-# SKE3 = zeros(Float32, 3, Nresample)
+Nresample = 10240
+s3 = zeros(Float32, 3, Nresample)
+S3 = zeros(Float32, 3, Nresample)
+σ3 = zeros(Float32, 3, Nresample)
+d3 = zeros(Float32, 3, Nresample)
+h3 = zeros(Float32, 3, Nresample)
+C3 = zeros(Float32, 3, Nresample)
+ζ3 = zeros(Float32, 3, Nresample)
+δ3 = zeros(Float32, 3, Nresample)
+TKE3 = zeros(Float32, 3, Nresample)
+SKE3 = zeros(Float32, 3, Nresample)
 
-# fileparam = "xband1sublevels"
-# for (i, iteration) in enumerate([37003])
-#     s3[i,:],S3[i,:],σ3[i,:],h3[i,:],d3[i,:],C3[i,:],ζ3[i,:],δ3[i,:],TKE3[i,:],SKE3[i,:] = plot_front_properties(filehead,fileparam,iteration,Nresample)
-#     set_value!(; Lx = 1e5)
-# end
+fileparam = "xband1sublevels"
+for (i, iteration) in enumerate([37003])
+    s3[i,:],S3[i,:],σ3[i,:],h3[i,:],d3[i,:],C3[i,:],ζ3[i,:],δ3[i,:],TKE3[i,:],SKE3[i,:] = plot_front_properties(filehead,fileparam,iteration,Nresample)
+    set_value!(; Lx = 1e5)
+end
 
 # jldopen(filesave * "along_front_" * fileparam * "_cg3hm_29h30h31h.jld2", "w") do file
 #     file["s"] = s3

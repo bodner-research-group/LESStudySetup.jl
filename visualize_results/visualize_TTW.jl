@@ -281,7 +281,7 @@ function compute_b1v1_field(x, z, Ro, Fb, Fv, ψ¹ₚ, ϕ12s, t)
     return b_field, v_field
 end
 
-function compute_T1b_field(x, z, Ro, Fb, Fv, ψ¹ₚ, ϕ12s, t; dt = 0.01)
+function compute_T1b_field(x, z, Ro, Fb, Fv, ψ¹ₚ, ϕ12s, t; γ̃ = 1, dt = 0.001)
     dx, dz = x[2] - x[1], z[2] - z[1]
     _, ϕxz, _ = ϕ12s[1], ϕ12s[2], ϕ12s[3]
     ψ¹ₚz = central_diff(ψ¹ₚ, dz, 2)
@@ -291,22 +291,34 @@ function compute_T1b_field(x, z, Ro, Fb, Fv, ψ¹ₚ, ϕ12s, t; dt = 0.01)
     b1⁺dx = central_diff(b1⁺, dx, 1)
     b1⁻dx = central_diff(b1⁻, dx, 1)
 
-    T¹b = ϕxz .* (b1⁺dx .- b1⁻dx) / (2*dt)
-    T¹b .+= 0.5*((ψ¹ₚz .- reshape(x,:,1)) .* central_diff(ϕxz.^2, dx, 1) .- ψ¹ₚx .* central_diff(ϕxz.^2, dz, 2))
+    T¹b = ϕxz .* (b1⁺dx .- b1⁻dx) / (2*dt) / Ro
+    T¹b .+= 0.5*((ψ¹ₚz .- γ̃ / Ro * reshape(x,:,1)) .* central_diff(ϕxz.^2, dx, 1) .- ψ¹ₚx .* central_diff(ϕxz.^2, dz, 2))
 
     return T¹b
 end
 
-function compute_bVbH_fields(x, z, Ro, b0, ε, Fbs, Fvs, ψ¹ₚ, ϕ12s, t)
-    b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1], Fvs[1], ψ¹ₚ, ϕ12s, t)
-    bV = b0 .+ ε * b1
-    b1, _ = compute_b1v1_field(x, z, Ro, Fbs[2], Fvs[2], ψ¹ₚ, ϕ12s, t)
-    bH = b0 .+ ε * b1
+function compute_bVbH_fields(x, z, Ro, b0, ε, Fbs, Fvs, ψ¹ₚs, ϕ12s, t; ψ¹ₚγ = nothing, γ = 0.03)
+    if isnothing(ψ¹ₚγ)
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1], 0.0*Fvs[1], ψ¹ₚs[1], ϕ12s, t)
+        bV = b0 .+ ε * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[2], 0.0*Fvs[2], ψ¹ₚs[2], ϕ12s, t)
+        bH = b0 .+ ε * b1
 
-    b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1], Fvs[1], -ψ¹ₚ, ϕ12s, t)
-    bVv = b0 .+ ε * b1
-    b1, _ = compute_b1v1_field(x, z, Ro, Fbs[2], Fvs[2], -ψ¹ₚ, ϕ12s, t)
-    bHv = b0 .+ ε * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, 0.0*Fbs[1], Fvs[1], -ψ¹ₚs[1], ϕ12s, t)
+        bVv = b0 .+ ε * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, 0.0*Fbs[2], Fvs[2], -ψ¹ₚs[2], ϕ12s, t)
+        bHv = b0 .+ ε * b1
+    else
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1], 0.0*Fvs[1], ψ¹ₚγ .+ ε/γ * ψ¹ₚs[1], ϕ12s, t)
+        bV = b0 .+ γ * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[2], 0.0*Fvs[2], ψ¹ₚγ .+ ε/γ * ψ¹ₚs[2], ϕ12s, t)
+        bH = b0 .+ γ * b1
+
+        b1, _ = compute_b1v1_field(x, z, Ro, 0.0*Fbs[1], Fvs[1], ψ¹ₚγ .- ε/γ * ψ¹ₚs[1], ϕ12s, t)
+        bVv = b0 .+ γ * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, 0.0*Fbs[2], Fvs[2], ψ¹ₚγ .- ε/γ * ψ¹ₚs[2], ϕ12s, t)
+        bHv = b0 .+ γ * b1
+    end
     return bV, bH, bVv, bHv
 end
 
@@ -429,8 +441,8 @@ b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, Fγb_erf, Fγv_erf, psi1_erf_strai
 b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, Fγb_gauss, Fγv_gauss, psi1_gauss_strain, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 bγ_erf, vγ_erf = b_erf .+ γ * b1_erf, v_erf .+ γ * v1_erf
 bγ_gauss, vγ_gauss = b_gauss .+ γ * b1_gauss, v_gauss .+ γ * v1_gauss
-T¹b_erf = compute_T1b_field(x, z, Ro, bγ_erf, vγ_erf, psi1_erf_strain, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-T¹b_gauss = compute_T1b_field(x, z, Ro, bγ_gauss, vγ_gauss, psi1_gauss_strain, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+T¹b_erf = compute_T1b_field(x, z, Ro, Fγb_erf, Fγv_erf, psi1_erf_strain, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
+T¹b_gauss = compute_T1b_field(x, z, Ro, Fγb_gauss, Fγv_gauss, psi1_gauss_strain, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 figγ = Figure(size = (640, 650));
 gab = figγ[1, 1] = GridLayout()
 ax_a  = Axis(gab[1,1], ylabel = L"z",
@@ -493,21 +505,21 @@ colgap!(gab, 3, 3)
 resize_to_layout!(figγ)
 
 ε = 0.03
-b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, ϕzzz_erf, ϕxzz_erf, psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, ϕzzz_gauss, ϕxzz_gauss, psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, ϕzzz_erf, 0.0*ϕxzz_erf, psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
+b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, ϕzzz_gauss, 0.0*ϕxzz_gauss, psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 bV_erf, vV_erf = b_erf .+ ε * b1_erf, v_erf .+ ε * v1_erf
 bV_gauss, vV_gauss = b_gauss .+ ε * b1_gauss, v_gauss .+ ε * v1_gauss
-b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, ϕxxx_erf, ϕzxx_erf, psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, ϕxxx_gauss, ϕzxx_gauss, psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, ϕzxx_erf, 0.0*ϕxxx_erf, psi1_erf_new, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
+b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, ϕzxx_gauss, 0.0*ϕxxx_gauss, psi1_gauss_new, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 bH_erf, vH_erf = b_erf .+ ε * b1_erf, v_erf .+ ε * v1_erf
 bH_gauss, vH_gauss = b_gauss .+ ε * b1_gauss, v_gauss .+ ε * v1_gauss
 
-b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, ϕzzz_erf, ϕxzz_erf, -psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, ϕzzz_gauss, ϕxzz_gauss, -psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, 0.0*ϕzzz_erf, ϕxzz_erf, -psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
+b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, 0.0*ϕzzz_gauss, ϕxzz_gauss, -psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 bVv_erf, vVv_erf = b_erf .+ ε * b1_erf, v_erf .+ ε * v1_erf
 bVv_gauss, vVv_gauss = b_gauss .+ ε * b1_gauss, v_gauss .+ ε * v1_gauss
-b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, ϕxxx_erf, ϕzxx_erf, -psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, ϕxxx_gauss, ϕzxx_gauss, -psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, 0.0*ϕzxx_erf, ϕxxx_erf, -psi1_erf_new, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
+b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, 0.0*ϕzxx_gauss, ϕxxx_gauss, -psi1_gauss_new, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 bHv_erf, vHv_erf = b_erf .+ ε * b1_erf, v_erf .+ ε * v1_erf
 bHv_gauss, vHv_gauss = b_gauss .+ ε * b1_gauss, v_gauss .+ ε * v1_gauss
 
@@ -593,14 +605,14 @@ colgap!(gab, 2, 10)
 colgap!(gab, 3, 3)
 resize_to_layout!(figv)
 
-T¹bV_erf = compute_T1b_field(x, z, Ro, bV_erf, vV_erf, psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-T¹bV_gauss = compute_T1b_field(x, z, Ro, bV_gauss, vV_gauss, psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
-T¹bH_erf = compute_T1b_field(x, z, Ro, bH_erf, vH_erf, psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-T¹bH_gauss = compute_T1b_field(x, z, Ro, bH_gauss, vH_gauss, psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
-T¹bVv_erf = compute_T1b_field(x, z, Ro, bVv_erf, vVv_erf, -psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-T¹bVv_gauss = compute_T1b_field(x, z, Ro, bVv_gauss, vVv_gauss, -psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
-T¹bHv_erf = compute_T1b_field(x, z, Ro, bHv_erf, vHv_erf, -psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-T¹bHv_gauss = compute_T1b_field(x, z, Ro, bHv_gauss, vHv_gauss, -psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+T¹bV_erf = compute_T1b_field(x, z, Ro, ϕzzz_erf, 0.0*ϕxzz_erf, psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t; γ̃ = 0.0)
+T¹bV_gauss = compute_T1b_field(x, z, Ro, ϕzzz_gauss, 0.0*ϕxzz_gauss, psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t; γ̃ = 0.0)
+T¹bH_erf = compute_T1b_field(x, z, Ro, ϕzxx_erf, 0.0*ϕxxx_erf, psi1_erf_new, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t; γ̃ = 0.0)
+T¹bH_gauss = compute_T1b_field(x, z, Ro, ϕzxx_gauss, 0.0*ϕxxx_gauss, psi1_gauss_new, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t; γ̃ = 0.0)
+T¹bVv_erf = compute_T1b_field(x, z, Ro, 0.0*ϕzzz_erf, ϕxzz_erf, -psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t; γ̃ = 0.0)
+T¹bVv_gauss = compute_T1b_field(x, z, Ro, 0.0*ϕzzz_gauss, ϕxzz_gauss, -psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t; γ̃ = 0.0)
+T¹bHv_erf = compute_T1b_field(x, z, Ro, 0.0*ϕzxx_erf, ϕxxx_erf, -psi1_erf_new, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t; γ̃ = 0.0)
+T¹bHv_gauss = compute_T1b_field(x, z, Ro, 0.0*ϕzxx_gauss, ϕxxx_gauss, -psi1_gauss_new, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t; γ̃ = 0.0)
 figTb = Figure(size = (640, 850));
 gab = figTb[1, 1] = GridLayout()
 ax_a  = Axis(gab[1,1], ylabel = L"z",
@@ -691,9 +703,11 @@ dvdg, dvvg, dhdg, dhvg = zeros(nt,2), zeros(nt,2), zeros(nt,2), zeros(nt,2)
 nε = length(ε_all)
 dγvd, dγvv, dγhd, dγhv = zeros(nt,nε), zeros(nt,nε), zeros(nt,nε), zeros(nt,nε)
 dγvdg, dγvvg, dγhdg, dγhvg = zeros(nt,nε), zeros(nt,nε), zeros(nt,nε), zeros(nt,nε)
+psi1s_erf = (psi1_erf_orig, psi1_erf_new)
+psi1s_gauss = (psi1_gauss_orig, psi1_gauss_new)
 for (i, t) in enumerate(t_all)
-    bVi_erf, bHi_erf, bVvi_erf, bHvi_erf = compute_bVbH_fields(x, z, Ro, b_erf, ε, (ϕzzz_erf, ϕxxx_erf), (ϕxzz_erf, ϕzxx_erf), psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-    bVi_gauss, bHi_gauss, bVvi_gauss, bHvi_gauss = compute_bVbH_fields(x, z, Ro, b_gauss, ε, (ϕzzz_gauss, ϕxxx_gauss), (ϕxzz_gauss, ϕzxx_gauss), psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+    bVi_erf, bHi_erf, bVvi_erf, bHvi_erf = compute_bVbH_fields(x, z, Ro, b_erf, ε, (ϕzzz_erf, ϕzxx_erf), (ϕxzz_erf, ϕxxx_erf), psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
+    bVi_gauss, bHi_gauss, bVvi_gauss, bHvi_gauss = compute_bVbH_fields(x, z, Ro, b_gauss, ε, (ϕzzz_gauss, ϕzxx_gauss), (ϕxzz_gauss, ϕxxx_gauss), psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 
     dbvddx = central_diff(bVi_erf, dx, 1)
     dbvvdx = central_diff(bVvi_erf, dx, 1)
@@ -720,12 +734,12 @@ for (i, t) in enumerate(t_all)
     end
 
     for (j, εj) in enumerate(ε_all)
-        Fbjs_erf = (ϕzzz_erf.*εj./γ .+ Fγb_erf, ϕxxx_erf.*εj./γ .+ Fγb_erf)
-        Fvjs_erf = (ϕxzz_erf.*εj./γ .+ Fγv_erf, ϕzxx_erf.*εj./γ .+ Fγv_erf)
-        Fbjs_gauss = (ϕzzz_gauss.*εj./γ .+ Fγb_gauss, ϕxxx_gauss.*εj./γ .+ Fγb_gauss)
-        Fvjs_gauss = (ϕxzz_gauss.*εj./γ .+ Fγv_gauss, ϕzxx_gauss.*εj./γ .+ Fγv_gauss)
-        bVij_erf, bHij_erf, bVvij_erf, bHvij_erf = compute_bVbH_fields(x, z, Ro, b_erf, γ, Fbjs_erf, Fvjs_erf, psi1_erf_orig, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
-        bVij_gauss, bHij_gauss, bVvij_gauss, bHvij_gauss = compute_bVbH_fields(x, z, Ro, b_gauss, γ, Fbjs_gauss, Fvjs_gauss, psi1_gauss_orig, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
+        Fbjs_erf = (ϕzzz_erf.*εj./γ .+ Fγb_erf, ϕzxx_erf.*εj./γ .+ Fγb_erf)
+        Fvjs_erf = (ϕxzz_erf.*εj./γ .+ Fγv_erf, ϕxxx_erf.*εj./γ .+ Fγv_erf)
+        Fbjs_gauss = (ϕzzz_gauss.*εj./γ .+ Fγb_gauss, ϕzxx_gauss.*εj./γ .+ Fγb_gauss)
+        Fvjs_gauss = (ϕxzz_gauss.*εj./γ .+ Fγv_gauss, ϕxxx_gauss.*εj./γ .+ Fγv_gauss)
+        bVij_erf, bHij_erf, bVvij_erf, bHvij_erf = compute_bVbH_fields(x, z, Ro, b_erf, εj, Fbjs_erf, Fvjs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t; ψ¹ₚγ=psi1_erf_strain)
+        bVij_gauss, bHij_gauss, bVvij_gauss, bHvij_gauss = compute_bVbH_fields(x, z, Ro, b_gauss, εj, Fbjs_gauss, Fvjs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t; ψ¹ₚγ=psi1_gauss_strain)
 
         dbvddx = central_diff(bVij_erf, dx, 1)
         dbvvdx = central_diff(bVvij_erf, dx, 1)
@@ -750,6 +764,7 @@ end
 
 using Makie
 wcolors = Makie.wong_colors()
+bcolors = Makie.to_colormap(:Blues_9)
 # Create figure and axis
 figts = Figure(size = (640, 320))
 ax_b = Axis(figts[1, 1]; ylabel = L"d", xlabel = L"t", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(a) Front}")
@@ -762,27 +777,46 @@ lines!(ax_b2, t_all, dvdg[:,2])
 lines!(ax_b2, t_all, dvvg[:,2])
 lines!(ax_b2, t_all, dhdg[:,2])
 lines!(ax_b2, t_all, dhvg[:,2])
-axislegend(ax_b, framevisible = false, position = :lb, 
+axislegend(ax_b, framevisible = false, position = :lt, 
            padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3)
 resize_to_layout!(figts)
 
+labels = [L"\epsilon/\lambda=0", L"\epsilon/\lambda=1/3", L"\epsilon/\lambda=3/3", L"\epsilon/\lambda=5/3", L"\epsilon/\lambda=7/3", L"\epsilon/\lambda=9/3"]
 figts2 = Figure(size = (640, 900))
 ax_a = Axis(figts2[1, 1]; ylabel = L"d", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(a) Front vertical diffusivity}")
 ax_b = Axis(figts2[1, 2]; limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(b) Filament vertical diffusivity}")
-lines!(ax_a, t_all, dγvd[:,1], color=:black)
+lines!(ax_a, t_all, dγvd[:,1], color=:black, label=L"\epsilon/\lambda=0")
 lines!(ax_b, t_all, dγvdg[:,1], color=:black)
+for i in 2:nε
+    lines!(ax_a, t_all, dγvd[:,i], color=bcolors[end+2-i], label=labels[i])
+    lines!(ax_b, t_all, dγvdg[:,i], color=bcolors[end+2-i])
+end
+axislegend(ax_a, framevisible = false, position = :rt, nbanks=2,
+           padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3)
 ax_c = Axis(figts2[2, 1]; ylabel = L"d", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(c) Front vertical viscosity}")
 ax_d = Axis(figts2[2, 2]; limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(d) Filament vertical viscosity}")
 lines!(ax_c, t_all, dγvv[:,1], color=:black)
 lines!(ax_d, t_all, dγvvg[:,1], color=:black)
+for i in 2:nε
+    lines!(ax_c, t_all, dγvv[:,i], color=bcolors[end+2-i])
+    lines!(ax_d, t_all, dγvvg[:,i], color=bcolors[end+2-i])
+end
 ax_e = Axis(figts2[3, 1]; ylabel = L"d", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(e) Front horizontal diffusivity}")
 ax_f = Axis(figts2[3, 2]; limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(f) Filament horizontal diffusivity}")
 lines!(ax_e, t_all, dγhd[:,1], color=:black)
 lines!(ax_f, t_all, dγhdg[:,1], color=:black)
+for i in 2:nε
+    lines!(ax_e, t_all, dγhd[:,i], color=bcolors[end+2-i])
+    lines!(ax_f, t_all, dγhdg[:,i], color=bcolors[end+2-i])
+end
 ax_g = Axis(figts2[4, 1]; xlabel = L"t", ylabel = L"d", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(g) Front horizontal viscosity}")
 ax_h = Axis(figts2[4, 2]; xlabel = L"t", limits = ((0,t_max),nothing), titlealign = :left, title = L"\text{(h) Filament horizontal viscosity}")
 lines!(ax_g, t_all, dγhv[:,1], color=:black)
 lines!(ax_h, t_all, dγhvg[:,1], color=:black)
+for i in 2:nε
+    lines!(ax_g, t_all, dγhv[:,i], color=bcolors[end+2-i])
+    lines!(ax_h, t_all, dγhvg[:,i], color=bcolors[end+2-i])
+end
 hidexdecorations!(ax_a, grid = false)
 hidexdecorations!(ax_b, grid = false)
 hidexdecorations!(ax_c, grid = false)
@@ -1077,14 +1111,15 @@ display(figts2)
 # display(figblt)
 
 # save("b0v0_ff.pdf", fig0; pt_per_unit = 1)
-save("pVpH_ff.pdf", fig1; pt_per_unit = 1)
+# save("pVpH_ff.pdf", fig1; pt_per_unit = 1)
 # save("psigamma_error.pdf", fig2; pt_per_unit = 1)
 # save("psiHV_error.pdf", fig3; pt_per_unit = 1)
-# save("strain_ff.pdf", figγ; pt_per_unit = 1)
+save("strain_ff.pdf", figγ; pt_per_unit = 1)
 # save("blt_ff.pdf", figblt; pt_per_unit = 1)
 save("vVvH_ff.pdf", figv; pt_per_unit = 1)
 save("Tb_ff.pdf", figTb; pt_per_unit = 1)
 save("ts_ff.pdf", figts; pt_per_unit = 1)
+save("ts2_ff.pdf", figts2; pt_per_unit = 1)
 
 checkF = false
 if checkF
