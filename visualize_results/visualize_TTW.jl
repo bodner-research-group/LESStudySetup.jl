@@ -309,14 +309,14 @@ function compute_bVbH_fields(x, z, Ro, b0, ε, Fbs, Fvs, ψ¹ₚs, ϕ12s, t; ψ�
         b1, _ = compute_b1v1_field(x, z, Ro, 0.0*Fbs[2], Fvs[2], -ψ¹ₚs[2], ϕ12s, t)
         bHv = b0 .+ ε * b1
     else
-        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1], 0.0*Fvs[1], ψ¹ₚγ .+ ε/γ * ψ¹ₚs[1], ϕ12s, t)
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1].+ε/γ*Fbs[2], Fvs[1], ψ¹ₚγ .+ ε/γ * ψ¹ₚs[1], ϕ12s, t)
         bV = b0 .+ γ * b1
-        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[2], 0.0*Fvs[2], ψ¹ₚγ .+ ε/γ * ψ¹ₚs[2], ϕ12s, t)
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1].+ε/γ*Fbs[3], Fvs[1], ψ¹ₚγ .+ ε/γ * ψ¹ₚs[2], ϕ12s, t)
         bH = b0 .+ γ * b1
 
-        b1, _ = compute_b1v1_field(x, z, Ro, 0.0*Fbs[1], Fvs[1], ψ¹ₚγ .- ε/γ * ψ¹ₚs[1], ϕ12s, t)
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1], Fvs[1].+ε/γ*Fvs[2], ψ¹ₚγ .- ε/γ * ψ¹ₚs[1], ϕ12s, t)
         bVv = b0 .+ γ * b1
-        b1, _ = compute_b1v1_field(x, z, Ro, 0.0*Fbs[2], Fvs[2], ψ¹ₚγ .- ε/γ * ψ¹ₚs[2], ϕ12s, t)
+        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[1], Fvs[2].+ε/γ*Fvs[3], ψ¹ₚγ .- ε/γ * ψ¹ₚs[2], ϕ12s, t)
         bHv = b0 .+ γ * b1
     end
     return bV, bH, bVv, bHv
@@ -705,6 +705,10 @@ dγvd, dγvv, dγhd, dγhv = zeros(nt,nε), zeros(nt,nε), zeros(nt,nε), zeros(
 dγvdg, dγvvg, dγhdg, dγhvg = zeros(nt,nε), zeros(nt,nε), zeros(nt,nε), zeros(nt,nε)
 psi1s_erf = (psi1_erf_orig, psi1_erf_new)
 psi1s_gauss = (psi1_gauss_orig, psi1_gauss_new)
+Fbs_erf = (Fγb_erf, ϕzzz_erf, ϕzxx_erf)
+Fvs_erf = (Fγv_erf, ϕxzz_erf, ϕxxx_erf)
+Fbs_gauss = (Fγb_gauss, ϕzzz_gauss, ϕzxx_gauss)
+Fvs_gauss = (Fγv_gauss, ϕxzz_gauss, ϕxxx_gauss)
 for (i, t) in enumerate(t_all)
     bVi_erf, bHi_erf, bVvi_erf, bHvi_erf = compute_bVbH_fields(x, z, Ro, b_erf, ε, (ϕzzz_erf, ϕzxx_erf), (ϕxzz_erf, ϕxxx_erf), psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
     bVi_gauss, bHi_gauss, bVvi_gauss, bHvi_gauss = compute_bVbH_fields(x, z, Ro, b_gauss, ε, (ϕzzz_gauss, ϕzxx_gauss), (ϕxzz_gauss, ϕxxx_gauss), psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
@@ -734,12 +738,8 @@ for (i, t) in enumerate(t_all)
     end
 
     for (j, εj) in enumerate(ε_all)
-        Fbjs_erf = (ϕzzz_erf.*εj./γ .+ Fγb_erf, ϕzxx_erf.*εj./γ .+ Fγb_erf)
-        Fvjs_erf = (ϕxzz_erf.*εj./γ .+ Fγv_erf, ϕxxx_erf.*εj./γ .+ Fγv_erf)
-        Fbjs_gauss = (ϕzzz_gauss.*εj./γ .+ Fγb_gauss, ϕzxx_gauss.*εj./γ .+ Fγb_gauss)
-        Fvjs_gauss = (ϕxzz_gauss.*εj./γ .+ Fγv_gauss, ϕxxx_gauss.*εj./γ .+ Fγv_gauss)
-        bVij_erf, bHij_erf, bVvij_erf, bHvij_erf = compute_bVbH_fields(x, z, Ro, b_erf, εj, Fbjs_erf, Fvjs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t; ψ¹ₚγ=psi1_erf_strain)
-        bVij_gauss, bHij_gauss, bVvij_gauss, bHvij_gauss = compute_bVbH_fields(x, z, Ro, b_gauss, εj, Fbjs_gauss, Fvjs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t; ψ¹ₚγ=psi1_gauss_strain)
+        bVij_erf, bHij_erf, bVvij_erf, bHvij_erf = compute_bVbH_fields(x, z, Ro, b_erf, εj, Fbs_erf, Fvs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t; ψ¹ₚγ=psi1_erf_strain)
+        bVij_gauss, bHij_gauss, bVvij_gauss, bHvij_gauss = compute_bVbH_fields(x, z, Ro, b_gauss, εj, Fbs_gauss, Fvs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t; ψ¹ₚγ=psi1_gauss_strain)
 
         dbvddx = central_diff(bVij_erf, dx, 1)
         dbvvdx = central_diff(bVvij_erf, dx, 1)
