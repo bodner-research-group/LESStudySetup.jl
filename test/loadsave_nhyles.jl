@@ -30,7 +30,7 @@ for iteration in iterations
                                                     ylims = ylims, 
                                                     zlims = zlims,
                                                     levels = levels,
-                                                    getEw = false,
+                                                    getEw  = false,
                                                     getMLD = 0)
 
     @show snapshot[:T].grid
@@ -93,11 +93,11 @@ snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", 
 x0, y0, z0 = nodes(snapshot[:T])
 yc = 0.5 * (y0[640] + y0[641])
 to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
-                            size = (2048*2, 512*2, length(z0)),
-                            x = (-10000,10000),
-                            y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
-                            z = (-81,0),
-                            topology = (Bounded, Bounded, Bounded))
+                          size = (2048*2, 512*2, length(z0)),
+                          x = (-10000,10000),
+                          y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
+                          z = (-81,0),
+                          topology = (Bounded, Bounded, Bounded))
 
 b = compute!(Field(α * g * snapshot[:T]))
 itp_w = ZFaceField(to_grid,Float32)

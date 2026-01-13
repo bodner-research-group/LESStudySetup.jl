@@ -142,14 +142,14 @@ function load_distributed_snapshot(filename, iteration;
 end
 
 function load_distributed_checkpoint_subdomain(filename, iteration;
-                                            architecture = CPU(),
-                                            metadata = nothing,
-                                            xlims = nothing,
-                                            ylims = nothing,
-                                            zlims = nothing,
-                                            levels = nothing,
-                                            getEw = false,
-                                            getMLD = 0, Δρ = 0.03)
+                                               architecture = CPU(),
+                                               metadata = nothing,
+                                               xlims = nothing,
+                                               ylims = nothing,
+                                               zlims = nothing,
+                                               levels = nothing,
+                                               getEw = false,
+                                               getMLD = 0, Δρ = 0.03)
 
     # Helper function to handle periodic coordinate normalization
     function normalize_periodic_coords(coord_min, coord_max, domain_size)
@@ -225,11 +225,11 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     y_topoloty = (ylims[2] - ylims[1]) > Ly_full - Δy/2 ? Oceananigans.Grids.Periodic : Bounded
     grid_topology = (x_topoloty, y_topoloty, Bounded)
     grid = RectilinearGrid(architecture;
-                          size = (Nx_sub, Ny_sub, Nz_sub),
-                          x = xlims,
-                          y = ylims,
-                          z = zlims,
-                          topology = grid_topology)
+                           size = (Nx_sub, Ny_sub, Nz_sub),
+                           x = xlims,
+                           y = ylims,
+                           z = zlims,
+                           topology = grid_topology)
 
     @info "Created subdomain grid:"
     @info " Size: ($Nx_sub, $Ny_sub, $Nz_sub)"
@@ -249,26 +249,26 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
     end
 
     # Create fields on subdomain grid
-    u = XFaceField(grid; indices=field_indices)
-    v = YFaceField(grid; indices=field_indices)
-    w = ZFaceField(grid; indices=field_indices)
+    u =  XFaceField(grid; indices=field_indices)
+    v =  YFaceField(grid; indices=field_indices)
+    w =  ZFaceField(grid; indices=field_indices)
     T = CenterField(grid; indices=field_indices)
     if getMLD >= 1
-        MLD = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        MLD = Field{Center, Center, Nothing}(grid)
         if getEw
-            Ew = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+            Ew = Field{Center, Center, Nothing}(grid)
         end
     end
     if getMLD >= 2
-        MLD2 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        MLD2 = Field{Center, Center, Nothing}(grid)
         if getEw
-            Ew2 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+            Ew2 = Field{Center, Center, Nothing}(grid)
         end
     end
     if getMLD >= 3
-        MLD3 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+        MLD3 = Field{Center, Center, Nothing}(grid)
         if getEw
-            Ew3 = Field{Center, Center, Nothing}(grid; indices=(Colon(), Colon(), UnitRange(1, 1)))
+            Ew3 = Field{Center, Center, Nothing}(grid)
         end
     end
 
@@ -604,4 +604,234 @@ function load_subdomain_snapshot(filename; T=Float32, variables = ("u", "v", "w"
 
     @info "Snapshot successfully loaded."
     return snapshot
+end
+
+"""
+    extract_subdomain(snapshot; architecture=CPU(), xlims=nothing, ylims=nothing, zlims=nothing)
+
+Extract a subdomain from a full-domain snapshot based on coordinate limits.
+
+This function takes a snapshot dictionary containing fields (`:u`, `:v`, `:w`, `:T`)
+and a `:grid`, and extracts a subdomain defined by the specified coordinate limits.
+
+Arguments:
+- `snapshot`: A Dict containing fields and grid from a full-domain simulation.
+- `architecture`: The architecture for the new subdomain grid (default: CPU()).
+- `xlims`: Tuple (xmin, xmax) specifying x-coordinate limits. Default: full x-extent.
+- `ylims`: Tuple (ymin, ymax) specifying y-coordinate limits. Default: full y-extent.
+- `zlims`: Tuple (zmin, zmax) specifying z-coordinate limits. Default: full z-extent.
+
+Returns:
+- A new Dict containing subdomain fields (`:u`, `:v`, `:w`, `:T`) and `:grid`.
+"""
+function extract_subdomain(snapshot;
+                           architecture = CPU(),
+                           xlims = nothing,
+                           ylims = nothing,
+                           zlims = nothing)
+
+    # Get source grid
+    source_grid = snapshot[:grid]
+
+    # Get full domain extents
+    Lx_full = source_grid.Lx
+    Ly_full = source_grid.Ly
+    Lz_full = source_grid.Lz
+    Nx_full = source_grid.Nx
+    Ny_full = source_grid.Ny
+    Nz_full = source_grid.Nz
+
+    # Compute grid spacing
+    Δx = Lx_full / Nx_full
+    Δy = Ly_full / Ny_full
+    Δz = Lz_full / Nz_full
+
+    # Get source domain origin (for grids that don't start at 0)
+    x_origin = source_grid.xᶜᵃᵃ[1] - Δx/2
+    y_origin = source_grid.yᵃᶜᵃ[1] - Δy/2
+    z_origin = source_grid.z.cᵃᵃᶜ[1] - Δz/2
+
+    # Handle default limits (full domain)
+    if isnothing(xlims)
+        xlims = (x_origin, x_origin + Lx_full)
+    end
+    if isnothing(ylims)
+        ylims = (y_origin, y_origin + Ly_full)
+    end
+    if isnothing(zlims)
+        zlims = (z_origin, z_origin + Lz_full)
+    end
+
+    # Convert coordinate limits to index ranges (1-indexed)
+    # For cell-centered fields, find indices where cell centers fall within limits
+    x_start_idx = max(1, floor(Int, (xlims[1] - x_origin) / Δx) + 1)
+    x_end_idx = min(Nx_full, floor(Int, (xlims[2] - x_origin) / Δx))
+    y_start_idx = max(1, floor(Int, (ylims[1] - y_origin) / Δy) + 1)
+    y_end_idx = min(Ny_full, floor(Int, (ylims[2] - y_origin) / Δy))
+    z_start_idx = max(1, floor(Int, (zlims[1] - z_origin) / Δz) + 1)
+    z_end_idx = min(Nz_full, floor(Int, (zlims[2] - z_origin) / Δz))
+
+    # Calculate subdomain size
+    Nx_sub = x_end_idx - x_start_idx + 1
+    Ny_sub = y_end_idx - y_start_idx + 1
+    Nz_sub = z_end_idx - z_start_idx + 1
+
+    # Calculate actual subdomain coordinates
+    x_sub_min = x_origin + (x_start_idx - 1) * Δx
+    x_sub_max = x_origin + x_end_idx * Δx
+    y_sub_min = y_origin + (y_start_idx - 1) * Δy
+    y_sub_max = y_origin + y_end_idx * Δy
+    z_sub_min = z_origin + (z_start_idx - 1) * Δz
+    z_sub_max = z_origin + z_end_idx * Δz
+
+    # Determine topology for subdomain
+    # Use Bounded topology for subdomain (it's a slice of the original domain)
+    sub_topology = (Bounded, Bounded, Bounded)
+
+    # Create subdomain grid
+    sub_grid = RectilinearGrid(architecture;
+                               size = (Nx_sub, Ny_sub, Nz_sub),
+                               x = (x_sub_min, x_sub_max),
+                               y = (y_sub_min, y_sub_max),
+                               z = (z_sub_min, z_sub_max),
+                               topology = sub_topology)
+
+    @info "Extracting subdomain:"
+    @info "  Source grid: ($Nx_full, $Ny_full, $Nz_full)"
+    @info "  Subdomain grid: ($Nx_sub, $Ny_sub, $Nz_sub)"
+    @info "  Index ranges: x=$x_start_idx:$x_end_idx, y=$y_start_idx:$y_end_idx, z=$z_start_idx:$z_end_idx"
+
+    # Create output snapshot
+    sub_snapshot = Dict{Symbol, Any}()
+    sub_snapshot[:grid] = sub_grid
+
+    # Extract each field
+    field_configs = [
+        (:u, XFaceField),
+        (:v, YFaceField),
+        (:w, ZFaceField),
+        (:T, CenterField)
+    ]
+
+    for (field_name, FieldType) in field_configs
+        if haskey(snapshot, field_name)
+            source_field = snapshot[field_name]
+
+            # Create new field on subdomain grid
+            sub_field = FieldType(sub_grid)
+
+            # Determine ranges for this field type
+            # Face-centered fields with Bounded topology have one extra point in their dimension
+            # XFaceField: +1 in x, YFaceField: +1 in y, ZFaceField: +1 in z
+            if field_name == :u
+                # XFaceField: need one extra x-point for Bounded topology
+                x_range_src = x_start_idx:(x_end_idx + 1)
+                y_range_src = y_start_idx:y_end_idx
+                z_range_src = z_start_idx:z_end_idx
+            elseif field_name == :v
+                # YFaceField: need one extra y-point for Bounded topology
+                x_range_src = x_start_idx:x_end_idx
+                y_range_src = y_start_idx:(y_end_idx + 1)
+                z_range_src = z_start_idx:z_end_idx
+            elseif field_name == :w
+                # ZFaceField: need one extra z-point for Bounded topology
+                x_range_src = x_start_idx:x_end_idx
+                y_range_src = y_start_idx:y_end_idx
+                z_range_src = z_start_idx:(z_end_idx + 1)
+            else
+                # CenterField: no extra points
+                x_range_src = x_start_idx:x_end_idx
+                y_range_src = y_start_idx:y_end_idx
+                z_range_src = z_start_idx:z_end_idx
+            end
+
+            # Copy interior data - interior(sub_field) already has correct size
+            interior(sub_field) .=
+                interior(source_field, x_range_src, y_range_src, z_range_src)
+
+            fill_halo_regions!(sub_field)
+            sub_snapshot[field_name] = sub_field
+        end
+    end
+
+    @info "Subdomain extraction complete."
+    return sub_snapshot
+end
+
+"""
+    save_subdomain_snapshot(filename, snapshot; iteration=nothing, xlims=nothing, ylims=nothing, zlims=nothing, levels=nothing)
+
+Save a subdomain snapshot to a JLD2 file in a format compatible with `load_subdomain_snapshot`.
+
+This function saves a snapshot dictionary containing fields and grid to a JLD2 file,
+along with optional metadata about the iteration and coordinate limits.
+
+Arguments:
+- `filename`: Path to the output JLD2 file.
+- `snapshot`: A Dict containing fields (`:u`, `:v`, `:w`, `:T`, etc.) and `:grid`.
+- `iteration`: (Optional) Iteration number to store in metadata.
+- `xlims`: (Optional) Tuple of x-coordinate limits to store in metadata.
+- `ylims`: (Optional) Tuple of y-coordinate limits to store in metadata.
+- `zlims`: (Optional) Tuple of z-coordinate limits to store in metadata.
+- `levels`: (Optional) Array of vertical levels to store in metadata.
+
+The file structure matches what `load_subdomain_snapshot` expects:
+- `grid`: The grid object
+- `fields/<name>/data`: Interior data as Array
+- `fields/<name>/location`: Field location tuple
+- `metadata/...`: Optional metadata (iteration, coordinate limits)
+"""
+function save_subdomain_snapshot(filename, snapshot;
+                                 iteration = nothing,
+                                 xlims = nothing,
+                                 ylims = nothing,
+                                 zlims = nothing,
+                                 levels = nothing)
+
+    # Ensure the snapshot has a grid
+    if !haskey(snapshot, :grid)
+        error("Snapshot must contain a :grid key.")
+    end
+
+    sub_grid = snapshot[:grid]
+
+    @info "Saving subdomain to $filename..."
+
+    jldopen(filename, "w") do file
+        # Save the grid
+        file["grid"] = sub_grid
+
+        # Save each field's interior data and location metadata
+        for field_name in keys(snapshot)
+            if field_name != :grid
+                field = snapshot[field_name]
+
+                # Convert to standard Array on the CPU before saving
+                field_data = Array(interior(field))
+
+                file["fields/$field_name/data"] = field_data
+                file["fields/$field_name/location"] = location(field)
+            end
+        end
+
+        # Save metadata
+        if !isnothing(iteration)
+            file["metadata/iteration"] = iteration
+        end
+        if !isnothing(xlims)
+            file["metadata/xlims"] = xlims
+        end
+        if !isnothing(ylims)
+            file["metadata/ylims"] = ylims
+        end
+        if !isnothing(zlims)
+            file["metadata/zlims"] = zlims
+        end
+        if !isnothing(levels)
+            file["metadata/levels"] = levels
+        end
+    end
+
+    @info "Successfully saved subdomain data."
+    return nothing
 end

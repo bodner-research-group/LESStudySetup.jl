@@ -573,27 +573,6 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
             dl[:, :, zidx] .= imfilter(d[:,:,zidx], kernel_3d, Pad(border))
         end
         @info "Filtered with 3D :physical method in $(time()-t0)s for border=$border."
-        # for iz = 1:Nz
-        #     if iz in zidx
-        #         dl[:, :, iz] .= imfilter(d[:, :, iz], centered(Gl), Pad(border))
-        #         if (time()-t0 > 10) && (border == :circular)
-        #             println(":physical is slow (>10s); switching to FFT method for periodic boundaries.")
-        #             method = :spectral
-        #             if kernel == :tophat
-        #                 Gl = build_tophat_kernel(grid_info, cutoff; Lx=Lx, Ly=Ly, method=method)
-        #             elseif kernel == :gaussian
-        #                 Gl = Kernel.gaussian((floor(Int, (cutoff/2) / dx), floor(Int, (cutoff/2) / dy)))
-        #             elseif kernel == :lanczos
-        #                 Gl = build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=Lx, Ly=Ly, method=method)
-        #             end
-        #             break
-        #         else
-        #             println(":physical is slow (>10s), $(iz) used $(time()-t0)s for border=$border.")
-        #         end
-        #     else
-        #         dl[:, :, iz] .= d[:, :, iz]
-        #     end
-        # end
     end
 
     if method == :spectral
