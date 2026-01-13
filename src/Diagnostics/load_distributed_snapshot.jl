@@ -286,19 +286,13 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
             y_start_idx = max(1, round(Int, y_min_seg / Δy) + 1)
             y_end_idx = min(Ny_full, round(Int, y_max_seg / Δy))
             
-            # Adjust to align with rank boundaries for efficient loading
+            # Calculate which ranks overlap with requested subdomain
             rank_x_start = div(x_start_idx - 1, nx) + 1
             rank_x_end = div(x_end_idx - 1, nx) + 1
             rank_y_start = div(y_start_idx - 1, ny) + 1
             rank_y_end = div(y_end_idx - 1, ny) + 1
             
-            # Adjust grid indices to align with rank boundaries
-            x_start_idx = (rank_x_start - 1) * nx + 1
-            x_end_idx = rank_x_end * nx
-            y_start_idx = (rank_y_start - 1) * ny + 1
-            y_end_idx = rank_y_end * ny
-            
-            @info "Segment aligned indices: x=$x_start_idx:$x_end_idx, y=$y_start_idx:$y_end_idx"
+            @info "Segment indices: x=$x_start_idx:$x_end_idx, y=$y_start_idx:$y_end_idx"
             @info "Loading from ranks: Rx=$rank_x_start:$rank_x_end, Ry=$rank_y_start:$rank_y_end"
             
             # Calculate where this segment maps to in the OUTPUT grid

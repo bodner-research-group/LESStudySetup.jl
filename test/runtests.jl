@@ -94,4 +94,156 @@ using JLD2
         # 10. Cleanup
         rm(test_file, force=true)
     end
+
+    @testset "Distributed subdomain extraction and save/load round-trip" begin
+        # Use MPI.jl's mpiexec wrapper which is compatible with JLL libraries
+        using MPI
+        
+        # Define the distributed test script as a string
+        distributed_test_script = """
+        using MPI
+        MPI.Init()
+
+        using Test
+        using JLD2
+        using LESStudySetup
+        using LESStudySetup.Diagnostics: load_distributed_checkpoint,
+                                          load_distributed_checkpoint_subdomain,
+                                          save_subdomain_snapshot,
+                                          load_subdomain_snapshot
+        using Oceananigans
+        using Oceananigans.OutputWriters: Checkpointer
+
+        # Get temp directory from environment (passed from parent test)
+        test_dir = ENV["TEST_TMPDIR"]
+
+        # 1. Configure test parameters
+        set_value!(;
+            Δh = 1000.0,     # 1km horizontal spacing
+            Δz = 10.0,       # 10m vertical spacing
+            Lx = 8000.0,     # 8km domain (divisible by 2 ranks)
+            Ly = 8000.0,
+            Lz = 100.0       # 100m depth
+        )
+
+        # 2. Create distributed architecture (2x2 = 4 ranks)
+        arch = Distributed(CPU(), partition = Partition(2, 2))
+
+        # 3. Create simulation
+        simulation = idealized_setup(arch;
+                                     stop_time = 1,
+                                     hydrostatic_approximation = false)
+        model = simulation.model
+
+        # 4. Save checkpoint after 1 iteration
+        checkpoint_prefix = joinpath(test_dir, "test_checkpoint_\$(arch.local_rank)")
+        simulation.output_writers[:checkpoint] = Checkpointer(model;
+            schedule = IterationInterval(1),
+            prefix = checkpoint_prefix,
+            overwrite_existing = true)
+
+        # Run for 1 iteration to trigger checkpoint
+        run!(simulation)
+
+        # 5. Synchronize all ranks before loading
+        MPI.Barrier(MPI.COMM_WORLD)
+
+        # 6. Only rank 0 performs verification
+        if arch.local_rank == 0
+            checkpoint_path = joinpath(test_dir, "test_checkpoint_")
+
+            # Load full domain checkpoint at iteration 1
+            full = load_distributed_checkpoint(checkpoint_path, 1)
+
+            # Verify full domain dimensions
+            @test size(interior(full[:T])) == (8, 8, 10)
+
+            # Define subdomain limits that cross rank boundaries
+            # With 8x8 grid, 2x2 partition, each rank has 4x4 cells
+            # Rank boundaries: x=0,4000,8000 and y=0,4000,8000
+            # This subdomain spans parts of all 4 ranks
+            xlims = (2000.0, 6000.0)   # Crosses x rank boundary at 4000
+            ylims = (2000.0, 6000.0)   # Crosses y rank boundary at 4000
+            zlims = (-80.0, -30.0)
+
+            # Load subdomain
+            subdomain = load_distributed_checkpoint_subdomain(checkpoint_path, 1;
+                xlims = xlims,
+                ylims = ylims,
+                zlims = zlims)
+
+            # Verify subdomain dimensions
+            @test subdomain[:grid].Nx == 4   # 4km / 1km = 4 cells
+            @test subdomain[:grid].Ny == 4
+            @test subdomain[:grid].Nz == 5   # 50m / 10m = 5 cells
+
+            # Verify subdomain data matches expected slice from full domain
+            # Index mapping: xlims (2km, 6km) -> indices 3:6
+            #                ylims (2km, 6km) -> indices 3:6
+            #                zlims (-80m, -30m) -> indices 3:7
+            @test interior(subdomain[:T]) ≈ interior(full[:T])[3:6, 3:6, 3:7]
+
+            # Load new subdomain with larger zlims (including original range)
+            new_zlims = (-80.0, 0.0)  # 80m depth
+            new_subdomain = load_distributed_checkpoint_subdomain(checkpoint_path, 1;
+                xlims = xlims,
+                ylims = ylims,
+                zlims = new_zlims)
+
+            # Verify new subdomain dimensions
+            @test new_subdomain[:grid].Nx == 4
+            @test new_subdomain[:grid].Ny == 4
+            @test new_subdomain[:grid].Nz == 8   # 80m / 10m = 8 cells
+
+            # Verify old subdomain matches slice of new subdomain
+            # Old zlims (-80, -30) -> first 5 z-levels of new subdomain
+            @test interior(subdomain[:T]) ≈ interior(new_subdomain[:T])[:, :, 1:5]
+
+            # Save the new subdomain to file
+            subdomain_file = joinpath(test_dir, "test_subdomain.jld2")
+            save_subdomain_snapshot(subdomain_file, new_subdomain;
+                iteration = 1,
+                xlims = xlims,
+                ylims = ylims,
+                zlims = new_zlims)
+
+            # Load the subdomain back
+            loaded = load_subdomain_snapshot(subdomain_file)
+
+            # Verify loaded data matches new subdomain
+            @test loaded[:grid].Nx == new_subdomain[:grid].Nx
+            @test loaded[:grid].Ny == new_subdomain[:grid].Ny
+            @test loaded[:grid].Nz == new_subdomain[:grid].Nz
+            @test interior(loaded[:T]) ≈ interior(new_subdomain[:T])
+            @test interior(loaded[:u]) ≈ interior(new_subdomain[:u])
+            @test interior(loaded[:v]) ≈ interior(new_subdomain[:v])
+            @test interior(loaded[:w]) ≈ interior(new_subdomain[:w])
+
+            @info "All distributed subdomain tests passed!"
+        end
+
+        # Final barrier before cleanup
+        MPI.Barrier(MPI.COMM_WORLD)
+        """
+
+        # Create temporary directory for test files
+        test_dir = mktempdir()
+
+        # Write script to temp file
+        script_file = joinpath(test_dir, "distributed_subdomain_test.jl")
+        write(script_file, distributed_test_script)
+
+        try
+            # Set environment variable to pass temp dir path to MPI script
+            withenv("TEST_TMPDIR" => test_dir) do
+                # Execute with MPI.jl's mpiexec wrapper (compatible with JLL libraries)
+                mpiexec() do mpiexec_cmd
+                    run(`$mpiexec_cmd -n 4 julia --project -O0 $script_file`)
+                end
+            end
+        finally
+            # Cleanup
+            rm(test_dir, recursive=true, force=true)
+        end
+    end
 end
