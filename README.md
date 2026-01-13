@@ -1,86 +1,236 @@
-# LESStudySetup
+# LESStudySetup.jl
 
-LESStudySetup is a Julia package that orchestrates large-eddy simulations (LES) of submesoscale ocean fronts on top of the [Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl) modeling framework. The package bundles parameter definitions, model setup utilities, diagnostics, experiment scripts, and visualization recipes that streamline running idealized hydrostatic or nonhydrostatic studies and post-processing their output.
+[![CI](https://github.com/YOUR_ORG/LESStudySetup.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/YOUR_ORG/LESStudySetup.jl/actions/workflows/CI.yml)
+[![Julia](https://img.shields.io/badge/Julia-1.9%2B-blue.svg)](https://julialang.org/)
+[![Oceananigans](https://img.shields.io/badge/Oceananigans-0.95.7-purple.svg)](https://github.com/CliMA/Oceananigans.jl)
 
-## Repository layout
+LESStudySetup.jl is a Julia package that orchestrates large-eddy simulations (LES) of submesoscale ocean fronts built on top of [Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl). The package provides parameter management, model setup utilities, diagnostics, experiment drivers, and visualization recipes for running idealized hydrostatic or nonhydrostatic studies.
 
-The repository is organized around a Julia package located under `src/`, supported by experiment drivers, diagnostics, and plotting scripts:
+## Requirements
 
-| Path | Purpose |
-| --- | --- |
-| `Project.toml`, `Manifest.toml` | Julia environment that pins Oceananigans and plotting dependencies. |
-| `src/` | Package entry point (`LESStudySetup.jl`), physical parameters (`parameters.jl`), initial and background states, model builders, and diagnostics. |
-| `src/Diagnostics/` | A submodule with utilities for loading distributed outputs, computing mixed-layer metrics, spectra, and exporting pointwise diagnostics. |
-| `experiments/` | Standalone drivers for hydrostatic, nonhydrostatic, benchmark, and wind-mixing experiments that build models and run simulations. |
-| `test/` | Regression and integration checks that exercise diagnostic loaders and snapshot saving. |
-| `visualize_results/` | Analysis notebooks written as Julia scripts that load saved data products and produce publication-style figures. |
-| `print_results.jl` | Utility helpers for summarizing model output. |
-| `job.sh`, `setup_perlmutter.sh`, `prof.sh` | Batch scripts and profiling helpers for HPC environments. |
+- **Julia**: 1.9 or later
+- **Oceananigans.jl**: 0.95.7
+- **Optional**: CUDA-capable GPU for accelerated simulations, MPI for distributed runs
 
-## Core package components
+## Installation
 
-* `LESStudySetup.jl` ties everything together: it re-exports Oceananigans, exposes the mutable [`parameters`](src/parameters.jl) singleton for global constants, and includes initial-condition generators and model setup helpers. 【F:src/LESStudySetup.jl†L1-L19】【F:src/parameters.jl†L1-L97】
-* `model_setup.jl` builds either hydrostatic or nonhydrostatic models, configures advection and closures, and provides utilities to impose background flows that satisfy continuity. 【F:src/model_setup.jl†L1-L94】
-* `Diagnostics/Diagnostics.jl` exposes loaders for time-series data, writers for pointwise diagnostics, and includes submodules for mixed-layer depth calculations, spectra, boundary layer diagnostics, and filtering. 【F:src/Diagnostics/Diagnostics.jl†L1-L98】
+```julia
+using Pkg
+Pkg.add(url="https://github.com/YOUR_ORG/LESStudySetup.jl")
+```
 
-Together, these files let you define a simulation by tweaking `parameters`, constructing a grid and `NonhydrostaticModel`/`HydrostaticFreeSurfaceModel`, then running one of the experiment scripts.
+Or clone and develop locally:
 
-## Detailed file guide
+```bash
+git clone https://github.com/YOUR_ORG/LESStudySetup.jl.git
+cd LESStudySetup.jl
+julia --project -e 'using Pkg; Pkg.instantiate()'
+```
 
-### `src/Diagnostics/load_distributed_snapshot.jl`
+## Quick Start
 
-This file contains the heavy-lifting utilities for reconstructing model snapshots that were written in a distributed, rank-per-tile format:
+```julia
+using LESStudySetup
+using LESStudySetup.Oceananigans.Units
 
-* `load_distributed_checkpoint` and `load_distributed_snapshot` stitch together velocity and temperature fields from rank-specific JLD2 files into global `Oceananigans.Field` objects. They infer the domain decomposition (`Px × Py` tiles), rebuild an appropriate `RectilinearGrid`, and populate halo regions before returning a dictionary of fields. 【F:src/Diagnostics/load_distributed_snapshot.jl†L1-L121】
-* `load_distributed_checkpoint_subdomain` extends that logic to extract an arbitrary subdomain (possibly wrapping around periodic boundaries), optionally restricting to vertical levels and computing mixed-layer diagnostics such as `MLD`, `MLD2/3`, and depth-averaged vertical kinetic energy (`Ew`). It normalizes requested coordinates, determines which ranks overlap the desired region, copies the relevant interiors, and fills halos in the output fields. 【F:src/Diagnostics/load_distributed_snapshot.jl†L123-L332】【F:src/Diagnostics/load_distributed_snapshot.jl†L333-L463】
-* `load_subdomain_snapshot` reloads previously saved subdomain data (produced by the test script below) by reading the stored grid, metadata, and field data, then reconstructing typed `Field` objects and filling halos. It supports selecting a single vertical level by creating a thin grid when needed. 【F:src/Diagnostics/load_distributed_snapshot.jl†L465-L569】
+# Configure physical parameters
+set_value!(;
+    Δh = 100.0,      # Horizontal grid spacing (m)
+    Δz = 5.0,        # Vertical grid spacing (m)
+    Lx = 10kilometers,
+    Ly = 10kilometers,
+    Lz = 200meters,
+    Q  = 40.0,       # Surface heat flux (W/m²)
+    τw = 0.1         # Wind stress (N/m²)
+)
 
-Understanding these loaders is key when working with large Oceananigans simulations that ran on many MPI ranks: you rarely read the raw arrays directly; instead, you reconstruct fields through these helpers to preserve geometry, halo layout, and architecture compatibility.
+# Create and run simulation
+simulation = idealized_setup(CPU();
+    stop_time = 1days,
+    hydrostatic_approximation = false,
+    background_forcing = true)
 
-### `test/loadsave_nhyles.jl`
+run!(simulation)
+```
 
-This integration test demonstrates how to call `load_distributed_checkpoint_subdomain` on a production-scale nonhydrostatic run and save its output for later analysis:
+## Repository Layout
 
-1. It selects a target subdomain in physical coordinates (here a 25 km wide along-front band and specific vertical levels) and loops over representative iterations. 【F:test/loadsave_nhyles.jl†L1-L31】
-2. For each iteration it requests the subdomain, enabling vertical kinetic energy (`getEw = true`) and multiple mixed-layer depth thresholds (`getMLD = 3`). 【F:test/loadsave_nhyles.jl†L33-L47】
-3. It then writes the resulting fields, along with the grid and metadata, to a compact JLD2 file whose structure matches what `load_subdomain_snapshot` expects. 【F:test/loadsave_nhyles.jl†L49-L78】
+```
+LESStudySetup.jl/
+├── src/
+│   ├── LESStudySetup.jl          # Main module (re-exports Oceananigans)
+│   ├── parameters.jl              # Mutable ProblemConstants singleton
+│   ├── initial_conditions.jl      # Initial velocity/temperature fields
+│   ├── background_field_forcing.jl
+│   ├── model_setup.jl             # Model builders and kernel dispatchers
+│   ├── idealized_setup.jl         # Simulation factories
+│   └── Diagnostics/               # Submodule for analysis tools
+├── experiments/                   # Production simulation scripts
+├── test/                          # Integration/unit tests
+├── visualize_results/             # Makie plotting scripts
+└── job.sh, setup_perlmutter.sh    # HPC batch scripts
+```
 
-Use this script as a template for carving out manageable chunks of a large simulation so you can analyze them locally or share them with collaborators without shipping the full 3-D dataset.
+## API Reference
 
-### `visualize_results/visualize_front.jl`
+### Main Exports
 
-This plotting script reproduces analytical frontal solutions and compares them to simulation data:
+| Function | Description |
+|----------|-------------|
+| `idealized_setup(arch; ...)` | Create a configured `Simulation` for idealized LES |
+| `turbulence_generator_setup(arch; ...)` | Create a small-domain simulation for generating initial turbulence |
+| `set_value!(; kwargs...)` | Configure global simulation parameters |
+| `set!(parameters; kwargs...)` | Alternative parameter setter |
+| `parameters` | Global `ProblemConstants` singleton |
 
-* It imports Oceananigans diagnostics, CUDA transfer helpers, and several Makie plotting utilities, then defines constants (Rossby, Burger, Froude numbers) and domain grids used for the analytic solution. 【F:visualize_results/visualize_front.jl†L1-L73】
-* `solve_X_vec` and `fields_at_time` evaluate semi-analytical solutions for buoyancy, velocity, and streamfunction fields, returning them on the chosen `(x, z)` grid for a given time. 【F:visualize_results/visualize_front.jl†L75-L149】
-* Utility functions such as `coarsen_binned_vectorized` and `resample_contour_periodic` help reduce high-resolution curves and handle periodic contours before plotting. 【F:visualize_results/visualize_front.jl†L151-L226】
-* The remainder of the file (not shown above) loads simulation output, coarsens or interpolates it, and produces Makie figures saved under `results/`. Working through the script is a good way to learn how LESStudySetup uses analytical baselines to interpret numerical runs.
+### idealized_setup
 
-### `visualize_results/visualize_nonhydro.jl`
+```julia
+simulation = idealized_setup(arch;
+    stop_time = 100days,
+    stop_iteration = Inf,
+    hydrostatic_approximation = false,
+    background_forcing = true)
+```
 
-This complementary script focuses on nonhydrostatic experiment output and more elaborate diagnostics:
+- `arch`: Architecture (`CPU()`, `GPU()`, or `Distributed(...)`)
+- `hydrostatic_approximation`: Use `HydrostaticFreeSurfaceModel` (true) or `NonhydrostaticModel` (false)
+- `background_forcing`: Include eddies as background forcing
 
-* It gathers a broad suite of tools—mixed-layer depth calculators, coarse-grained flux diagnostics, and MathTeX rendering—before defining helpers to enumerate saved iterations across raw rank output or precomputed subdomains. 【F:visualize_results/visualize_nonhydro.jl†L1-L34】
-* The script then loads hydrostatic reference snapshots, computes mixed-layer depths, relative vorticity, and strain tensors, and prepares shifted/periodic views of the domain for centered plotting. 【F:visualize_results/visualize_nonhydro.jl†L36-L84】
-* Large commented sections outline figure layouts for temperature, velocity, and diagnostic fields, showcasing how to combine Oceananigans field data with Makie’s declarative plotting API. These blocks serve as worked examples you can adapt when designing new diagnostics for the project.
+## Parameter Reference
 
-## Working with the package
+Key parameters accessible via `parameters` singleton:
 
-1. **Instantiate the environment**
-   ```julia
-   julia --project
-   using Pkg
-   Pkg.instantiate()
-   ```
-2. **Explore experiments** – Run scripts in `experiments/` to launch canonical setups. They all import `LESStudySetup`, mutate `parameters` as needed, call the model constructors, and advance a simulation.
-3. **Load existing data** – Use `Diagnostics.load_snapshots` for single-file time series or the distributed loaders described above when working with rank-partitioned outputs.
-4. **Visualize results** – The Makie scripts in `visualize_results/` double as tutorials for post-processing. Start by adapting the smaller `visualize_front.jl` before diving into the more complex nonhydrostatic workflow.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `Δh` | 1000 m | Horizontal grid spacing |
+| `Δz` | 4 m | Vertical grid spacing |
+| `Lx`, `Ly` | 100 km | Domain dimensions |
+| `Lz` | 256 m | Domain depth |
+| `f` | 1e-4 s⁻¹ | Coriolis parameter |
+| `τw` | 0.1 N/m² | Surface wind stress |
+| `θ` | 30° | Wind stress angle |
+| `Q` | 10 W/m² | Surface heat flux (positive = cooling) |
+| `α` | 2e-4 K⁻¹ | Thermal expansion coefficient |
+| `N²s` | 5e-7 s⁻² | Surface stratification |
+| `N²T` | 1e-4 s⁻² | Pycnocline stratification |
+| `M²₀` | 5e-7 s⁻² | Frontal density gradient |
+| `m₀` | 50 m | Initial mixed layer depth |
+| `T₀` | 5 °C | Surface temperature |
 
-## Next steps for newcomers
+## Diagnostics
 
-* **Understand parameterization** – Read through `parameters.jl` to learn what physical constants are available and how to adjust them via `set_value!`. 【F:src/parameters.jl†L1-L120】
-* **Customize diagnostics** – Explore the rest of `src/Diagnostics/` to see how mixed-layer depth or spectral diagnostics are computed, then extend them to suit your analysis.
-* **Reproduce figures** – Run the visualization scripts on saved subdomain snapshots; this teaches you how the repository expects data to be organized and highlights common plotting patterns.
-* **Add tests** – Mirror `test/loadsave_nhyles.jl` when adding new loaders or diagnostics to ensure they can read real-world outputs and save portable subsets for collaboration.
+The `Diagnostics` submodule provides tools for loading, analyzing, and saving simulation data.
 
-With this structure in mind, you can navigate the codebase, hook into Oceananigans workflows, and extend LESStudySetup with new experiments or diagnostics tailored to your LES research.
+### Loading Data
+
+```julia
+using LESStudySetup.Diagnostics
+
+# Single-file time series
+snapshots = load_snapshots("snapshots.jld2"; architecture = CPU())
+
+# Distributed (MPI rank-partitioned) checkpoint
+snapshot = load_distributed_checkpoint("checkpoint_prefix", iteration)
+
+# Load subdomain from distributed data
+subdomain = load_distributed_checkpoint_subdomain("prefix", iteration;
+    xlims = (2000.0, 7000.0),
+    ylims = (2000.0, 7000.0),
+    zlims = (-80.0, -30.0))
+```
+
+### Saving/Loading Subdomains
+
+```julia
+# Save extracted subdomain
+save_subdomain_snapshot("output.jld2", subdomain; iteration = 100)
+
+# Load subdomain
+loaded = load_subdomain_snapshot("output.jld2")
+```
+
+### Computed Diagnostics
+
+| Function | Description |
+|----------|-------------|
+| `ζ(snapshots)` | Relative vorticity |
+| `ub(snapshots)`, `vb(snapshots)`, `wb(snapshots)` | Buoyancy fluxes |
+| `uw(snapshots)`, `vw(snapshots)` | Momentum fluxes |
+| `KE(snapshots)` | Kinetic energy |
+| `MLD(snapshots)` | Mixed layer depth |
+| `BLD1D(snapshots)` | Boundary layer depth (1D) |
+| `PV(snapshots)` | Potential vorticity |
+
+## Running Experiments
+
+### Local (Single CPU/GPU)
+
+```julia
+using LESStudySetup
+
+set_value!(; Δh = 100.0, Δz = 5.0, Q = 40.0, τw = 0.1)
+simulation = idealized_setup(GPU(); stop_time = 1days)
+run!(simulation)
+```
+
+### Distributed (MPI + Multi-GPU)
+
+```julia
+using MPI
+MPI.Init()
+using LESStudySetup
+
+arch = Distributed(GPU(), partition = Partition(4, 4))  # 16 GPUs
+set_value!(; Δh = 5.0, Δz = 1.125)
+simulation = idealized_setup(arch; stop_time = 10days)
+
+# Attach per-rank output writers
+model = simulation.model
+simulation.output_writers[:snapshots] = JLD2OutputWriter(model,
+    merge(model.velocities, model.tracers);
+    schedule = TimeInterval(30minutes),
+    filename = "snapshots_$(arch.local_rank)")
+
+run!(simulation)
+```
+
+### HPC (Perlmutter)
+
+```bash
+source setup_perlmutter.sh
+sbatch job.sh
+```
+
+## Testing
+
+```bash
+# Run all tests
+julia --project -e 'using Pkg; Pkg.test()'
+
+# Run tests directly
+julia --project test/runtests.jl
+```
+
+Tests include:
+- Subdomain extraction and round-trip save/load
+- Distributed checkpoint loading across MPI ranks
+
+## Visualization
+
+Analysis scripts in `visualize_results/` demonstrate post-processing workflows:
+
+- `visualize_front.jl` – Compare simulations to analytical frontal solutions
+- `visualize_nonhydro.jl` – Nonhydrostatic experiment diagnostics
+- `visualize_spectra.jl` – Spectral analysis
+- `visualize_fluxes.jl` – Flux diagnostics
+
+## Authors
+
+- Simone Silvestri
+- Shirui Peng
+- Abigail Bodner
+
+## License
+
+See [LICENSE](LICENSE) for details.
