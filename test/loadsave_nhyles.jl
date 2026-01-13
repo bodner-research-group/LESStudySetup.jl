@@ -4,21 +4,22 @@ using JLD2
 using LESStudySetup
 using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_distributed_checkpoint_subdomain
+using LESStudySetup.Diagnostics: coarse_graining!
 
 # --- Simulation and Subdomain Parameters ---
 filehead = "/orcd/data/abodner/002/nhyles_output/"
-filename = filehead * "iteration5x/nonhydrostatic_checkpoint_"
+filename = filehead * "iteration3x/nonhydrostatic_checkpoint_"
 iterations = [32207,32993,33772,34542]#72635 #52543#32207 #21955 at 11hr
 
 # Define the desired subdomain in global coordinates.
-# To create a 10km x 10km domain centered at (0,0) from the periodic
+# To create a 10km x 10km domain cornered at (0,0) from the periodic
 # full domain, we specify these limits. The function will correctly
 # fetch data from the end of the full domain (e.g., 95km to 100km)
 # for the negative coordinates.
-xlims = (-12500, 12500)#(-3125, 3125)
-ylims = (0.0, 1e5)#(5e4-3125, 53125)
-zlims = nothing #(-252, 0.0) # nz vertical cells * 1.125m/cell
-levels = [221, 224] #[162, 198, 221, 224]
+xlims = (0, 12500)
+ylims = (0, 12500)#(5e4-3125, 53125)
+zlims = (-81, 0.0) # nz vertical cells * 1.125m/cell
+levels = nothing #[162, 198, 221, 224]
 
 # Load the subdomain data using the revised function
 for iteration in iterations
@@ -27,10 +28,10 @@ for iteration in iterations
     snapshot = load_distributed_checkpoint_subdomain(filename, iteration; 
                                                     xlims = xlims,
                                                     ylims = ylims, 
-                                                    #zlims = zlims,
+                                                    zlims = zlims,
                                                     levels = levels,
-                                                    getEw = true,
-                                                    getMLD = 3)
+                                                    getEw = false,
+                                                    getMLD = 0)
 
     @show snapshot[:T].grid
 
@@ -46,7 +47,7 @@ for iteration in iterations
 
     # --- Save the Subdomain to a New JLD2 File ---
 
-    output_filename = filehead * "subdomains/xband1sublevels_snapshot_iter$(iteration).jld2"
+    output_filename = filehead * "subdomains/subdomain0_snapshot_iter$(iteration).jld2"
 
     @info "Saving subdomain to $output_filename..."
 
@@ -80,3 +81,36 @@ for iteration in iterations
 
     @info "Successfully saved subdomain data."
 end
+
+fileparam = "subdomain" * string(5-i)
+@info "Computing and saving data for $fileparam"
+# 1. Define the filename of the saved snapshot
+output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+
+# 2. Load the snapshot using the new function
+snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T"));
+
+x0, y0, z0 = nodes(snapshot[:T])
+yc = 0.5 * (y0[640] + y0[641])
+to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
+                            size = (2048*2, 512*2, length(z0)),
+                            x = (-10000,10000),
+                            y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
+                            z = (-81,0),
+                            topology = (Bounded, Bounded, Bounded))
+
+b = compute!(Field(α * g * snapshot[:T]))
+itp_w = ZFaceField(to_grid,Float32)
+itp_b = CenterField(to_grid,Float32)
+interpolate!(itp_w, snapshot[:w])
+interpolate!(itp_b, b)
+w̅ = ZFaceField(snapshot[:w].grid,Float32)
+b̅ = CenterField(b.grid,Float32)
+coarse_graining!(snapshot[:w], w̅; kernel=:gaussian, cutoff=300, border=:reflect)
+coarse_graining!(b, b̅; kernel=:gaussian, cutoff=300, border=:reflect)
+itp_w̅ = ZFaceField(to_grid,Float32)
+itp_b̅ = CenterField(to_grid,Float32)
+interpolate!(itp_w̅, w̅)
+interpolate!(itp_b̅, b̅)
+wᵖ = interior(itp_w) .- interior(itp_w̅)
+bᵖ = interior(itp_b) .- interior(itp_b̅)
