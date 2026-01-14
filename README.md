@@ -1,6 +1,6 @@
 # LESStudySetup.jl
 
-[![CI](https://github.com/YOUR_ORG/LESStudySetup.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/YOUR_ORG/LESStudySetup.jl/actions/workflows/CI.yml)
+[![CI](https://github.com/bodner-research-group/LESStudySetup.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/bodner-research-group/LESStudySetup.jl/actions/workflows/CI.yml)
 [![Julia](https://img.shields.io/badge/Julia-1.9%2B-blue.svg)](https://julialang.org/)
 [![Oceananigans](https://img.shields.io/badge/Oceananigans-0.95.7-purple.svg)](https://github.com/CliMA/Oceananigans.jl)
 
@@ -16,13 +16,13 @@ LESStudySetup.jl is a Julia package that orchestrates large-eddy simulations (LE
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/YOUR_ORG/LESStudySetup.jl")
+Pkg.add(url="https://github.com/bodner-research-group/LESStudySetup.jl")
 ```
 
 Or clone and develop locally:
 
 ```bash
-git clone https://github.com/YOUR_ORG/LESStudySetup.jl.git
+git clone https://github.com/bodner-research-group/LESStudySetup.jl.git
 cd LESStudySetup.jl
 julia --project -e 'using Pkg; Pkg.instantiate()'
 ```
