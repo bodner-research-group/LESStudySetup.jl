@@ -1,18 +1,19 @@
 using LESStudySetup
 using CairoMakie, Makie
-using Printf, Dates
+using Printf, Dates, StatsBase
 using Statistics: mean, std, quantile
 using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_distributed_checkpoint,load_subdomain_snapshot
 using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes
 using LESStudySetup.Diagnostics: coarse_graining!, TKE, MLD, along_front_averages, MixedLayerDepth
-using Oceananigans.Fields: interpolate
+using Oceananigans.Fields: interpolate,interpolate!
 using MathTeXEngine
 set_theme!(theme_latexfonts(), fontsize=12, figure_padding = 10)
-using JLD2, CUDA
+using JLD2 #, CUDA
 set_value!(; Δh = 4.8828125)
 filehead = "/orcd/data/abodner/002/shared_datasets/nhyles_output/" 
 filesave = "results/"
+f = parameters.f;
 Q, h₀, ρ₀, cₚ, α, g = 40, 60, parameters.ρ₀, parameters.cp, parameters.α, parameters.g
 wₛ = (α * g * Q * h₀ / (ρ₀ * cₚ))^(1/3)
 # --- Helper Functions ---
@@ -43,9 +44,7 @@ function get_iterations_regex(filehead, fileparam, directory="."; subdirparam="s
 end
 
 ##########################
-f = parameters.f;
-α = parameters.α;
-g = parameters.g;
+
 # shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
 # filename0 = "./hydrostatic_snapshots_init.jld2"
 # snapshots = load_snapshots(filename0);
@@ -69,7 +68,7 @@ g = parameters.g;
 # iUb, iVb = interior(Ub), interior(Vb);
 # iUb, iVb = [iUb[size(xu,1)÷2+1:end, :, :]; iUb[1:size(xu,1)÷2, :, :]],[iVb[size(xv,1)÷2+1:end, :, :]; iVb[1:size(xv,1)÷2, :, :]];
 # ipU, ipV = (xu .- 5e4,vec(yu)), (xv .- 5e4,vec(yv))
-# σn = compute!(Field(-(∂x(Ub)-∂y(Vb))/2));
+# σn = compute!(Field(-∂x(Ub)));
 # σs = compute!(Field((∂y(Ub)+∂x(Vb))/2));
 # ζb = compute!(Field(∂x(Vb)-∂y(Ub)));
 # @info "σn extrema: $(extrema(interior(σn)))"
@@ -77,124 +76,142 @@ g = parameters.g;
 # iarrow = 2:32:640
 # k = length(zT)
 
-meshgrid(x::AbstractVector, y::AbstractVector) =
-        repeat(x, 1, length(y)), repeat(y', length(x), 1)
+##################################
+# meshgrid(x::AbstractVector, y::AbstractVector) =
+#         repeat(x, 1, length(y)), repeat(y', length(x), 1)
 
-iterations = Int[]
-fileparam = "nonhydrostatic_checkpoint";
+# iterations = Int[]
+# fileparam = "nonhydrostatic_checkpoint";
 
-# ---------- load the data ----------
-rank = 992
-Hx,Hy,Hz = 6,6,6
-Δh = parameters.Δh
-nx = 640;ny = 640;Nz = 224;Lz = 252;
-downsample = 8
-xgrid = collect(range(-5e4+Δh/2, 5e4-Δh/2; length = 32*nx÷downsample))/1e3;
-ygrid = (collect(range(Δh/2, 1e5-Δh/2; length = 32*ny÷downsample)))/1e3;
-zgrid = collect(range(-Lz, 0; length = Nz+1));
-zgridc = 0.5*(zgrid[1:end-1] + zgrid[2:end]);
+# # ---------- load the data ----------
+# Dr = 0
+# rank = 992+Dr
+# Hx,Hy,Hz = 6,6,6
+# Δh = parameters.Δh
+# nx = 640;ny = 640;Nz = 224;Lz = 252;
+# downsample = 8
+# xgrid = collect(range(-5e4+Δh/2, 5e4-Δh/2; length = 32*nx÷downsample))/1e3;
+# ygrid = (collect(range(Δh/2, 1e5-Δh/2; length = 32*ny÷downsample)))/1e3;
+# zgrid = collect(range(-Lz, 0; length = Nz+1));
+# zgridc = 0.5*(zgrid[1:end-1] + zgrid[2:end]);
 
-output_filename = filehead * "subdomains/sublevels_snapshot_iter164410.jld2";
-snapshot = load_subdomain_snapshot(output_filename; variables = ("T","v"), level=224);
-top_T = interior(snapshot[:T], 1:downsample:32*nx, 1:downsample:32*ny, 1)'; 
-output_filename = filehead * "subdomains/slice_y0_iter164410.jld2";
-snapshot = load_subdomain_snapshot(output_filename; variables = ("T","v"));
-front_T = interior(snapshot[:T], 1:downsample:32*nx, 1, :);
-output_filename = filehead * "subdomains/slice_x5e4_iter164410.jld2";
-snapshot = load_subdomain_snapshot(output_filename; variables = ("T","v"));
-right_T = interior(snapshot[:T], nx, 1:downsample:32*ny, :);
+# output_filename = filehead * "subdomains/sublevels_snapshot_iter164410.jld2";
+# snapshot = load_subdomain_snapshot(output_filename; variables = ("T","v","u"), level=224);
+# top_T = interior(snapshot[:T], 1:downsample:32*nx, 1:downsample:32*ny, 1)'; 
+# #top_u = interior(snapshot[:T], 1:downsample^2:32*nx, 1:downsample^2:32*ny, 1)'; 
+# #top_v = interior(snapshot[:T], 1:downsample^2:32*nx, 1:downsample^2:32*ny, 1)'; 
+# output_filename = filehead * "subdomains/slice_y0_iter164410.jld2";
+# snapshot = load_subdomain_snapshot(output_filename; variables = ("T","w"));
+# front_T = interior(snapshot[:w], 1:downsample:32*nx, 1, :);
+# output_filename = filehead * "subdomains/slice_x5e4_iter164410.jld2";
+# snapshot = load_subdomain_snapshot(output_filename; variables = ("T","w"));
+# right_T = interior(snapshot[:w], nx, 1:downsample:32*ny, :);
 
-# ----------------------------- figure & axis ---------------------------------
-fig = Figure(size = (640, 320))
+# # ----------------------------- figure & axis ---------------------------------
+# fig = Figure(size = (640, 320))
+# gab = fig[1, 1] = GridLayout()
+# # common keyword bundle -------------------------------------------------------
+# cm_temp = :thermal
+# cm_front = :delta
+# cm_right = :delta
 
-# common keyword bundle -------------------------------------------------------
-cm_temp = :thermal
+# rasterint = 6
+# clims = (minimum(top_T),maximum(top_T))
+# climsw = max(maximum(abs.(front_T)),maximum(abs.(right_T)))/2
+# climsw = (-climsw, climsw)
+# kw_top  = (colorrange = clims, colormap = cm_temp,
+#             rasterize = rasterint, shading=NoShading)
+# kw_front = (colormap = cm_front, rasterize = rasterint, colorrange = climsw, shading=NoShading)
+# kw_right = (colormap  = cm_right, rasterize = rasterint, colorrange = climsw, shading=NoShading)
 
-clims = (minimum(front_T)+1.0,maximum(top_T))
-kw_top  = (colorrange = clims, colormap = cm_temp,
-            rasterize = true, shading=NoShading)
-kw_front = (colormap = cm_temp, rasterize = true, colorrange = clims, shading=NoShading)
-kw_right = (colormap  = cm_temp, rasterize = true, colorrange = clims, shading=NoShading)
+# # --------------------------- build the slice grids ---------------------------
+# # 1) constant-z slices (top)
+# y_bt, x_bt     = meshgrid(ygrid, xgrid);            # Ny × Nx 
+# z0  = zeros(size(x_bt));  
 
-# --------------------------- build the slice grids ---------------------------
-# 1) constant-z slices (top)
-y_bt, x_bt     = meshgrid(ygrid, xgrid);            # Ny × Nx 
-z0  = zeros(size(x_bt));  
+# # 2) constant-y slices (y = Ly/2)
+# x_xt, z_xt     = meshgrid(xgrid, zgrid[zgrid .> -100]);           # Nx × Nz
+# y_front        = fill(ygrid[1], size(x_xt));
 
-# 2) constant-y slices (y = Ly/2)
-x_xt, z_xt     = meshgrid(xgrid, zgrid[zgrid .> -100]);           # Nx × Nz
-y_front        = fill(ygrid[1], size(x_xt));
+# # 3) constant-x slices (x = 0)
+# y_yt, z_yt     = meshgrid(ygrid, zgrid[zgrid .> -100]);           # Ny × Nz
+# x_left         = fill(xgrid[end], size(y_yt));
 
-# 3) constant-x slices (x = 0)
-y_yt, z_yt     = meshgrid(ygrid, zgridc[zgridc .> -100]);           # Ny × Nz
-x_left         = fill(xgrid[end], size(y_yt));
+# ax  = Axis3(gab[2, 1]; 
+#         ylabel = L"x~\text{(km)}", xlabel = L"y~\text{(km)}", zlabel = L"z~\text{(m)}",
+#         aspect = (1.1, 1, 0.1),
+#         limits = ((minimum(ygrid), maximum(ygrid)),
+#                     (minimum(xgrid), maximum(xgrid)),
+#                     (-100, maximum(zgrid))),
+#         elevation = 0.2π, azimuth = 0.24π,
+#         xspinesvisible = false, yspinesvisible = false, zspinesvisible = false,
+#         xgridvisible = false, ygridvisible = false, zgridvisible = false,
+#         perspectiveness = 0.7,protrusions = (40,10,0,0))
+# ax.xreversed = true
 
-ax  = Axis3(fig[2, 1]; 
-        ylabel = L"x~\text{(km)}", xlabel = L"y~\text{(km)}", zlabel = L"z~\text{(m)}",
-        aspect = (1.1, 1, 0.1),
-        limits = ((minimum(ygrid), maximum(ygrid)),
-                    (minimum(xgrid), maximum(xgrid)),
-                    (-100, maximum(zgrid))),
-        elevation = 0.15π, azimuth = 0.24π,
-        xspinesvisible = false, yspinesvisible = false, zspinesvisible = false,
-        xgridvisible = false, ygridvisible = false, zgridvisible = false,
-        perspectiveness = 0.7,protrusions = (40,10,0,0))
-ax.xreversed = true
+# # ----------------------------- draw the surfaces -----------------------------  
+# sft = surface!(ax, y_bt, x_bt, z0;         color = top_T,    kw_top...);   # top
+# sfw = surface!(ax, y_front,  x_xt,  z_xt;     color = front_T,      kw_front...);   # front 
+# sfv = surface!(ax, y_yt,    x_left,  z_yt;     color = right_T,      kw_right...);   # right
+# Colorbar(gab[1, 1], sft, vertical = false, label = L"T~\text{({^\circ}C)}", width = Relative(0.5), tellheight=false)
+# lines!(ax, [0, 0], [0, 0], [-100, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
+# lines!(ax, [0, 0], [-3.125, -3.125], [-100, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
+# lines!(ax, [0, 3.125].+Dr*3.125, [0, 0], [0, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
+# lines!(ax, [3.125, 3.125].+Dr*3.125, [0, -3.125], [0, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
+# lines!(ax, [0, 3.125].+Dr*3.125, [-3.125, -3.125], [0, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
 
-# ----------------------------- draw the surfaces -----------------------------  
-sft = surface!(ax, y_bt, x_bt, z0;         color = top_T,    kw_top...);   # top
-sfw = surface!(ax, y_front,  x_xt,  z_xt;     color = front_T,      kw_front...);   # front 
-sfv = surface!(ax, y_yt,    x_left,  z_yt;     color = right_T,      kw_right...);   # right
-Colorbar(fig[1, 1], sft, vertical = false, label = L"T~\text{({^\circ}C)}", width = Relative(0.3), tellheight=false)
-lines!(ax, [0, 0], [0, 0], [-100, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
-lines!(ax, [0, 0], [-3.125, -3.125], [-100, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
-lines!(ax, [0, 3.125], [0, 0], [0, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
-lines!(ax, [3.125, 3.125], [0, -3.125], [0, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
-lines!(ax, [0, 3.125], [-3.125, -3.125], [0, 0]; color = :black, linewidth = 0.5, linestyle = :dash)
+# rasterint = 5
+# kw_top  = (colorrange = clims, colormap = cm_temp,
+#             rasterize = rasterint, shading=NoShading)
+# kw_front = (colormap = cm_front, rasterize = rasterint, colorrange = climsw, shading=NoShading)
+# kw_right = (colormap  = cm_right, rasterize = rasterint, colorrange = climsw, shading=NoShading)
+# xgrid = collect(range(-Δh*nx+Δh/2, -Δh/2; length = nx))/1e3;
+# ygrid = (collect(range(Δh/2, Δh*ny+Δh/2; length = ny)))/1e3;
+# filename = filehead * "iteration16x/nonhydrostatic_checkpoint_";
+# file = jldopen(filename * "$(rank)_iteration164410.jld2");
+# top2_T = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, end-Hz]'; 
+# front2_T = file["NonhydrostaticModel/w/data"][Hx+1:end-Hx, Hy+1, Hz+1:end-Hz][:,zgrid .> -100];
+# right2_T = file["NonhydrostaticModel/w/data"][end-Hx, Hy+1:end-Hy, Hz+1:end-Hz][:,zgrid .> -100];
+# close(file)
+# # --------------------------- build the slice grids ---------------------------
+# # 1) constant-z slices (top)
+# y_bt, x_bt     = meshgrid(ygrid, xgrid);            # Ny × Nx 
+# z0  = zeros(size(x_bt));  
 
-xgrid = collect(range(-Δh*nx+Δh/2, -Δh/2; length = nx))/1e3;
-ygrid = (collect(range(Δh/2, Δh*ny+Δh/2; length = ny)))/1e3;
-filename = filehead * "iteration16x/nonhydrostatic_checkpoint_";
-file = jldopen(filename * "$(rank)_iteration164410.jld2");
-top2_T = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, end-Hz]'; 
-front2_T = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1, Hz+1:end-Hz][:,zgridc .> -100];
-right2_T = file["NonhydrostaticModel/T/data"][end-Hx, Hy+1:end-Hy, Hz+1:end-Hz][:,zgridc .> -100];
-close(file)
-# --------------------------- build the slice grids ---------------------------
-# 1) constant-z slices (top)
-y_bt, x_bt     = meshgrid(ygrid, xgrid);            # Ny × Nx 
-z0  = zeros(size(x_bt));  
+# # 2) constant-y slices (y = Ly/2)
+# x_xt, z_xt     = meshgrid(xgrid, zgrid[zgrid .> -100]);           # Nx × Nz
+# y_front        = fill(ygrid[1], size(x_xt));
 
-# 2) constant-y slices (y = Ly/2)
-x_xt, z_xt     = meshgrid(xgrid, zgrid[zgrid .> -100]);           # Nx × Nz
-y_front        = fill(ygrid[1], size(x_xt));
+# # 3) constant-x slices (x = 0)
+# y_yt, z_yt     = meshgrid(ygrid, zgrid[zgrid .> -100]);           # Ny × Nz
+# x_left         = fill(xgrid[end], size(y_yt));
 
-# 3) constant-x slices (x = 0)
-y_yt, z_yt     = meshgrid(ygrid, zgridc[zgridc .> -100]);           # Ny × Nz
-x_left         = fill(xgrid[end], size(y_yt));
+# ax  = Axis3(gab[2, 2]; 
+#         xlabelvisible = false, ylabelvisible = false, zlabelvisible = false,
+#         aspect = (1.1, 1, 0.75),
+#         limits = ((minimum(ygrid), maximum(ygrid)),
+#                     (minimum(xgrid), maximum(xgrid)),
+#                     (-100, maximum(zgrid))),
+#         elevation = 0.17π, azimuth = 0.24π,
+#         xspinesvisible = false, yspinesvisible = false, zspinesvisible = false,
+#         xgridvisible = false, ygridvisible = false, zgridvisible = false,
+#         perspectiveness = 0.7,protrusions = (40,10,0,0))
+# ax.xreversed = true
 
-ax  = Axis3(fig[2, 2]; 
-        xlabelvisible = false, ylabelvisible = false, zlabelvisible = false,
-        aspect = (1.1, 1, 0.75),
-        limits = ((minimum(ygrid), maximum(ygrid)),
-                    (minimum(xgrid), maximum(xgrid)),
-                    (-100, maximum(zgrid))),
-        elevation = 0.1π, azimuth = 0.24π,
-        xspinesvisible = false, yspinesvisible = false, zspinesvisible = false,
-        xgridvisible = false, ygridvisible = false, zgridvisible = false,
-        perspectiveness = 0.7,protrusions = (40,10,0,0))
-ax.xreversed = true
-
-# ----------------------------- draw the surfaces -----------------------------  
-sft = surface!(ax, y_bt, x_bt, z0;         color = top2_T,    kw_top...)   # top
-sfw = surface!(ax, y_front,  x_xt,  z_xt;     color = front2_T,      kw_front...)   # w 
-sfv = surface!(ax, y_yt,    x_left,  z_yt;     color = right2_T,      kw_right...)   # v
-rowgap!(fig.layout, 1, Relative(-0.3))
-colgap!(fig.layout, 1, Relative(-0.1))
-rowsize!(fig.layout, 1, Relative(0.1))
-colsize!(fig.layout, 2, Relative(0.2))
-resize_to_layout!(fig)
-save(filesave * "T_rank$(rank)_iter164410.pdf", fig; pt_per_unit = 1)
+# # ----------------------------- draw the surfaces -----------------------------  
+# sft = surface!(ax, y_bt, x_bt, z0;         color = top2_T,    kw_top...)   # top
+# sfw = surface!(ax, y_front,  x_xt,  z_xt;     color = front2_T,      kw_front...)   # w 
+# sfv = surface!(ax, y_yt,    x_left,  z_yt;     color = right2_T,      kw_right...)   # v
+# Colorbar(gab[1, 2], vertical = false, sfw, label =  L"w~\text{({m}~s^{-1})}", ticks = -0.02:0.02:0.02, tellheight=false)
+# # Label(gab[2, 3, Top()], L"w~\text{({m}~s^{-1})}", font = texfont(), padding = (0, 0, 0, 50))
+# rowgap!(gab, 1, Relative(-0.3))
+# colgap!(gab, 1, Relative(-0.1))
+# # colgap!(gab, 2, 0)
+# rowsize!(gab, 1, Relative(0.05))
+# colsize!(gab, 1, Relative(0.8))
+# colsize!(gab, 2, Relative(0.2))
+# resize_to_layout!(fig)
+# save(filesave * "T_rank$(rank)_iter164410_elev0.17pi.pdf", fig; pt_per_unit = 1)
 
 ########################################
 # fig = Figure(size = (640, 750))
@@ -318,7 +335,7 @@ save(filesave * "T_rank$(rank)_iter164410.pdf", fig; pt_per_unit = 1)
 # save(filesave * "fields_init_mldass_d0.pdf", fig)
 
 # use_gpu = true
-# A=rand(Float32,20480,20480,1);
+# A=rand(Float64,640,640,224); #rand(Float32,20480,20480,1);
 # if use_gpu && CUDA.functional()
 #     p = CUDA.CUFFT.plan_rfft(CuArray(A), (1,2));
 #     pk = CUDA.CUFFT.plan_rfft(CuArray(A[:,:,1:1]), (1,2));
@@ -338,12 +355,17 @@ save(filesave * "T_rank$(rank)_iter164410.pdf", fig; pt_per_unit = 1)
 # coarse_graining!(snapshot[:u] , u̅; kernel=:gaussian, cutoff=300, border = :circular, method = :spectral, use_gpu,plans=(p,ip));
 # ζ̄i = compute!(Field((∂x(v̅-mean(v̅,dims=2))-∂y(u̅))));
 
-# filename = "./hydrostatic_snapshots_40_Q.jld2"
+# filename = "./nonhydrostatic_snapshots_1gpu.jld2"
 # snapshots = load_snapshots(filename);
 # times = snapshots[:T].times
 # v30 = snapshots[:v][length(times)];
 # u30 = snapshots[:u][length(times)];
-# ζ̄i = compute!(Field((∂x(v30-mean(v30,dims=2))-∂y(u30))));
+# grid = u30.grid
+# u̅30  = XFaceField(grid);
+# v̅30  = YFaceField(grid);
+# coarse_graining!(v30 , v̅30; kernel=:gaussian, cutoff=300, border = :circular, method = :spectral);
+# coarse_graining!(u30 , u̅30; kernel=:gaussian, cutoff=300, border = :circular, method = :spectral);
+# ζ̄i = compute!(Field((∂x(v̅30-mean(v̅30,dims=2))-∂y(u̅30))));
 
 # fig = Figure(size = (640, 600))
 # g4 = fig[1, 1] = GridLayout()
@@ -358,7 +380,7 @@ save(filesave * "T_rank$(rank)_iter164410.pdf", fig; pt_per_unit = 1)
 # Colorbar(g4[1,2], hm)
 # colgap!(g4, 1, 1)
 # resize_to_layout!(fig)
-# save(filesave * "curls_surface_hydrostatic_t30h.pdf", fig; pt_per_unit = 1)
+# save(filesave * "curls_surface_nonhydro_t30h.pdf", fig; pt_per_unit = 1)
 
 # use_gpu = true
 # A=rand(Float32,10240,20480,1);
@@ -655,22 +677,23 @@ iteration = 37003
 
 #############################
 # uᵃ, vᵃ, wᵃ, Bᵃ = 0.0, 0.0, 0.0, 0.0
-# nsubdomains = 16
+# nsubdomains = 4
 # for i = 1:nsubdomains
-#     fileparam = "subdomain" * string(i)
+#     fileparam = "xband1sub" * string(i)
 #     @info "Computing and saving data for $fileparam"
 #     # 1. Define the filename of the saved snapshot
-#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+#     output_filename = filehead * "subdomains/" * fileparam * "_iter$(iteration).jld2"
 
 #     # 2. Load the snapshot using the new function
 #     snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T"));
 
 #     x0, y0, z0 = nodes(snapshot[:T])
-#     yc = 0.5 * (y0[640] + y0[641])
+#     yc = 0.5 * (y0[640*4] + y0[640*4+1])
+#     ny = 4*640-250
 #     to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
-#                               size = (2048*2, 512*2, length(z0)),
+#                               size = (2048*2, 2048*2, length(z0)),
 #                               x = (-10000,10000),
-#                               y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
+#                               y = (yc-parameters.Δh*ny,yc+parameters.Δh*ny),
 #                               z = (-81,0),
 #                               topology = (Bounded, Bounded, Bounded))
 
@@ -685,7 +708,7 @@ iteration = 37003
 # wᵃ ./= nsubdomains
 # Bᵃ ./= nsubdomains
 
-# jldopen(filehead * "subdomains/Vavgs_iter$(iteration)_afront.jld2", "w") do file
+# jldopen(filehead * "subdomains/Vavgs2_iter$(iteration)_afront.jld2", "w") do file
 #    file["fields/ba"] = Bᵃ
 #    file["fields/ua"] = uᵃ
 #    file["fields/va"] = vᵃ
@@ -698,6 +721,21 @@ uᵃ = file["fields/ua"]
 vᵃ = file["fields/va"]
 wᵃ = file["fields/wa"]
 close(file)
+
+@info "plot along-y mean wᵃ bᵃ..."
+fig = Figure(size = (540, 400))
+ax = Axis(fig[1,1]; xlabel=L"w^a~\text{(m s^{-1})}", ylabel=L"b^a~\text{(m s^{-2})}")
+# scatter!(ax, vec((wᵃ[:,1,1:end-1].+wᵃ[:,1,2:end])/2), vec(Bᵃ), alpha=0.5, markersize = 3)
+h = fit(Histogram, (vec((wᵃ[:,1,1:end-1].+wᵃ[:,1,2:end])/2), vec(Bᵃ)), nbins=50);
+counts = h.weights
+w_edges = h.edges[1]
+b_edges = h.edges[2]
+hm = heatmap!(ax, w_edges, b_edges, log10.(1 .+ counts); rasterize = true, colormap = Reverse(:grays))
+Colorbar(fig[1,2], hm)
+hlines!(ax, 0, color=:black, linestyle=:dash)
+vlines!(ax, 0, color=:black, linestyle=:dash)
+resize_to_layout!(fig)
+save(filesave * "waba_30h_iter$(iteration)_log10.pdf", fig; pt_per_unit = 1)
 
 # fig = Figure(size = (640, 400))
 # gab = fig[1, 1] = GridLayout()
@@ -716,10 +754,10 @@ close(file)
 # hm4 = heatmap!(ax4, 1e-3xi, zi, wᵃ[:,1,:]; rasterize = true, colorrange = (-4e-4,4e-4), colormap = :delta)
 
 # levels = Makie.get_tickvalues(Makie.LinearTicks(20), extrema(Bᵃ[:,1,:])...)
-# contour!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black)
-# contour!(ax2, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
-# contour!(ax3, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
-# contour!(ax4, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
+# # Makie.contour!(ax1, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black)
+# # Makie.contour!(ax2, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
+# # Makie.contour!(ax3, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
+# # Makie.contour!(ax4, 1e-3xi, zi, Bᵃ[:,1,:]; color=:black) 
 # hideydecorations!(ax2, ticks = false)
 # hideydecorations!(ax4, ticks = false)
 # hidexdecorations!(ax1, ticks = false)
@@ -739,28 +777,74 @@ close(file)
 # colgap!(gab, 2, 5)
 # colgap!(gab, 3, 0)
 # resize_to_layout!(fig)
-# save(filesave * "afrontfields_vslices_30h_iter$(iteration).pdf", fig; pt_per_unit = 1)
+# save(filesave * "afrontfields2_vslices_30h_iter$(iteration).pdf", fig; pt_per_unit = 1)
 
-# varᵃ = (uᵃ, vᵃ, wᵃ, Bᵃ)
-# for i = 4:4
-#     fileparam = "subdomain" * string(i)
-#     @info "Computing and saving data for $fileparam"
-#     # 1. Define the filename of the saved snapshot
-#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+varᵃ = (uᵃ, vᵃ, wᵃ, Bᵃ)
+fig = Figure(size = (640, 900))
+for i = 1:4
+    fileparam = "subdomain" * string(5-i)
+    @info "Computing and saving data for $fileparam"
+    # 1. Define the filename of the saved snapshot
+    output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
 
-#     # 2. Load the snapshot using the new function
-#     snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T", "MLD3"));
+    # 2. Load the snapshot using the new function
+    snapshot = load_subdomain_snapshot(output_filename; variables = ("u", "v", "w", "T", "MLD3"));
 
-#     x0, y0, z0 = nodes(snapshot[:T])
-#     yc = 0.5 * (y0[640] + y0[641])
-#     to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
-#                               size = (2048*2, 512*2, length(z0)),
-#                               x = (-10000,10000),
-#                               y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
-#                               z = (-81,0),
-#                               topology = (Bounded, Bounded, Bounded))
+    x0, y0, z0 = nodes(snapshot[:T])
+    yc = 0.5 * (y0[640] + y0[641])
+    to_grid = RectilinearGrid(snapshot[:grid].architecture,Float32;
+                              size = (2048*2, 512*2, length(z0)),
+                              x = (-10000,10000),
+                              y = (yc-parameters.Δh*512,yc+parameters.Δh*512),
+                              z = (-81,0),
+                              topology = (Bounded, Bounded, Bounded))
 
-#     u̅, v̅, w̅, B̅, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww, τwb, Πₕ, Πᵥ, Πᵥg, Pᵃ, Pᵃᵥg, Pˢ, Pˢᵥg, Pᵀ, wˢbˢ = coarse_grained_fluxes(snapshot, Ub, Vb, varᵃ; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
+    b = compute!(Field(α * g * snapshot[:T]))
+    itp_w = ZFaceField(to_grid,Float32)
+    itp_b = CenterField(to_grid,Float32)
+    interpolate!(itp_w, snapshot[:w])
+    interpolate!(itp_b, b)
+    w̅ = ZFaceField(snapshot[:w].grid,Float32)
+    b̅ = CenterField(b.grid,Float32)
+    coarse_graining!(snapshot[:w], w̅; kernel=:gaussian, cutoff=300, border=:reflect)
+    coarse_graining!(b, b̅; kernel=:gaussian, cutoff=300, border=:reflect)
+    itp_w̅ = ZFaceField(to_grid,Float32)
+    itp_b̅ = CenterField(to_grid,Float32)
+    interpolate!(itp_w̅, w̅)
+    interpolate!(itp_b̅, b̅)
+    wᵖ = interior(itp_w) .- interior(itp_w̅)
+    bᵖ = interior(itp_b) .- interior(itp_b̅)
+    wˢ = interior(itp_w̅) .- wᵃ
+    bˢ = interior(itp_b̅) .- Bᵃ
+
+    h = fit(Histogram, (vec((wˢ[:,:,1:end-1].+wˢ[:,:,2:end])/2), vec(bˢ)), nbins=50);
+    scounts = h.weights
+    sw_edges = h.edges[1]
+    sb_edges = h.edges[2]
+    h = fit(Histogram, (vec((wᵖ[:,:,1:end-1].+wᵖ[:,:,2:end])/2), vec(bˢ)), nbins=50);
+    pcounts = h.weights
+    pw_edges = h.edges[1]
+    pb_edges = h.edges[2]
+
+    if i<4
+        axs = Axis(fig[i,1]; ylabel=L"b^s~\text{(m s^{-1})}")
+        axp = Axis(fig[i,3]; ylabel=L"b^\prime~\text{(m s^{-1})}")
+    else
+        axs = Axis(fig[i,1]; xlabel=L"w^s~\text{(m s^{-1})}", ylabel=L"b^s~\text{(m s^{-2})}")
+        axp = Axis(fig[i,3]; xlabel=L"w^\prime~\text{(m s^{-1})}", ylabel=L"b^\prime~\text{(m s^{-2})}")
+    end
+    # scatter!(axs, vec(interior(wˢ)), vec(interior(bˢ)), alpha=0.5, markersize = 3)
+    # scatter!(axp, vec(interior(wᵖ)), vec(interior(bᵖ)), alpha=0.5, markersize = 3)
+    hm1 = heatmap!(axs, sw_edges, sb_edges, log10.(1 .+ scounts); rasterize = true, colormap = Reverse(:grays))
+    Colorbar(fig[i,2], hm1)
+    hm2 = heatmap!(axp, pw_edges, pb_edges, log10.(1 .+ pcounts); rasterize = true, colormap = Reverse(:grays))
+    Colorbar(fig[i,4], hm)
+    hlines!(axs, 0, color=:black, linestyle=:dash)
+    hlines!(axp, 0, color=:black, linestyle=:dash)
+    vlines!(axs, 0, color=:black, linestyle=:dash)
+    vlines!(axp, 0, color=:black, linestyle=:dash)
+
+    # u̅, v̅, w̅, B̅, uˢ, vˢ, wˢ, Bˢ, τuu, τvv, τww, τwb, Πₕ, Πᵥ, Πᵥg, Pᵃ, Pᵃᵥg, Pˢ, Pˢᵥg, Pᵀ, wˢbˢ = coarse_grained_fluxes(snapshot, Ub, Vb, varᵃ; to_grid, cutoff=300, border=:reflect, Lx = snapshot[:grid].Lx, Ly = snapshot[:grid].Ly);
 
 #     xi, _, _ = nodes(CenterField(to_grid,Float32))
 #     itp2nodes(field) = Array([interpolate((x, yc, z), field) for x in xi, z in z0'])
@@ -810,9 +894,103 @@ close(file)
 #         file["metadata/x"] = xi
 #         file["metadata/y"] = yc
 #         file["metadata/z"] = z0
-#     end
-# end
+    # end
+end
+resize_to_layout!(fig)
+save(filesave * "wsbswpbp_30h_iter$(iteration)_log10.pdf", fig; pt_per_unit = 1)
+println("Finished plotting wsbswpbp fields")
 # println("Finished plotting TKE, SKE, and P fields")
+
+# σ4 = vec(interior(σn, 1, 600:-160:1, 224))
+# V4 = vec(interior(Vb, 1, 600:-160:1, 224))
+# @info "Computing and saving data for $(σ4)"
+# mnPs, mxPs = zeros(4, 8), zeros(4, 8)
+# for i = 1:4
+#     fileparam = "subdomain$(5-i)"
+#     # 1. Define the filename of the saved snapshot
+#     output_filename = filehead * "subdomains/" * fileparam * "_snapshot_iter$(iteration).jld2"
+#     snapshot = load_subdomain_snapshot(output_filename; variables = ("MLD", "MLD3"));
+#     hi = interior(snapshot[:MLD3],513:4608,640,1)
+
+#     # 2. Load the snapshot using the new function
+#     slices = jldopen(filehead * "subdomains/Vslices_"*fileparam*"_iter$(iteration)_afront.jld2", "r")
+#     xi, yi, zi = slices["metadata/x"], slices["metadata/y"], slices["metadata/z"]
+#     TKEₛi = (slices["fields/τvv"] + slices["fields/τuu"] + slices["fields/τww"])/2/wₛ^2;
+#     SKEₛi = (slices["fields/us"].^2 + slices["fields/vs"].^2 + slices["fields/ws"].^2)/2/wₛ^2;
+#     τwbi = slices["fields/τwb"][:,1,:]/(parameters.f * wₛ^2)
+#     Phi = slices["fields/Ph"][:,1,:]/(parameters.f * wₛ^2)
+#     Pvgi = slices["fields/Pvg"][:,1,:]/(parameters.f * wₛ^2)
+#     Pvagi = slices["fields/Pv"][:,1,:]/(parameters.f * wₛ^2) .- Pvgi
+#     Pasi = slices["fields/Pas"][:,1,:]/(parameters.f * wₛ^2)
+#     Pssi = slices["fields/Pss"][:,1,:]/(parameters.f * wₛ^2)
+#     PTsi = slices["fields/PTs"][:,1,:]/(parameters.f * wₛ^2)
+#     wbsi = slices["fields/wbs"][:,1,:]/(parameters.f * wₛ^2)
+#     close(slices)
+
+#     Xi = repeat(xi, 1, length(zi))
+#     Zi = repeat(zi', length(xi), 1)
+#     mask = (-4e3 .< Xi .< 4e3) .& (-hi .< Zi)
+#     mnPs[i,1] = mean(Phi[mask]) 
+#     mnPs[i,2] = mean(Pvgi[mask]) 
+#     mnPs[i,3] = mean(Pvagi[mask]) 
+#     mnPs[i,4] = mean(τwbi[mask]) 
+#     mnPs[i,5] = mean(PTsi[mask]) 
+#     mnPs[i,6] = mean(Pssi[mask]) 
+#     mnPs[i,7] = mean(Pasi[mask]) 
+#     mnPs[i,8] = mean(wbsi[mask]) 
+
+#     amaxT = argmax(TKEₛi[1025:3096,1,:])
+#     amaxS = argmax(SKEₛi[1025:3096,1,:])
+#     imaxT, kmaxT = amaxT[1]+1024, amaxT[2]
+#     imaxS, kmaxS = amaxS[1]+1024, amaxS[2]
+#     mxPs[i,1] = Phi[imaxT,kmaxT]
+#     mxPs[i,2] = Pvgi[imaxT,kmaxT]
+#     mxPs[i,3] = Pvagi[imaxT,kmaxT]
+#     mxPs[i,4] = τwbi[imaxT,kmaxT]
+#     mxPs[i,5] = PTsi[imaxS,kmaxS]
+#     mxPs[i,6] = Pssi[imaxS,kmaxS]
+#     mxPs[i,7] = Pasi[imaxS,kmaxS]
+#     mxPs[i,8] = wbsi[imaxS,kmaxS]
+# end
+
+# @info "mean Ps $(mnPs)"
+# tbl = (cat = vec(repeat(σ4, 1, 4)),
+#        height = vec(mnPs[:,1:4]),
+#        grp = vec(repeat(Array(1:4)',4,1))
+#        )
+# colors = Makie.wong_colors()
+# fig = Figure(size = (640, 540)) 
+# gab = fig[1, 1] = GridLayout()
+# limits = ((-0.0416, 0.0416), nothing)
+# ax = Axis(gab[1,1], xticks = σ4./f, 
+#           ylabel="TKE budget mean", titlealign = :left, title=L"\text{(a)}")  
+# barplot!(tbl.cat, tbl.height,
+#         dodge = tbl.grp,
+#         color = colors[tbl.grp]
+#         )
+# labels = [L"P_H", L"P_{Vg}", L"P_{Va}", L"B"]
+# elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
+# axislegend(ax, elements, labels, position = :lt, framevisible=false)
+# tbl = (cat = vec(repeat(σ4, 1, 4)),
+#        height = vec(mnPs[:,5:8]),
+#        grp = vec(repeat(Array(1:4)',4,1))
+#        )
+# ax = Axis(gab[2,1], xticks = σ4./f,  
+#           ylabel="SKE budget mean", 
+#           titlealign = :left, title=L"\text{(b)}")  
+# barplot!(tbl.cat, tbl.height,
+#         dodge = tbl.grp,
+#         color = colors[tbl.grp]
+#         ) 
+# ax2 = Axis(gab[2,1], xlabel = L"\sigma_n/f", ylabel = L"V/\max(V)", limits = limits, 
+#            xticks = -0.03:0.02:0.03, ygridvisible = false, yaxisposition = :right)
+# lines!(ax2, sort(σ4./f), V4[sortperm(σ4)]/max(V4...), color = :black)
+# labels = [L"P^\prime", L"P^s", L"P^a", L"B^s"]
+# elements = [PolyElement(polycolor = colors[i]) for i in 1:length(labels)]
+# axislegend(ax, elements, labels, position = :lt, framevisible=false)
+# rowgap!(gab, 1, 5)
+# resize_to_layout!(fig)
+# save(filesave * "Pbarsmn_30h_iter$(iteration)_afront.pdf", fig; pt_per_unit = 1)
 
 # 3. Plot the TKE fields
 # alphabet = [letter for letter in 'a':'z'];

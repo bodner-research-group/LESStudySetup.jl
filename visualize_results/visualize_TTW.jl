@@ -437,6 +437,7 @@ resize_to_layout!(fig1)
 ϕzzz_gauss, ϕxzz_gauss, ϕzxx_gauss, ϕxxx_gauss, Fγv_gauss, Fγb_gauss = compute_blt_fields(x, z, Ro, B_funcs_gauss)
 
 t = 10
+tscale = (1-cos(t))
 b1_erf, v1_erf = compute_b1v1_field(x, z, Ro, Fγb_erf, Fγv_erf, psi1_erf_strain, (ϕxx_erf, ϕxz_erf, ϕzz_erf), t)
 b1_gauss, v1_gauss = compute_b1v1_field(x, z, Ro, Fγb_gauss, Fγv_gauss, psi1_gauss_strain, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), t)
 bγ_erf, vγ_erf = b_erf .+ γ * b1_erf, v_erf .+ γ * v1_erf
@@ -447,21 +448,23 @@ figγ = Figure(size = (640, 650));
 gab = figγ[1, 1] = GridLayout()
 ax_a  = Axis(gab[1,1], ylabel = L"z",
              titlealign = :left, limits = ((x_min, x_max), (z_min, z_max)),
-             title = L"\text{(a) Front}~\psi^1_{p,\gamma}")
-clims = (-maximum(abs, psi1_erf_strain), maximum(abs, psi1_erf_strain))
-hm_a = heatmap!(ax_a, x, z, psi1_erf_strain;
+             title = L"\text{(a) Front}~\psi^1_S(t=10)")
+clims = (-maximum(abs, psi1_erf_strain*tscale), maximum(abs, psi1_erf_strain*tscale))
+hm_a = heatmap!(ax_a, x, z, psi1_erf_strain*tscale;
         colormap = :PuOr, rasterize = true, colorrange = clims)
 Colorbar(gab[1,2], hm_a)
+contour!(ax_a, x, z, bγ_erf; levels = 10, linewidth = 1, color = :black)
 ax_b  = Axis(gab[1,3],  
              titlealign = :left, limits = ((x_min, x_max), (z_min, z_max)),
-             title = L"\text{(b) Filament}~\psi^1_{p,\gamma}")
-hm_b = heatmap!(ax_b, x, z, psi1_gauss_strain;
+             title = L"\text{(b) Filament}~\psi^1_S(t=10)")
+hm_b = heatmap!(ax_b, x, z, psi1_gauss_strain*tscale;
         colormap = :PuOr, rasterize = true, 
-        colorrange = (-maximum(abs, psi1_gauss_strain), maximum(abs, psi1_gauss_strain)))
+        colorrange = (-maximum(abs, psi1_gauss_strain*tscale), maximum(abs, psi1_gauss_strain*tscale)))
 Colorbar(gab[1,4], hm_b)
+contour!(ax_b, x, z, bγ_gauss; levels = 10, linewidth = 1, color = :black)
 ax_c  = Axis(gab[2,1], ylabel = L"z",
              titlealign = :left, limits = ((x_min, x_max), (z_min, z_max)),
-             title = L"\text{(c) Front} v^0+\gamma v^1_\gamma(t=10)")
+             title = L"\text{(c) Front} v^0+\varepsilon_S v^1_S(t=10)")
 clims = (-maximum(abs, vγ_erf), maximum(abs, vγ_erf))
 hm_c = heatmap!(ax_c, x, z, vγ_erf;
         colormap = :delta, rasterize = true, colorrange = clims)
@@ -469,7 +472,7 @@ contour!(ax_c, x, z, bγ_erf; levels = 10, linewidth = 1, color = :black)
 Colorbar(gab[2,2], hm_c)
 ax_d  = Axis(gab[2,3], ylabel = L"z",
              titlealign = :left, limits = ((x_min, x_max), (z_min, z_max)),
-             title = L"\text{(d) Filament} v^0+\gamma v^1_\gamma(t=10)")
+             title = L"\text{(d) Filament} v^0+\varepsilon_S v^1_S(t=10)")
 hm_d = heatmap!(ax_d, x, z, vγ_gauss;
         colormap = :delta, rasterize = true, 
         colorrange = (-maximum(abs, vγ_gauss), maximum(abs, vγ_gauss)))
@@ -477,7 +480,7 @@ contour!(ax_d, x, z, bγ_gauss; levels = 10, linewidth = 1, color = :black)
 Colorbar(gab[2,4], hm_d)
 ax_e = Axis(gab[3,1], xlabel = L"x", ylabel = L"z", 
             titlealign = :left, limits = ((x_min, x_max), (z_min, z_max)),
-            title = L"\text{(e) Front} T^1_{b,\gamma}(t=10)")
+            title = L"\text{(e) Front} T^1_{b,S}(t=10)")
 clims = (-maximum(abs, T¹b_erf), maximum(abs, T¹b_erf))
 hm_e = heatmap!(ax_e, x, z, T¹b_erf;
 colormap = :balance, rasterize = true, colorrange = clims)
@@ -485,7 +488,7 @@ contour!(ax_e, x, z, bγ_erf; levels = 10, linewidth = 1, color = :black)
 Colorbar(gab[3,2], hm_e)
 ax_f  = Axis(gab[3,3], xlabel = L"x", 
             titlealign = :left, limits = ((x_min, x_max), (z_min, z_max)),
-            title = L"\text{(f) Filament} T^1_{b,\gamma}(t=10)")
+            title = L"\text{(f) Filament} T^1_{b,S}(t=10)")
 hm_f = heatmap!(ax_f, x, z, T¹b_gauss;
 colormap = :balance, rasterize = true, 
 colorrange = (-maximum(abs, T¹b_gauss), maximum(abs, T¹b_gauss)))
