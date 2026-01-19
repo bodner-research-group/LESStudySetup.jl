@@ -72,6 +72,142 @@ function load_distributed_checkpoint(filename, iteration;
     return snapshot
 end
 
+"""
+    load_checkpoint_clock(filename_prefix, iteration)
+
+Extract clock information (time and iteration) from a checkpoint file.
+
+This function reads the simulation clock from a distributed checkpoint,
+providing the simulation time and iteration number. Useful for displaying
+metadata about when a snapshot was saved.
+
+Arguments:
+- `filename_prefix`: Path prefix to checkpoint files (without rank suffix).
+                     Example: "/path/to/checkpoint_" for files like "checkpoint_0_iteration1000.jld2"
+- `iteration`: Checkpoint iteration number
+
+Returns:
+- NamedTuple with fields:
+  - `time`: Simulation time in seconds
+  - `iteration`: Model iteration number
+  - `time_days`: Simulation time converted to days
+
+Example:
+```julia
+clock = load_checkpoint_clock("/path/to/checkpoint_", 32207)
+@info "Simulation time: \$(clock.time_days) days (iteration \$(clock.iteration))"
+```
+"""
+function load_checkpoint_clock(filename_prefix, iteration)
+    filepath = filename_prefix * "0_iteration$(iteration).jld2"
+    
+    jldopen(filepath, "r") do file
+        clock = file["NonhydrostaticModel/clock"]
+        time_seconds = clock.time
+        iter = clock.iteration
+        time_days = time_seconds / 86400.0  # Convert to days
+        return (time = time_seconds, iteration = iter, time_days = time_days)
+    end
+end
+
+"""
+    compute_subdomain_tiles(; Lx=100e3, Ly=100e3, tile_size=10e3, halo_width=600.0)
+
+Compute tile boundaries for dividing a domain into subdomains with halo overlap.
+
+The domain is divided into a grid of tiles. Each tile has:
+- A "core" region: the actual tile (e.g., 10km × 10km)
+- A "full" region: core + halo band on all sides (e.g., 11.2km × 11.2km)
+
+The halo band ensures that coarse-graining operations near tile boundaries
+don't suffer from edge artifacts. After filtering, only the core region
+contains valid data.
+
+Arguments:
+- `Lx`: Full domain x-extent in meters (default: 100km)
+- `Ly`: Full domain y-extent in meters (default: 100km)
+- `tile_size`: Core tile size in meters (default: 10km)
+- `halo_width`: Halo band width in meters on each side (default: 600m)
+
+Returns:
+- Vector of NamedTuples, each containing:
+  - `tile_id`: Integer tile identifier (1-indexed, row-major order)
+  - `tile_ix`, `tile_iy`: Tile indices in x and y directions
+  - `core_xlims`, `core_ylims`: Core region coordinate bounds
+  - `full_xlims`, `full_ylims`: Full region bounds (core + halo)
+
+Example:
+```julia
+tiles = compute_subdomain_tiles(; Lx=100e3, Ly=100e3, tile_size=10e3, halo_width=600.0)
+# Returns 100 tiles (10×10 grid)
+# tiles[1] = (tile_id=1, tile_ix=1, tile_iy=1, 
+#             core_xlims=(0.0, 10000.0), core_ylims=(0.0, 10000.0),
+#             full_xlims=(-600.0, 10600.0), full_ylims=(-600.0, 10600.0))
+```
+
+Note: Negative coordinates and coordinates exceeding domain size are handled
+by periodic wrapping in `load_distributed_checkpoint_subdomain`.
+"""
+function compute_subdomain_tiles(;
+    Lx::Real = 100e3,
+    Ly::Real = 100e3,
+    tile_size::Real = 10e3,
+    halo_width::Real = 600.0)
+    
+    # Compute number of tiles in each direction
+    n_tiles_x = round(Int, Lx / tile_size)
+    n_tiles_y = round(Int, Ly / tile_size)
+    
+    # Validate that domain divides evenly
+    if abs(n_tiles_x * tile_size - Lx) > 1e-6
+        @warn "Domain Lx=$Lx does not divide evenly by tile_size=$tile_size"
+    end
+    if abs(n_tiles_y * tile_size - Ly) > 1e-6
+        @warn "Domain Ly=$Ly does not divide evenly by tile_size=$tile_size"
+    end
+    
+    tiles = Vector{NamedTuple}()
+    tile_id = 0
+    
+    for ix in 1:n_tiles_x
+        for iy in 1:n_tiles_y
+            tile_id += 1
+            
+            # Core region bounds
+            x0 = (ix - 1) * tile_size
+            x1 = ix * tile_size
+            y0 = (iy - 1) * tile_size
+            y1 = iy * tile_size
+            
+            core_xlims = (x0, x1)
+            core_ylims = (y0, y1)
+            
+            # Full region bounds (halo extends into neighboring tiles)
+            # Note: negative coordinates and coordinates > domain size
+            # are handled by periodic wrapping in load_distributed_checkpoint_subdomain
+            full_xlims = (x0 - halo_width, x1 + halo_width)
+            full_ylims = (y0 - halo_width, y1 + halo_width)
+            
+            push!(tiles, (;
+                tile_id,
+                tile_ix = ix,
+                tile_iy = iy,
+                core_xlims,
+                core_ylims,
+                full_xlims,
+                full_ylims
+            ))
+        end
+    end
+    
+    @info "Created $(length(tiles)) tiles: $(n_tiles_x)×$(n_tiles_y) grid"
+    @info "  Core tile size: $(tile_size/1e3) km × $(tile_size/1e3) km"
+    @info "  Halo width: $(halo_width) m"
+    @info "  Full tile size: $((tile_size + 2*halo_width)/1e3) km × $((tile_size + 2*halo_width)/1e3) km"
+    
+    return tiles
+end
+
 function load_distributed_snapshot(filename, iteration; 
                                    architecture = CPU(),
                                    metadata = nothing,
@@ -543,6 +679,32 @@ function load_subdomain_snapshot(filename; T=Float32, variables = ("u", "v", "w"
             @info "Found levels: $levels"
         end
         
+        # Load halo-aware metadata if present (from save_subdomain_with_halo)
+        if haskey(file, "metadata/core_xlims")
+            snapshot[:core_xlims] = Tuple(file["metadata/core_xlims"])
+            @info "Found core_xlims: $(snapshot[:core_xlims])"
+        end
+        if haskey(file, "metadata/core_ylims")
+            snapshot[:core_ylims] = Tuple(file["metadata/core_ylims"])
+            @info "Found core_ylims: $(snapshot[:core_ylims])"
+        end
+        if haskey(file, "metadata/halo_width")
+            snapshot[:halo_width] = file["metadata/halo_width"]
+            @info "Found halo_width: $(snapshot[:halo_width])"
+        end
+        if haskey(file, "metadata/clock_time")
+            snapshot[:clock_time] = file["metadata/clock_time"]
+            @info "Found clock_time: $(snapshot[:clock_time]) seconds"
+        end
+        if haskey(file, "metadata/clock_time_days")
+            snapshot[:clock_time_days] = file["metadata/clock_time_days"]
+            @info "Found clock_time_days: $(snapshot[:clock_time_days]) days"
+        end
+        if haskey(file, "metadata/iteration")
+            snapshot[:iteration] = file["metadata/iteration"]
+            @info "Found iteration: $(snapshot[:iteration])"
+        end
+        
         # 2. Iterate through the saved fields group to find all field names.
         field_names = keys(file["fields"])
         @info "Found fields: $field_names"
@@ -827,5 +989,126 @@ function save_subdomain_snapshot(filename, snapshot;
     end
 
     @info "Successfully saved subdomain data."
+    return nothing
+end
+
+"""
+    save_subdomain_with_halo(filename, snapshot; kwargs...)
+
+Save a subdomain snapshot with halo band metadata for coarse-graining workflows.
+
+This function extends `save_subdomain_snapshot` by recording both the core region
+(where filtered output is valid) and the full region (including halo buffer).
+The halo band provides padding for spatial filtering operations, ensuring that
+edge artifacts don't contaminate the core region.
+
+Arguments:
+- `filename`: Output JLD2 file path
+- `snapshot`: Dict containing fields (`:u`, `:v`, `:w`, `:T`, etc.) and `:grid`
+
+Keyword Arguments:
+- `core_xlims`: Tuple (xmin, xmax) for core region x-bounds (required)
+- `core_ylims`: Tuple (ymin, ymax) for core region y-bounds (required)
+- `halo_width`: Width of halo band in meters (required)
+- `zlims`: Tuple (zmin, zmax) for vertical bounds (optional)
+- `iteration`: Checkpoint iteration number (optional)
+- `clock_time`: Simulation time in seconds (optional)
+- `clock_time_days`: Simulation time in days (optional)
+
+File Structure:
+```
+├── grid                    # Oceananigans grid object
+├── fields/
+│   ├── u/data, u/location
+│   ├── v/data, v/location  
+│   ├── w/data, w/location
+│   └── T/data, T/location
+└── metadata/
+    ├── core_xlims          # Valid region after filtering
+    ├── core_ylims
+    ├── halo_width          # Halo band width in meters
+    ├── xlims               # Full region (core + halo)
+    ├── ylims
+    ├── zlims
+    ├── iteration
+    ├── clock_time          # Time in seconds
+    └── clock_time_days     # Time in days
+```
+
+Example:
+```julia
+# Save a tile with 600m halo for 300m Gaussian filter
+save_subdomain_with_halo("tile_1.jld2", snapshot;
+    core_xlims = (0.0, 10000.0),
+    core_ylims = (0.0, 10000.0),
+    halo_width = 600.0,
+    zlims = (-81.0, 0.0),
+    iteration = 32207,
+    clock_time_days = 3.5)
+```
+"""
+function save_subdomain_with_halo(filename, snapshot;
+    core_xlims::Tuple{Real,Real},
+    core_ylims::Tuple{Real,Real},
+    halo_width::Real,
+    zlims::Union{Nothing, Tuple{Real,Real}} = nothing,
+    iteration::Union{Nothing, Integer} = nothing,
+    clock_time::Union{Nothing, Real} = nothing,
+    clock_time_days::Union{Nothing, Real} = nothing)
+    
+    # Validate snapshot has required keys
+    if !haskey(snapshot, :grid)
+        error("Snapshot must contain a :grid key.")
+    end
+    
+    sub_grid = snapshot[:grid]
+    
+    # Compute full region from core + halo
+    full_xlims = (core_xlims[1] - halo_width, core_xlims[2] + halo_width)
+    full_ylims = (core_ylims[1] - halo_width, core_ylims[2] + halo_width)
+    
+    @info "Saving subdomain with halo to $filename..."
+    @info "  Core region: x=$(core_xlims), y=$(core_ylims)"
+    @info "  Full region: x=$(full_xlims), y=$(full_ylims)"
+    @info "  Halo width: $(halo_width) m"
+    
+    jldopen(filename, "w") do file
+        # Save grid
+        file["grid"] = sub_grid
+        
+        # Save each field's interior data and location
+        for field_name in keys(snapshot)
+            if field_name != :grid && field_name != :clock
+                field = snapshot[field_name]
+                field_data = Array(interior(field))
+                
+                file["fields/$field_name/data"] = field_data
+                file["fields/$field_name/location"] = location(field)
+            end
+        end
+        
+        # Save halo-aware metadata
+        file["metadata/core_xlims"] = core_xlims
+        file["metadata/core_ylims"] = core_ylims
+        file["metadata/halo_width"] = halo_width
+        file["metadata/xlims"] = full_xlims
+        file["metadata/ylims"] = full_ylims
+        
+        # Optional metadata
+        if !isnothing(zlims)
+            file["metadata/zlims"] = zlims
+        end
+        if !isnothing(iteration)
+            file["metadata/iteration"] = iteration
+        end
+        if !isnothing(clock_time)
+            file["metadata/clock_time"] = clock_time
+        end
+        if !isnothing(clock_time_days)
+            file["metadata/clock_time_days"] = clock_time_days
+        end
+    end
+    
+    @info "Successfully saved subdomain with halo."
     return nothing
 end
