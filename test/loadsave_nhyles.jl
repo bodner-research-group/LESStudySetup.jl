@@ -35,12 +35,12 @@ using StatsBase: fit, Histogram
 #
 
 # --- Data Paths ---
-const CHECKPOINT_DIR = "/orcd/data/abodner/002/nhyles_output/"
-const CHECKPOINT_PREFIX = CHECKPOINT_DIR * "iteration3x/nonhydrostatic_checkpoint_"
+const CHECKPOINT_DIR = "/orcd/data/abodner/002/shared_datasets/nhyles_output/"
+const CHECKPOINT_PREFIX = CHECKPOINT_DIR * "iteration16x/nonhydrostatic_checkpoint_"
 const OUTPUT_DIR = CHECKPOINT_DIR * "subdomains/"
 
 # --- Checkpoint Selection ---
-const ITERATION = 32207
+const ITERATION = 164410
 
 # --- Domain Tiling Parameters ---
 const DOMAIN_LX = 100e3           # Full domain x-extent (m)
