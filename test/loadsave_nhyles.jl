@@ -193,37 +193,47 @@ active_halo_width = HALO_WIDTH  # Default: use saved halo
 
 if required_halo > HALO_WIDTH
     @warn "FILTER_CUTOFF=$FILTER_CUTOFF requires halo=$(required_halo)m, " *
-          "but tile was saved with halo=$(HALO_WIDTH)m. Reloading from checkpoint..."
+          "but tile was saved with halo=$(HALO_WIDTH)m."
     
     # Get tile info for reload
     tile = tiles[TARGET_TILE]
     
-    # Compute expanded limits with larger halo
-    expanded_xlims = (tile.core_xlims[1] - required_halo, tile.core_xlims[2] + required_halo)
-    expanded_ylims = (tile.core_ylims[1] - required_halo, tile.core_ylims[2] + required_halo)
+    # Check if a previously saved tile with larger halo exists
+    reloaded_file = OUTPUT_DIR * "subdomain$(TARGET_TILE)_iter$(ITERATION)_halo$(Int(required_halo)).jld2"
     
-    println("Reloading tile $(TARGET_TILE) from checkpoint with halo=$(required_halo)m...")
-    snapshot = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
-        xlims = expanded_xlims,
-        ylims = expanded_ylims,
-        zlims = Z_LIMITS,
-        getEw = false,
-        getMLD = 0
-    )
-    
-    # Optionally save the reloaded tile with larger halo
-    if SAVE_RELOADED_TILE
-        reloaded_file = OUTPUT_DIR * "subdomain$(TARGET_TILE)_iter$(ITERATION)_halo$(Int(required_halo)).jld2"
-        println("Saving reloaded tile to: $reloaded_file")
-        save_subdomain_with_halo(reloaded_file, snapshot;
-            core_xlims = tile.core_xlims,
-            core_ylims = tile.core_ylims,
-            halo_width = required_halo,
+    if isfile(reloaded_file)
+        # Load from existing file with larger halo
+        println("Loading existing tile with larger halo: $reloaded_file")
+        snapshot = load_subdomain_snapshot(reloaded_file; variables = ("w", "T"))
+    else
+        # Reload from checkpoint
+        println("Reloading tile $(TARGET_TILE) from checkpoint with halo=$(required_halo)m...")
+        
+        # Compute expanded limits with larger halo
+        expanded_xlims = (tile.core_xlims[1] - required_halo, tile.core_xlims[2] + required_halo)
+        expanded_ylims = (tile.core_ylims[1] - required_halo, tile.core_ylims[2] + required_halo)
+        
+        snapshot = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
+            xlims = expanded_xlims,
+            ylims = expanded_ylims,
             zlims = Z_LIMITS,
-            iteration = ITERATION,
-            clock_time = clock_info.time,
-            clock_time_days = clock_info.time_days
+            getEw = false,
+            getMLD = 0
         )
+        
+        # Optionally save the reloaded tile with larger halo
+        if SAVE_RELOADED_TILE
+            println("Saving reloaded tile to: $reloaded_file")
+            save_subdomain_with_halo(reloaded_file, snapshot;
+                core_xlims = tile.core_xlims,
+                core_ylims = tile.core_ylims,
+                halo_width = required_halo,
+                zlims = Z_LIMITS,
+                iteration = ITERATION,
+                clock_time = clock_info.time,
+                clock_time_days = clock_info.time_days
+            )
+        end
     end
     
     # Update active halo for cropping
