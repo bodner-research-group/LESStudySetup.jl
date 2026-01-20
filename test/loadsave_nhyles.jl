@@ -50,11 +50,18 @@ const Z_LIMITS = (-81.0, 0.0)     # Vertical extent (m): 72 cells at dz=1.125m
 
 # --- Coarse-Graining Parameters ---
 const KERNEL = :gaussian          # Filter kernel: :gaussian, :tophat, or :lanczos
-const CUTOFF = 300.0              # Filter cutoff scale (m)
+const CUTOFF = 300.0              # Filter cutoff scale (m) used when saving tiles
 const BORDER = :reflect           # Boundary handling: :reflect, :circular
 
 # Halo width = 2x cutoff for Gaussian (captures >95% of kernel weight)
 const HALO_WIDTH = 2 * CUTOFF     # 600m halo on each side
+
+# Filter cutoff for coarse-graining (can differ from CUTOFF used for tile saving)
+# If FILTER_CUTOFF > CUTOFF, tile will be reloaded from checkpoint with larger halo
+const FILTER_CUTOFF = 300.0       # Filter cutoff scale (m) for coarse-graining
+
+# Whether to save reloaded tiles (when FILTER_CUTOFF > CUTOFF requires reload)
+const SAVE_RELOADED_TILE = false  # Set true to save tile with larger halo
 
 # --- Physical Constants ---
 const alpha = 2e-4                # Thermal expansion coefficient (1/K)
@@ -175,6 +182,54 @@ println("Loading: $input_file")
 
 snapshot = load_subdomain_snapshot(input_file; variables = ("w", "T"))
 
+# Warn if using a larger-than-default filter cutoff
+if FILTER_CUTOFF > 300.0
+    println("⚠️  WARNING: Filter cutoff ($FILTER_CUTOFF m) is larger than default (300 m).")
+end
+
+# Determine if reload is needed due to larger filter cutoff
+required_halo = 2 * FILTER_CUTOFF
+active_halo_width = HALO_WIDTH  # Default: use saved halo
+
+if required_halo > HALO_WIDTH
+    @warn "FILTER_CUTOFF=$FILTER_CUTOFF requires halo=$(required_halo)m, " *
+          "but tile was saved with halo=$(HALO_WIDTH)m. Reloading from checkpoint..."
+    
+    # Get tile info for reload
+    tile = tiles[TARGET_TILE]
+    
+    # Compute expanded limits with larger halo
+    expanded_xlims = (tile.core_xlims[1] - required_halo, tile.core_xlims[2] + required_halo)
+    expanded_ylims = (tile.core_ylims[1] - required_halo, tile.core_ylims[2] + required_halo)
+    
+    println("Reloading tile $(TARGET_TILE) from checkpoint with halo=$(required_halo)m...")
+    snapshot = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
+        xlims = expanded_xlims,
+        ylims = expanded_ylims,
+        zlims = Z_LIMITS,
+        getEw = false,
+        getMLD = 0
+    )
+    
+    # Optionally save the reloaded tile with larger halo
+    if SAVE_RELOADED_TILE
+        reloaded_file = OUTPUT_DIR * "subdomain$(TARGET_TILE)_iter$(ITERATION)_halo$(Int(required_halo)).jld2"
+        println("Saving reloaded tile to: $reloaded_file")
+        save_subdomain_with_halo(reloaded_file, snapshot;
+            core_xlims = tile.core_xlims,
+            core_ylims = tile.core_ylims,
+            halo_width = required_halo,
+            zlims = Z_LIMITS,
+            iteration = ITERATION,
+            clock_time = clock_info.time,
+            clock_time_days = clock_info.time_days
+        )
+    end
+    
+    # Update active halo for cropping
+    active_halo_width = required_halo
+end
+
 # Display loaded metadata
 grid = snapshot[:grid]
 println("\nLoaded subdomain:")
@@ -247,24 +302,34 @@ println("STEP 5: Extracting Core Region (Discarding Halo)")
 println("="^70)
 
 # Compute indices for the valid core region
+# Use active_halo_width (may differ from HALO_WIDTH if tile was reloaded)
 dh = grid.Δxᶜᵃᵃ
-halo_cells = ceil(Int, HALO_WIDTH / dh)
-Nx, Ny, Nz = size(interior(w))
+halo_cells = ceil(Int, active_halo_width / dh)
 
-# Core region excludes halo cells on all horizontal sides
-core_x_range = (halo_cells + 1):(Nx - halo_cells)
-core_y_range = (halo_cells + 1):(Ny - halo_cells)
-core_z_range = 1:Nz
+# Get dimensions for ZFaceField (w) and CenterField (b) separately
+# ZFaceField has Nz+1 z-faces, CenterField has Nz z-cells
+Nx_w, Ny_w, Nz_w = size(interior(w))  # w is ZFaceField: Nz+1 z-faces
+Nx_b, Ny_b, Nz_b = size(interior(b))  # b is CenterField: Nz z-cells
 
-println("Full subdomain: $Nx x $Ny x $Nz cells")
-println("Halo cells: $halo_cells on each side")
-println("Core region: $(length(core_x_range)) x $(length(core_y_range)) x $Nz cells")
+# Core region indices - same for x/y, different for z
+core_x_range = (halo_cells + 1):(Nx_w - halo_cells)
+core_y_range = (halo_cells + 1):(Ny_w - halo_cells)
+core_z_faces = 1:Nz_w      # For ZFaceField (w, w_bar): all faces
+core_z_centers = 1:Nz_b    # For CenterField (b, b_bar): all cells
 
-# Extract core region arrays (these are the final valid outputs)
-w_bar_core = interior(w_bar)[core_x_range, core_y_range, core_z_range]
-b_bar_core = interior(b_bar)[core_x_range, core_y_range, core_z_range]
-wp_core = wp_full[core_x_range, core_y_range, core_z_range]
-bp_core = bp_full[core_x_range, core_y_range, core_z_range]
+println("Full subdomain:")
+println("  w (ZFaceField):   $Nx_w x $Ny_w x $Nz_w")
+println("  b (CenterField):  $Nx_b x $Ny_b x $Nz_b")
+println("Halo cells: $halo_cells on each horizontal side")
+println("Core region: $(length(core_x_range)) x $(length(core_y_range)) cells")
+println("  w z-range: 1:$Nz_w ($(Nz_w) faces)")
+println("  b z-range: 1:$Nz_b ($(Nz_b) cells)")
+
+# Extract core region arrays - use correct z-range for each field type
+w_bar_core = interior(w_bar)[core_x_range, core_y_range, core_z_faces]
+b_bar_core = interior(b_bar)[core_x_range, core_y_range, core_z_centers]
+wp_core = wp_full[core_x_range, core_y_range, core_z_faces]
+bp_core = bp_full[core_x_range, core_y_range, core_z_centers]
 
 println("\nCore region statistics:")
 println("  * w_bar range: $(extrema(w_bar_core))")
@@ -281,10 +346,10 @@ println("STEP 6: Quadrant Analysis (w' vs b')")
 println("="^70)
 
 # Interpolate w' to cell centers (average adjacent z-faces)
-# w' is on z-faces, b' is at cell centers
+# w' is on z-faces (Nz+1), b' is at cell centers (Nz)
 # Average w'[k] and w'[k+1] to get w' at cell center k
-wp_centered = (wp_core[:, :, 1:end-1] .+ wp_core[:, :, 2:end]) ./ 2
-bp_centered = bp_core[:, :, 1:end-1]  # Already at cell centers, match z-dimension
+wp_centered = (wp_core[:, :, 1:end-1] .+ wp_core[:, :, 2:end]) ./ 2  # Now (Nx, Ny, Nz)
+bp_centered = bp_core  # Already at cell centers, same Nz as wp_centered
 
 # Flatten for histogram
 w_vec = vec(wp_centered)
