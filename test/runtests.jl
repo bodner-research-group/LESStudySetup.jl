@@ -246,4 +246,62 @@ using JLD2
             rm(test_dir, recursive=true, force=true)
         end
     end
+
+    @testset "Coarse-graining on subdomain grid" begin
+        using LESStudySetup.Diagnostics: coarse_graining!
+        using Statistics: var, mean
+        
+        # Set up parameters for a 100km domain with 1km spacing
+        set_value!(;
+            Δh = 1000.0,
+            Δz = 10.0,
+            Lx = 100000.0,
+            Ly = 100000.0,
+            Lz = 100.0
+        )
+        
+        # Create a SUBDOMAIN grid (10km x 10km) - different from parameters
+        subdomain_grid = RectilinearGrid(CPU();
+            size = (10, 10, 10),
+            x = (0.0, 10000.0),
+            y = (0.0, 10000.0),
+            z = (-100.0, 0.0),
+            topology = (Bounded, Bounded, Bounded)
+        )
+        
+        # Verify subdomain grid differs from parameters
+        @test subdomain_grid.Lx == 10000.0  # 10km, not 100km
+        @test subdomain_grid.Lx != parameters.Lx
+        
+        # Create test fields on subdomain grid
+        T_field = CenterField(subdomain_grid)
+        T_filtered = CenterField(subdomain_grid, Float32)
+        
+        # Initialize with a pattern (warm blob in center)
+        set!(T_field, (x, y, z) -> 10.0 + 5.0 * exp(-((x-5000)^2 + (y-5000)^2) / 2000^2))
+        fill_halo_regions!(T_field)
+        
+        # Apply coarse-graining with 2km cutoff (should work on 10km subdomain)
+        # This should NOT error despite parameters.Lx = 100km
+        coarse_graining!(T_field, T_filtered; 
+            kernel = :gaussian, 
+            cutoff = 2000.0,  # 2km
+            border = :reflect
+        )
+        
+        # Verify output is valid (not NaN, smoothed)
+        T_interior = interior(T_field)
+        T_filt_interior = interior(T_filtered)
+        
+        @test !any(isnan, T_filt_interior)
+        @test !any(isinf, T_filt_interior)
+        
+        # Filtered field should be smoother (lower variance)
+        @test var(T_filt_interior) < var(T_interior)
+        
+        # Mean should be approximately preserved
+        @test isapprox(mean(T_filt_interior), mean(T_interior), rtol=0.1)
+        
+        @info "Coarse-graining on subdomain test passed!"
+    end
 end

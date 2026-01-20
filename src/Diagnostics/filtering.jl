@@ -341,7 +341,9 @@ Returns:
 - `kernel`: A 2D array (Float32) containing the filter kernel, normalized to sum to one.
 """
 function build_lanczos_kernel(grid_info, kc::Real, a::Integer; 
-                              Lx::Real=1e5, Ly::Real=1e5, 
+                              Lx::Real=1e5, Ly::Real=1e5,
+                              dx::Union{Nothing,Real}=nothing,
+                              dy::Union{Nothing,Real}=nothing,
                               lobes::Integer=a, 
                               method::Symbol=:physical)
     
@@ -361,8 +363,9 @@ function build_lanczos_kernel(grid_info, kc::Real, a::Integer;
 
     if method == :spectral
         # --- Spectral Method (Full Grid, Periodic) ---
-        dx = parameters.Δh
-        dy = parameters.Δh
+        # Use provided dx/dy or derive from Lx/Nx
+        dx = isnothing(dx) ? Lx / Nx : dx
+        dy = isnothing(dy) ? Ly / Ny : dy
         
         # Create coordinate vectors representing distances from origin (0,0) or index (1,1)
         # considering periodicity.
@@ -395,8 +398,9 @@ function build_lanczos_kernel(grid_info, kc::Real, a::Integer;
         
     elseif method == :physical
         # --- Physical Method (Compact Kernel, Euclidean Distance) ---
-        dx = parameters.Δh
-        dy = parameters.Δh
+        # Use provided dx/dy or derive from Lx/Nx
+        dx = isnothing(dx) ? Lx / Nx : dx
+        dy = isnothing(dy) ? Ly / Ny : dy
 
         # Determine kernel extent based on 'lobes' parameter
         # The zero-crossings of sinc(k_c*ζ/a) occur at k_c*ζ/a = n*π, so ζ = n*a*π/kc
@@ -476,11 +480,31 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
     d = interior(u)
     xu, yu, _ = nodes(u)
     Nx, Ny, Nz = size(d)
-    Lx = parameters.Lx
-    Ly = parameters.Ly
-    Δh = parameters.Δh
-    dx = Δh
-    dy = Δh
+    
+    # Extract grid dimensions from the field's grid (not global parameters)
+    # This ensures correct behavior for subdomains with different Lx/Ly
+    grid = u.grid
+    Lx = grid.Lx
+    Ly = grid.Ly
+    dx = grid.Δxᶜᵃᵃ
+    dy = grid.Δyᵃᶜᵃ
+    
+    # Validate isotropic grid spacing (required for symmetric filtering)
+    if abs(dx - dy) / max(dx, dy) > 1e-6
+        error("coarse_graining! requires isotropic horizontal grid spacing. " *
+              "Got Δx=$(dx), Δy=$(dy). Consider using anisotropic filtering methods.")
+    end
+    Δh = dx
+    
+    # Deprecation warning if parameters don't match grid
+    if abs(parameters.Lx - Lx) > 1.0 || abs(parameters.Ly - Ly) > 1.0
+        @warn "Grid dimensions (Lx=$(Lx), Ly=$(Ly)) differ from global parameters " *
+              "(Lx=$(parameters.Lx), Ly=$(parameters.Ly)). Using grid dimensions. " *
+              "This warning indicates you're filtering a subdomain, which is supported." maxlog=1
+    end
+    if abs(parameters.Δh - Δh) / max(parameters.Δh, Δh) > 1e-6
+        @warn "Grid spacing Δh=$(Δh) differs from parameters.Δh=$(parameters.Δh). Using grid spacing." maxlog=1
+    end
 
     CT = T == Float32 ? ComplexF32 : ComplexF64
     
@@ -524,7 +548,7 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
         end
     elseif kernel == :lanczos
         grid_info = (; Nx=xreflect*Nx, Ny=yreflect*Ny)
-        Gl = T.(build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=xreflect*Lx, Ly=yreflect*Ly, method=method))
+        Gl = T.(build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=xreflect*Lx, Ly=yreflect*Ly, dx=dx, dy=dy, method=method))
     else
         error("Kernel $(kernel) not implemented.")
     end
@@ -552,7 +576,7 @@ function coarse_graining!(u::Field, u̅l::Field; T=Float32, kernel=:tophat, cuto
             @tullio Gl[i, j] := T(exp(-(x[i]^2 + y[j]^2) / (2.0 * (cutoff / dx)^2)))
             Gl ./= sum(Gl)
         elseif kernel == :lanczos
-            Gl = T.(build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=xreflect*Lx, Ly=yreflect*Ly, method=method))
+            Gl = T.(build_lanczos_kernel(grid_info, 1/cutoff, 2; Lx=xreflect*Lx, Ly=yreflect*Ly, dx=dx, dy=dy, method=method))
         end
     end
 

@@ -179,7 +179,7 @@ snapshot = load_subdomain_snapshot(input_file; variables = ("w", "T"))
 grid = snapshot[:grid]
 println("\nLoaded subdomain:")
 println("  * Grid size: $(grid.Nx) x $(grid.Ny) x $(grid.Nz) cells")
-println("  * Resolution: dx=$(grid.Δxᶜᵃᵃ)m, dz=$(grid.Δzᵃᵃᶜ)m")
+println("  * Resolution: dx=$(grid.Δxᶜᵃᵃ)m, dz=$(grid.Lz / grid.Nz)m")
 
 if haskey(snapshot, :clock_time_days)
     println("  * Simulation time: $(round(snapshot[:clock_time_days], digits=3)) days")
