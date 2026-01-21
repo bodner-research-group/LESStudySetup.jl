@@ -26,6 +26,9 @@ using LESStudySetup.Diagnostics: compute_subdomain_tiles
 using LESStudySetup.Diagnostics: save_subdomain_with_halo
 using LESStudySetup.Diagnostics: coarse_graining!
 using StatsBase: fit, Histogram
+using Statistics: std, quantile
+using CairoMakie
+using Colors: RGB, RGBA, red, green, blue
 
 # ===============================================================================
 # SECTION 1: USER CONFIGURATION
@@ -68,11 +71,177 @@ const alpha = 2e-4                # Thermal expansion coefficient (1/K)
 const g = 9.81                    # Gravitational acceleration (m/s^2)
 
 # --- Quadrant Analysis Parameters ---
-const N_BINS = 50                 # Number of histogram bins
+const N_BINS = 50                       # Number of histogram bins
+const COMPUTE_DEPTH_PROFILES = true     # Compute depth-resolved quadrant analysis
+const SAVE_FIGURES = true               # Save quadrant analysis figures
+
+# Fixed depth regions for aggregation (meters, negative down)
+const DEPTH_SURFACE = (-10.0, 0.0)      # Near-surface layer
+const DEPTH_MIXED = (-50.0, -10.0)      # Mixed layer interior  
+const DEPTH_PYCNOCLINE = (-81.0, -50.0) # Pycnocline/entrainment zone
+
+# Threshold for masking weak fluctuations (fraction of std)
+# Points with |w'| < THRESHOLD_FRAC * std(w') AND |b'| < THRESHOLD_FRAC * std(b') are masked
+const THRESHOLD_FRAC = 0.1              # Mask points within 10% of std from zero
+
+# Y-slices for x-z quadrant visualization (fraction of Ny_core)
+const Y_SLICE_FRACS = (0.25, 0.5, 0.75) # 3 slices at 25%, 50%, 75% of domain
+
+# Z-levels for x-y visualization (layer centers, meters)
+const Z_LEVEL_FULL = -40.0              # Representative depth for full column
+const Z_LEVEL_SURFACE = -5.0            # Center of surface layer
+const Z_LEVEL_MIXED = -30.0             # Center of mixed layer interior
+const Z_LEVEL_DEEP = -65.0              # Center of pycnocline/deep layer
+
+# Quadrant analysis visualization settings
+const QUADRANT_NAMES = ["Q1: w'>0, b'>0", "Q2: w'<0, b'>0", 
+                        "Q3: w'<0, b'<0", "Q4: w'>0, b'<0"]
+const QUADRANT_COLORS = [RGB(0.894, 0.102, 0.110),   # Q1: red - warm updrafts
+                         RGB(0.216, 0.494, 0.722),   # Q2: blue - warm downdrafts
+                         RGB(0.302, 0.686, 0.290),   # Q3: green - cold downdrafts
+                         RGB(0.596, 0.306, 0.639)]   # Q4: purple - cold updrafts
 
 # --- Processing Options ---
 const SAVE_ALL_TILES = true       # Set false to skip tile extraction step
-const TARGET_TILE = 1             # Which tile to process for coarse-graining
+const TARGET_TILE = 4             # Which tile to process for coarse-graining
+
+# ===============================================================================
+# HELPER FUNCTIONS FOR QUADRANT ANALYSIS
+# ===============================================================================
+
+"""
+    assign_quadrant(w, b) -> Int
+
+Assign quadrant index based on signs of w' and b':
+  - 1 = Q1: w'>0, b'>0 (warm updrafts - buoyancy-driven convection)
+  - 2 = Q2: w'<0, b'>0 (warm downdrafts - counter-gradient)
+  - 3 = Q3: w'<0, b'<0 (cold downdrafts - convective plumes)
+  - 4 = Q4: w'>0, b'<0 (cold updrafts - counter-gradient)
+"""
+function assign_quadrant(w::T, b::T) where T
+    if w > 0 && b > 0
+        return 1  # Q1
+    elseif w < 0 && b > 0
+        return 2  # Q2
+    elseif w < 0 && b < 0
+        return 3  # Q3
+    else
+        return 4  # Q4
+    end
+end
+
+"""
+    assign_quadrants(w_arr, b_arr, mask_3d) -> Array{Int}
+
+Vectorized quadrant assignment with masking. Returns 0 for masked points.
+"""
+function assign_quadrants(w_arr, b_arr, mask_3d)
+    Q = similar(w_arr, Int)
+    for i in eachindex(w_arr, b_arr, mask_3d)
+        Q[i] = mask_3d[i] ? assign_quadrant(w_arr[i], b_arr[i]) : 0
+    end
+    return Q
+end
+
+"""
+    quadrant_stats_in_region(wp, bp, mask, depth_name) -> NamedTuple
+
+Compute quadrant statistics for a depth region, including:
+- Quadrant fractions (Q1-Q4)
+- Gradient-consistent vs counter-gradient fractions
+- Mean w'b' flux decomposed by quadrant type
+"""
+function quadrant_stats_in_region(wp, bp, mask, depth_name)
+    n_sig = count(mask)
+    if n_sig == 0
+        return (name=depth_name, n_total=0, 
+                Q1_frac=0.0, Q2_frac=0.0, Q3_frac=0.0, Q4_frac=0.0,
+                mean_wb=0.0, gradient_frac=0.0, counter_frac=0.0,
+                wb_gradient=0.0, wb_counter=0.0)
+    end
+    
+    # Quadrant masks (using significant points only)
+    Q1_mask = (wp .> 0) .& (bp .> 0) .& mask  # warm updrafts
+    Q2_mask = (wp .< 0) .& (bp .> 0) .& mask  # warm downdrafts  
+    Q3_mask = (wp .< 0) .& (bp .< 0) .& mask  # cold downdrafts
+    Q4_mask = (wp .> 0) .& (bp .< 0) .& mask  # cold updrafts
+    
+    n_Q1, n_Q2, n_Q3, n_Q4 = count(Q1_mask), count(Q2_mask), count(Q3_mask), count(Q4_mask)
+    
+    # Flux contributions by quadrant
+    wb_Q1 = sum(wp[Q1_mask] .* bp[Q1_mask])  # positive (upward buoyancy)
+    wb_Q2 = sum(wp[Q2_mask] .* bp[Q2_mask])  # negative
+    wb_Q3 = sum(wp[Q3_mask] .* bp[Q3_mask])  # positive (downward cold)
+    wb_Q4 = sum(wp[Q4_mask] .* bp[Q4_mask])  # negative
+    
+    # Gradient-consistent: Q1 + Q3 (w'b' > 0, drives convection)
+    # Counter-gradient: Q2 + Q4 (w'b' < 0, restratifying)
+    gradient_frac = (n_Q1 + n_Q3) / n_sig
+    counter_frac = (n_Q2 + n_Q4) / n_sig
+    wb_gradient = (wb_Q1 + wb_Q3) / n_sig
+    wb_counter = (wb_Q2 + wb_Q4) / n_sig
+    
+    mean_wb = (wb_Q1 + wb_Q2 + wb_Q3 + wb_Q4) / n_sig
+    
+    return (name=depth_name, n_total=n_sig,
+            Q1_frac=n_Q1/n_sig, Q2_frac=n_Q2/n_sig,
+            Q3_frac=n_Q3/n_sig, Q4_frac=n_Q4/n_sig,
+            mean_wb=mean_wb,
+            gradient_frac=gradient_frac, counter_frac=counter_frac,
+            wb_gradient=wb_gradient, wb_counter=wb_counter)
+end
+
+"""
+    print_quadrant_summary(stats)
+
+Print formatted quadrant statistics for a depth region.
+"""
+function print_quadrant_summary(stats)
+    println("\n  $(stats.name) (N = $(stats.n_total) significant points):")
+    println("    Quadrant fractions:")
+    println("      Q1 (w'>0,b'>0): $(round(100*stats.Q1_frac, digits=1))%")
+    println("      Q2 (w'<0,b'>0): $(round(100*stats.Q2_frac, digits=1))%")
+    println("      Q3 (w'<0,b'<0): $(round(100*stats.Q3_frac, digits=1))%")
+    println("      Q4 (w'>0,b'<0): $(round(100*stats.Q4_frac, digits=1))%")
+    println("    Flux decomposition:")
+    println("      Gradient-consistent (Q1+Q3): $(round(100*stats.gradient_frac, digits=1))%")
+    println("      Counter-gradient (Q2+Q4):    $(round(100*stats.counter_frac, digits=1))%")
+    println("      Mean w'b' (total):    $(round(stats.mean_wb, sigdigits=3)) m²/s³")
+    println("      Mean w'b' (gradient): $(round(stats.wb_gradient, sigdigits=3)) m²/s³")
+    println("      Mean w'b' (counter):  $(round(stats.wb_counter, sigdigits=3)) m²/s³")
+end
+
+"""
+    compute_mean_depth_per_bin(wp, bp, z_arr, w_edges, b_edges) -> Matrix
+
+Compute the mean depth for each histogram bin in the (w', b') plane.
+"""
+function compute_mean_depth_per_bin(wp, bp, z_arr, w_edges, b_edges)
+    nw, nb = length(w_edges)-1, length(b_edges)-1
+    depth_sum = zeros(nw, nb)
+    depth_count = zeros(Int, nw, nb)
+    
+    for k in axes(wp, 3), j in axes(wp, 2), i in axes(wp, 1)
+        wi = searchsortedfirst(w_edges, wp[i,j,k]) - 1
+        bi = searchsortedfirst(b_edges, bp[i,j,k]) - 1
+        if 1 <= wi <= nw && 1 <= bi <= nb
+            depth_sum[wi, bi] += z_arr[k]
+            depth_count[wi, bi] += 1
+        end
+    end
+    mean_depth = depth_sum ./ max.(depth_count, 1)
+    mean_depth[depth_count .== 0] .= NaN
+    return mean_depth
+end
+
+"""
+    depth_indices(z_arr, depth_limits) -> Vector{Int}
+
+Find indices in z_arr that fall within depth_limits = (z_min, z_max).
+"""
+function depth_indices(z_arr, depth_limits)
+    return findall(depth_limits[1] .<= z_arr .<= depth_limits[2])
+end
 
 # ===============================================================================
 # SECTION 2: EXTRACT CHECKPOINT METADATA
@@ -361,55 +530,314 @@ println("="^70)
 wp_centered = (wp_core[:, :, 1:end-1] .+ wp_core[:, :, 2:end]) ./ 2  # Now (Nx, Ny, Nz)
 bp_centered = bp_core  # Already at cell centers, same Nz as wp_centered
 
+# Get core dimensions
+Nx_core, Ny_core, Nz_core = size(wp_centered)
+
 # Flatten for histogram
 w_vec = vec(wp_centered)
 b_vec = vec(bp_centered)
 
-# Compute 2D histogram
-h = fit(Histogram, (w_vec, b_vec), nbins=N_BINS)
+# -----------------------------------------------------------------------------
+# Mask weak fluctuations (noise filtering)
+# -----------------------------------------------------------------------------
+w_std = std(w_vec)
+b_std = std(b_vec)
+w_threshold = THRESHOLD_FRAC * w_std
+b_threshold = THRESHOLD_FRAC * b_std
+
+# Create mask: true for significant points (outside the threshold bands)
+# Points are masked if BOTH |w'| < threshold AND |b'| < threshold
+significant_mask = (abs.(w_vec) .>= w_threshold) .| (abs.(b_vec) .>= b_threshold)
+
+# Also create 3D mask for spatial plots
+sig_mask_3d = (abs.(wp_centered) .>= w_threshold) .| (abs.(bp_centered) .>= b_threshold)
+
+println("\nMasking weak fluctuations:")
+println("  * w' std: $(round(w_std, sigdigits=3)) m/s")
+println("  * b' std: $(round(b_std, sigdigits=3)) m/s²")
+println("  * w' threshold ($(Int(THRESHOLD_FRAC*100))% of std): ±$(round(w_threshold, sigdigits=3)) m/s")
+println("  * b' threshold ($(Int(THRESHOLD_FRAC*100))% of std): ±$(round(b_threshold, sigdigits=3)) m/s²")
+println("  * Significant points: $(count(significant_mask))/$(length(significant_mask)) ($(round(100*count(significant_mask)/length(significant_mask), digits=1))%)")
+
+# -----------------------------------------------------------------------------
+# Z-coordinates for cell centers
+# -----------------------------------------------------------------------------
+dz_core = abs(Z_LIMITS[2] - Z_LIMITS[1]) / Nz_core
+z_centers = collect(range(Z_LIMITS[1] + dz_core/2, Z_LIMITS[2] - dz_core/2, length=Nz_core))
+
+# Find depth indices for each region
+k_surface = depth_indices(z_centers, DEPTH_SURFACE)
+k_mixed = depth_indices(z_centers, DEPTH_MIXED)
+k_pycnocline = depth_indices(z_centers, DEPTH_PYCNOCLINE)
+
+println("\nDepth regions:")
+println("  * Surface $(DEPTH_SURFACE): z-indices $(first(k_surface)):$(last(k_surface)) ($(length(k_surface)) levels)")
+println("  * Mixed layer $(DEPTH_MIXED): z-indices $(first(k_mixed)):$(last(k_mixed)) ($(length(k_mixed)) levels)")
+println("  * Pycnocline $(DEPTH_PYCNOCLINE): z-indices $(first(k_pycnocline)):$(last(k_pycnocline)) ($(length(k_pycnocline)) levels)")
+
+# -----------------------------------------------------------------------------
+# Compute depth-resolved quadrant statistics
+# -----------------------------------------------------------------------------
+stats_global = quadrant_stats_in_region(wp_centered, bp_centered, sig_mask_3d, "Global")
+stats_surface = quadrant_stats_in_region(
+    wp_centered[:,:,k_surface], bp_centered[:,:,k_surface], 
+    sig_mask_3d[:,:,k_surface], "Surface $(DEPTH_SURFACE) m")
+stats_mixed = quadrant_stats_in_region(
+    wp_centered[:,:,k_mixed], bp_centered[:,:,k_mixed],
+    sig_mask_3d[:,:,k_mixed], "Mixed Layer $(DEPTH_MIXED) m")
+stats_pycnocline = quadrant_stats_in_region(
+    wp_centered[:,:,k_pycnocline], bp_centered[:,:,k_pycnocline],
+    sig_mask_3d[:,:,k_pycnocline], "Pycnocline $(DEPTH_PYCNOCLINE) m")
+
+println("\n" * "="^70)
+println("QUADRANT ANALYSIS BY DEPTH REGION")
+println("="^70)
+for stats in [stats_global, stats_surface, stats_mixed, stats_pycnocline]
+    print_quadrant_summary(stats)
+end
+
+# Compute 2D histogram (significant points only)
+h = fit(Histogram, (w_vec[significant_mask], b_vec[significant_mask]), nbins=N_BINS)
 counts = h.weights
-w_edges = h.edges[1]
-b_edges = h.edges[2]
+w_edges = collect(h.edges[1])
+b_edges = collect(h.edges[2])
 
-# Quadrant statistics
-# Q1: w'>0, b'>0 (warm updrafts - buoyancy-driven convection)
-# Q2: w'<0, b'>0 (warm downdrafts - counter-gradient)
-# Q3: w'<0, b'<0 (cold downdrafts - convective plumes)
-# Q4: w'>0, b'<0 (cold updrafts - counter-gradient)
-
-n_total = length(w_vec)
-n_Q1 = count((w_vec .> 0) .& (b_vec .> 0))
-n_Q2 = count((w_vec .< 0) .& (b_vec .> 0))
-n_Q3 = count((w_vec .< 0) .& (b_vec .< 0))
-n_Q4 = count((w_vec .> 0) .& (b_vec .< 0))
-
-# Compute w'b' (vertical buoyancy flux)
-wb_flux = w_vec .* b_vec
-mean_wb = sum(wb_flux) / n_total
-
-println("\nQuadrant distribution:")
-println("  +---------------+---------------+")
-println("  |    Q2 (w'<0)  |    Q1 (w'>0)  |  b' > 0")
-println("  |    $(lpad(round(100*n_Q2/n_total, digits=1), 5))%     |    $(lpad(round(100*n_Q1/n_total, digits=1), 5))%     |")
-println("  +---------------+---------------+")
-println("  |    Q3 (w'<0)  |    Q4 (w'>0)  |  b' < 0")
-println("  |    $(lpad(round(100*n_Q3/n_total, digits=1), 5))%     |    $(lpad(round(100*n_Q4/n_total, digits=1), 5))%     |")
-println("  +---------------+---------------+")
-
-# Gradient-consistent quadrants: Q1 + Q3 (expected for convection)
-# Counter-gradient quadrants: Q2 + Q4
-gradient_frac = (n_Q1 + n_Q3) / n_total
-counter_frac = (n_Q2 + n_Q4) / n_total
-
-println("\nFlux analysis:")
-println("  * Mean w'b': $(mean_wb) m^2/s^3")
-println("  * Gradient-consistent (Q1+Q3): $(round(100*gradient_frac, digits=1))%")
-println("  * Counter-gradient (Q2+Q4): $(round(100*counter_frac, digits=1))%")
-
-println("\n2D Histogram:")
+println("\n2D Histogram (significant points only):")
 println("  * w' bins: $(length(w_edges)-1), range $(extrema(w_edges))")
 println("  * b' bins: $(length(b_edges)-1), range $(extrema(b_edges))")
 println("  * Max counts per bin: $(maximum(counts))")
+
+# =============================================================================
+# SECTION 7A: FIGURE 1 - 2×2 Histogram Layout
+# =============================================================================
+
+if SAVE_FIGURES
+    println("\n" * "="^70)
+    println("STEP 7: Generating Quadrant Analysis Figures")
+    println("="^70)
+    
+    set_theme!(theme_latexfonts(), fontsize=12, figure_padding = 10)
+    
+    # Create masks for each depth region (significant points only)
+    sig_surface = sig_mask_3d[:,:,k_surface]
+    sig_mixed = sig_mask_3d[:,:,k_mixed]
+    
+    # Extract significant points for histograms
+    wp_surface_sig = vec(wp_centered[:,:,k_surface])[vec(sig_surface)]
+    bp_surface_sig = vec(bp_centered[:,:,k_surface])[vec(sig_surface)]
+    wp_mixed_sig = vec(wp_centered[:,:,k_mixed])[vec(sig_mixed)]
+    bp_mixed_sig = vec(bp_centered[:,:,k_mixed])[vec(sig_mixed)]
+    
+    # Compute histograms (all use significant points only)
+    h_global = fit(Histogram, (w_vec[significant_mask], b_vec[significant_mask]), nbins=N_BINS)
+    h_surface = fit(Histogram, (wp_surface_sig, bp_surface_sig), nbins=N_BINS)
+    h_mixed = fit(Histogram, (wp_mixed_sig, bp_mixed_sig), nbins=N_BINS)
+    
+    # Get axis limits from global histogram edges
+    w_lim = (first(h_global.edges[1]), last(h_global.edges[1]))
+    b_lim = (first(h_global.edges[2]), last(h_global.edges[2]))
+    
+    # Mean depth per bin
+    mean_depth = compute_mean_depth_per_bin(wp_centered, bp_centered, z_centers, 
+                                             collect(h_global.edges[1]), collect(h_global.edges[2]))
+    
+    fig1 = Figure(size = (720, 560))
+    
+    # [1,1] Global histogram with log counts
+    ax11 = Axis(fig1[1,1]; xlabel=L"w^\prime~\text{(m s^{-1})}", ylabel=L"b^\prime~\text{(m s^{-2})}",
+                title=L"\text{(a) Global, log counts}", limits=(w_lim, b_lim))
+    hm11 = heatmap!(ax11, h_global.edges[1], h_global.edges[2], log10.(1 .+ h_global.weights); 
+                    rasterize=true, colormap=Reverse(:grays))
+    # Add threshold bands (white semi-transparent)
+    band!(ax11, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
+          color = (:white, 0.7))
+    band!(ax11, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
+          color = (:white, 0.7))
+    vlines!(ax11, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    hlines!(ax11, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    Colorbar(fig1[1,2], hm11, label=L"\log_{10}(1+N)")
+    
+    # [1,2] Global histogram colored by mean depth
+    ax12 = Axis(fig1[1,3]; xlabel=L"w^\prime~\text{(m s^{-1})}", 
+                title=L"\text{(b) Global, mean depth}", limits=(w_lim, b_lim))
+    hm12 = heatmap!(ax12, h_global.edges[1], h_global.edges[2], mean_depth; 
+                    rasterize=true, colormap=:deep, colorrange=(Z_LIMITS[1], 0))
+    band!(ax12, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
+          color = (:white, 0.7))
+    band!(ax12, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
+          color = (:white, 0.7))
+    vlines!(ax12, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    hlines!(ax12, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    Colorbar(fig1[1,4], hm12, label=L"\bar{z}~\text{(m)}")
+    hideydecorations!(ax12, ticks = false)
+    
+    # [2,1] Surface region histogram  
+    ax21 = Axis(fig1[2,1]; xlabel=L"w^\prime~\text{(m s^{-1})}", ylabel=L"b^\prime~\text{(m s^{-2})}",
+                title=L"\text{(c) Surface }z\in[-10,0]~\text{m}", limits=(w_lim, b_lim))
+    hm21 = heatmap!(ax21, h_surface.edges[1], h_surface.edges[2], log10.(1 .+ h_surface.weights); 
+                    rasterize=true, colormap=Reverse(:grays))
+    band!(ax21, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
+          color = (:white, 0.7))
+    band!(ax21, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
+          color = (:white, 0.7))
+    vlines!(ax21, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    hlines!(ax21, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    Colorbar(fig1[2,2], hm21, label=L"\log_{10}(1+N)")
+    
+    # [2,2] Mixed layer histogram
+    ax22 = Axis(fig1[2,3]; xlabel=L"w^\prime~\text{(m s^{-1})}", 
+                title=L"\text{(d) Mixed layer }z\in[-50,-10]~\text{m}", limits=(w_lim, b_lim))
+    hm22 = heatmap!(ax22, h_mixed.edges[1], h_mixed.edges[2], log10.(1 .+ h_mixed.weights); 
+                    rasterize=true, colormap=Reverse(:grays))
+    band!(ax22, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
+          color = (:white, 0.7))
+    band!(ax22, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
+          color = (:white, 0.7))
+    vlines!(ax22, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    hlines!(ax22, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    Colorbar(fig1[2,4], hm22, label=L"\log_{10}(1+N)")
+    hideydecorations!(ax22, ticks = false)
+    
+    colgap!(fig1.layout, 2, 15)
+    rowgap!(fig1.layout, 1, 10)
+    resize_to_layout!(fig1)
+    
+    fig1_path = OUTPUT_DIR * "quadrant_histograms_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+    save(fig1_path, fig1; pt_per_unit=1)
+    println("  Saved: $fig1_path")
+end
+
+# =============================================================================
+# SECTION 7B: FIGURE 2 - 3×1 x-z Slices with Quadrant Spatial Distribution
+# =============================================================================
+
+if SAVE_FIGURES
+    # Assign quadrant categories to 3D field
+    Q_field = assign_quadrants(wp_centered, bp_centered, sig_mask_3d)
+    
+    # Compute |w'b'| for alpha/intensity scaling
+    wb_magnitude = abs.(wp_centered .* bp_centered)
+    wb_ref = quantile(vec(wb_magnitude[sig_mask_3d]), 0.99)  # 99th percentile for scaling
+    alpha_field = clamp.(wb_magnitude ./ wb_ref, 0, 1)
+    
+    # x and y coordinates (km)
+    x_core = range(0, TILE_SIZE, length=Nx_core) ./ 1e3
+    y_core = range(0, TILE_SIZE, length=Ny_core) ./ 1e3
+    
+    # y-slice indices
+    j_slices = [max(1, round(Int, f * Ny_core)) for f in Y_SLICE_FRACS]
+    y_positions = [round(f * TILE_SIZE / 1e3, digits=1) for f in Y_SLICE_FRACS]
+    
+    # Create categorical colormap
+    QCMAP = cgrad(QUADRANT_COLORS, 4, categorical=true)
+    
+    fig2 = Figure(size = (540, 480))
+    
+    for (row, (j_slice, y_pos)) in enumerate(zip(j_slices, y_positions))
+        ax = Axis(fig2[row, 1]; 
+                  xlabel = row == 3 ? L"x~\text{(km)}" : "",
+                  ylabel = L"z~\text{(m)}",
+                  title = L"\text{y = %$(y_pos) km}",
+                  limits = ((0, TILE_SIZE/1e3), (Z_LIMITS[1], Z_LIMITS[2])))
+        
+        # Extract slice
+        Q_slice = Q_field[:, j_slice, :]
+        alpha_slice = alpha_field[:, j_slice, :]
+        
+        # Create RGBA image for quadrant visualization with alpha
+        rgba_data = fill(RGBA(1.0, 1.0, 1.0, 0.0), Nx_core, Nz_core)
+        for k in 1:Nz_core, i in 1:Nx_core
+            q = Q_slice[i, k]
+            if q > 0
+                c = QUADRANT_COLORS[q]
+                rgba_data[i, k] = RGBA(red(c), green(c), blue(c), alpha_slice[i, k])
+            end
+        end
+        
+        image!(ax, x_core, z_centers, rgba_data)
+        
+        if row < 3
+            hidexdecorations!(ax, ticks = false)
+        end
+    end
+    
+    # Legend for quadrants
+    Legend(fig2[1:3, 2], 
+           [MarkerElement(color=c, marker=:rect, markersize=15) for c in QUADRANT_COLORS],
+           QUADRANT_NAMES, "Quadrants", framevisible=false)
+    
+    resize_to_layout!(fig2)
+    
+    fig2_path = OUTPUT_DIR * "quadrant_xz_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+    save(fig2_path, fig2; pt_per_unit=1)
+    println("  Saved: $fig2_path")
+end
+
+# =============================================================================
+# SECTION 7C: FIGURE 3 - 2×2 x-y Slices at Different Z-levels
+# =============================================================================
+
+if SAVE_FIGURES
+    # Find z-indices for each level
+    find_z_index(z_level) = argmin(abs.(z_centers .- z_level))
+    
+    z_levels = [Z_LEVEL_FULL, Z_LEVEL_SURFACE, Z_LEVEL_MIXED, Z_LEVEL_DEEP]
+    z_titles = [L"\text{(a) Full depth repr. }z=%$(Int(Z_LEVEL_FULL))~\text{m}",
+                L"\text{(b) Surface }z=%$(Int(Z_LEVEL_SURFACE))~\text{m}",
+                L"\text{(c) Mixed layer }z=%$(Int(Z_LEVEL_MIXED))~\text{m}",
+                L"\text{(d) Below ML }z=%$(Int(Z_LEVEL_DEEP))~\text{m}"]
+    
+    fig3 = Figure(size = (560, 560))
+    
+    for (idx, (z_lev, ztitle)) in enumerate(zip(z_levels, z_titles))
+        row = (idx - 1) ÷ 2 + 1
+        col = (idx - 1) % 2 + 1
+        
+        k = find_z_index(z_lev)
+        
+        ax = Axis(fig3[row, col];
+                  xlabel = row == 2 ? L"x~\text{(km)}" : "",
+                  ylabel = col == 1 ? L"y~\text{(km)}" : "",
+                  title = ztitle,
+                  aspect = 1,
+                  limits = ((0, TILE_SIZE/1e3), (0, TILE_SIZE/1e3)))
+        
+        Q_slice = Q_field[:, :, k]
+        alpha_slice = alpha_field[:, :, k]
+        
+        # Create RGBA image
+        rgba_data = fill(RGBA(1.0, 1.0, 1.0, 0.0), Nx_core, Ny_core)
+        for j in 1:Ny_core, i in 1:Nx_core
+            q = Q_slice[i, j]
+            if q > 0
+                c = QUADRANT_COLORS[q]
+                rgba_data[i, j] = RGBA(red(c), green(c), blue(c), alpha_slice[i, j])
+            end
+        end
+        
+        image!(ax, x_core, y_core, rgba_data)
+        
+        if row == 1
+            hidexdecorations!(ax, ticks = false)
+        end
+        if col == 2
+            hideydecorations!(ax, ticks = false)
+        end
+    end
+    
+    # Shared legend
+    Legend(fig3[1:2, 3], 
+           [MarkerElement(color=c, marker=:rect, markersize=15) for c in QUADRANT_COLORS],
+           QUADRANT_NAMES, "Quadrants", framevisible=false)
+    
+    colgap!(fig3.layout, 1, 10)
+    rowgap!(fig3.layout, 1, 10)
+    resize_to_layout!(fig3)
+    
+    fig3_path = OUTPUT_DIR * "quadrant_xy_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+    save(fig3_path, fig3; pt_per_unit=1)
+    println("  Saved: $fig3_path")
+end
 
 # ===============================================================================
 # SECTION 8: SUMMARY AND OUTPUT
@@ -422,13 +850,15 @@ println("="^70)
 println("\nOutputs available in memory:")
 println("  * w_bar_core: Coarse-grained vertical velocity (core region)")
 println("  * b_bar_core: Coarse-grained buoyancy (core region)")
-println("  * wp_core: Fine-scale w fluctuation (core region)")
-println("  * bp_core: Fine-scale b fluctuation (core region)")
-println("  * h: 2D histogram of (w', b') for quadrant analysis")
-println("  * counts, w_edges, b_edges: Histogram data")
+println("  * wp_centered: Fine-scale w' at cell centers (core region)")
+println("  * bp_centered: Fine-scale b' at cell centers (core region)")
+println("  * Q_field: Quadrant assignment (1-4, 0=masked)")
+println("  * sig_mask_3d: Significant points mask")
+println("  * z_centers: Z-coordinates for cell centers")
 
-println("\nFor visualization, consider:")
-println("  using CairoMakie")
-println("  heatmap(w_edges, b_edges, counts')")
-println("  # or")
-println("  heatmap(w_bar_core[:,:,end])")
+if SAVE_FIGURES
+    println("\nSaved figures:")
+    println("  * $(OUTPUT_DIR)quadrant_histograms_tile$(TARGET_TILE)_iter$(ITERATION).pdf")
+    println("  * $(OUTPUT_DIR)quadrant_xz_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf")
+    println("  * $(OUTPUT_DIR)quadrant_xy_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf")
+end
