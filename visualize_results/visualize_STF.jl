@@ -301,26 +301,26 @@ function compute_b3_fields(x, z, Ro, b0, ε, Fbs, Fvs, ψ¹ₚs, ϕ12s, t; ψ¹�
     if isnothing(ψ¹ₚγ)
         b1, _ = compute_b1v1_field(x, z, Ro, Fbs[2], Fvs[2], 0*ψ¹ₚs[1], ϕ12s, t)
         bV = b0 .+ ε * b1
-        b1, _ = compute_b1v1_field(x, z, Ro, Fbs[3], Fvs[3], 0*ψ¹ₚs[1], ϕ12s, t)
-        bH = b0 .+ ε * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, 0*Fbs[2], Fvs[2], -ψ¹ₚs[1], ϕ12s, t)
+        bvV = b0 .+ ε * b1
 
         b1, _ = compute_b1v1_field(x, z, Ro, Fbs[2].+Fbs[3], Fvs[2].+Fvs[3], 0*ψ¹ₚs[1], ϕ12s, t)
         bVH = b0 .+ ε * b1
-        b1, _ = compute_b1v1_field(x, z, Ro, (Fbs[2].+Fbs[3])/0.8, Fvs[2].+Fvs[3], 0*ψ¹ₚs[1], ϕ12s, t)
-        bBVH = b0 .+ ε * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, (Fbs[2].+Fbs[3])*0.0, Fvs[2].+Fvs[3], - (ψ¹ₚs[1] .+ ψ¹ₚs[2]), ϕ12s, t)
+        bvVH = b0 .+ ε * b1
     else
         b1, _ = compute_b1v1_field(x, z, Ro, γ/ε*Fbs[1].+Fbs[2], γ/ε*Fvs[1].+Fvs[2], γ/ε*ψ¹ₚγ, ϕ12s, t)
         bV = b0 .+ ε * b1
-        b1, _ = compute_b1v1_field(x, z, Ro, γ/ε*Fbs[1].+Fbs[3], γ/ε*Fvs[1].+Fvs[3], γ/ε*ψ¹ₚγ, ϕ12s, t)
-        bH = b0 .+ ε * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, γ/ε*Fbs[1], γ/ε*Fvs[1].+Fvs[2], γ/ε*ψ¹ₚγ .- ψ¹ₚs[1], ϕ12s, t)
+        bvV = b0 .+ ε * b1
 
         b1, _ = compute_b1v1_field(x, z, Ro, γ/ε*Fbs[1].+Fbs[2].+Fbs[3], γ/ε*Fvs[1].+Fvs[2].+Fvs[3], γ/ε*ψ¹ₚγ, ϕ12s, t)
         bVH = b0 .+ ε * b1
-        b1, _ = compute_b1v1_field(x, z, Ro, γ/ε*Fbs[1].+(Fbs[2].+Fbs[3])/0.8, γ/ε*Fvs[1].+Fvs[2].+Fvs[3], γ/ε*ψ¹ₚγ .+ (ψ¹ₚs[1] .+ ψ¹ₚs[2])/4, ϕ12s, t)
-        bBVH = b0 .+ ε * b1
+        b1, _ = compute_b1v1_field(x, z, Ro, γ/ε*Fbs[1], γ/ε*Fvs[1].+Fvs[2].+Fvs[3], γ/ε*ψ¹ₚγ .- (ψ¹ₚs[1] .+ ψ¹ₚs[2]), ϕ12s, t)
+        bvVH = b0 .+ ε * b1
     end
 
-    return bV, bVH, bBVH
+    return bV, bvV, bVH, bvVH
 end
 
 
@@ -393,10 +393,12 @@ d16_erf = ones(length(ek_values), length(ro_values))
 d16_gauss = ones(length(ek_values), length(ro_values))
 d64_erf = ones(length(ek_values), length(ro_values), length(γ_values))
 d64_gauss = ones(length(ek_values), length(ro_values), length(γ_values))
+d64v_erf = ones(length(ek_values), length(ro_values), length(γ_values))
+d64v_gauss = ones(length(ek_values), length(ro_values), length(γ_values))
 d64VH_erf = ones(length(ek_values), length(ro_values), length(γ_values))
 d64VH_gauss = ones(length(ek_values), length(ro_values), length(γ_values))
-d64BVH_erf = ones(length(ek_values), length(ro_values), length(γ_values))
-d64BVH_gauss = ones(length(ek_values), length(ro_values), length(γ_values))
+d64vVH_erf = ones(length(ek_values), length(ro_values), length(γ_values))
+d64vVH_gauss = ones(length(ek_values), length(ro_values), length(γ_values))
 ds4_erf = ones(length(ro_values), length(γ_values))
 ds4_gauss = ones(length(ro_values), length(γ_values))
 
@@ -430,8 +432,8 @@ for (j, ro) in enumerate(ro_values)
     dbdx0_gauss = maximum(abs, central_diff(b0_gauss, dx, 1)[:,nz])
     for (i, ek) in enumerate(ek_values)
         println("Ek = $ek, Ro = $ro")
-        bt_erf,_,_ = compute_b3_fields(x, z, ro, b_erf, ek, Fbs_erf, Fvs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), 10.0)
-        bt_gauss,_,_ = compute_b3_fields(x, z, ro, b_gauss, ek, Fbs_gauss, Fvs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), 10.0)
+        bt_erf,_,_,_ = compute_b3_fields(x, z, ro, b_erf, ek, Fbs_erf, Fvs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), 10.0)
+        bt_gauss,_,_,_ = compute_b3_fields(x, z, ro, b_gauss, ek, Fbs_gauss, Fvs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), 10.0)
 
         dbdx_erf = central_diff(bt_erf, dx, 1)
         dbdx_gauss = central_diff(bt_gauss, dx, 1)
@@ -439,21 +441,25 @@ for (j, ro) in enumerate(ro_values)
         d16_gauss[i,j] = dbdx0_gauss/maximum(abs, dbdx_gauss[:,nz])
 
         for (k, γ) in enumerate(γ_values)
-            bt_erf, bVH_erf,bBVH_erf = compute_b3_fields(x, z, ro, b_erf, ek, Fbs_erf, Fvs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), 10.0; ψ¹ₚγ=psi1_erf_strain, γ=γ)
-            bt_gauss, bVH_gauss,bBVH_gauss = compute_b3_fields(x, z, ro, b_gauss, ek, Fbs_gauss, Fvs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), 10.0; ψ¹ₚγ=psi1_gauss_strain, γ=γ)
+            bt_erf, bv_erf, bVH_erf,bvVH_erf = compute_b3_fields(x, z, ro, b_erf, ek, Fbs_erf, Fvs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), 10.0; ψ¹ₚγ=psi1_erf_strain, γ=γ)
+            bt_gauss,bv_gauss, bVH_gauss,bvVH_gauss = compute_b3_fields(x, z, ro, b_gauss, ek, Fbs_gauss, Fvs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), 10.0; ψ¹ₚγ=psi1_gauss_strain, γ=γ)
 
             dbdx_erf = central_diff(bt_erf, dx, 1)
             dbdx_gauss = central_diff(bt_gauss, dx, 1)
             d64_erf[i,j,k] = dbdx0/maximum(abs, dbdx_erf[:,nz])
             d64_gauss[i,j,k] = dbdx0_gauss/maximum(abs, dbdx_gauss[:,nz])
+            dbdx_erf = central_diff(bv_erf, dx, 1)
+            dbdx_gauss = central_diff(bv_gauss, dx, 1)
+            d64v_erf[i,j,k] = dbdx0/maximum(abs, dbdx_erf[:,nz])
+            d64v_gauss[i,j,k] = dbdx0_gauss/maximum(abs, dbdx_gauss[:,nz])
             dbdx_erf = central_diff(bVH_erf, dx, 1)
             dbdx_gauss = central_diff(bVH_gauss, dx, 1)
             d64VH_erf[i,j,k] = dbdx0/maximum(abs, dbdx_erf[:,nz])
             d64VH_gauss[i,j,k] = dbdx0_gauss/maximum(abs, dbdx_gauss[:,nz])
-            dbdx_erf = central_diff(bBVH_erf, dx, 1)
-            dbdx_gauss = central_diff(bBVH_gauss, dx, 1)
-            d64BVH_erf[i,j,k] = dbdx0/maximum(abs, dbdx_erf[:,nz])
-            d64BVH_gauss[i,j,k] = dbdx0_gauss/maximum(abs, dbdx_gauss[:,nz])
+            dbdx_erf = central_diff(bvVH_erf, dx, 1)
+            dbdx_gauss = central_diff(bvVH_gauss, dx, 1)
+            d64vVH_erf[i,j,k] = dbdx0/maximum(abs, dbdx_erf[:,nz])
+            d64vVH_gauss[i,j,k] = dbdx0_gauss/maximum(abs, dbdx_gauss[:,nz])
             if i==1 
                 bs_erf, _, _, _ = compute_bVbH_fields(x, z, ro, b_erf, 0.0, Fbs_erf, Fvs_erf, psi1s_erf, (ϕxx_erf, ϕxz_erf, ϕzz_erf), 10.0; ψ¹ₚγ=psi1_erf_strain, γ=γ)
                 bs_gauss, _, _, _ = compute_bVbH_fields(x, z, ro, b_gauss, 0.0, Fbs_gauss, Fvs_gauss, psi1s_gauss, (ϕxx_gauss, ϕxz_gauss, ϕzz_gauss), 10.0; ψ¹ₚγ=psi1_gauss_strain, γ=γ)
@@ -552,6 +558,52 @@ resize_to_layout!(figsvff)
 save("ro2ekV_sff.png", figsvff)
 save("ro2ekV_sff.pdf", figsvff; pt_per_unit = 1)
 
+figsvff = Figure(size = (640, 720))
+g42 = figsvff[1,1] = GridLayout()
+ax_kwargs = (xscale = log10, yscale = log10, limits = ((0.1,1e5),nothing), titlealign = :left)
+ax_a = Axis(g42[1, 1]; ylabel = L"1/d", title = L"\text{(a) Front }\varepsilon_S=0", ax_kwargs...)
+ax_b = Axis(g42[1, 2]; title = L"\text{(b) Filament }\varepsilon_S=0", ax_kwargs...)
+ax_c = Axis(g42[2, 1]; ylabel = L"1/d", title = L"\text{(c) Front }\varepsilon_S=0.025", ax_kwargs...)
+ax_d = Axis(g42[2, 2]; title = L"\text{(d) Filament }\varepsilon_S=0.025", ax_kwargs...)
+ax_e = Axis(g42[3, 1]; ylabel = L"1/d", title = L"\text{(e) Front }\varepsilon_S=0.05", ax_kwargs...)
+ax_f = Axis(g42[3, 2]; title = L"\text{(f) Filament }\varepsilon_S=0.05", ax_kwargs...)
+ax_g = Axis(g42[4, 1]; xlabel = L"Ro^2/Ek_V", ylabel = L"1/d", title = L"\text{(g) Front }\varepsilon_S=0.1", ax_kwargs...)
+ax_h = Axis(g42[4, 2]; xlabel = L"Ro^2/Ek_V", title = L"\text{(h) Filament }\varepsilon_S=0.1", ax_kwargs...)
+axs = [ax_a, ax_b, ax_c, ax_d, ax_e, ax_f, ax_g, ax_h]
+hidexdecorations!(ax_a, ticks=false)
+hidexdecorations!(ax_b, ticks=false)
+hidexdecorations!(ax_c, ticks=false)
+hidexdecorations!(ax_d, ticks=false)
+hidexdecorations!(ax_e, ticks=false)
+hidexdecorations!(ax_f, ticks=false)
+for (j, ro) in enumerate(ro_values)
+    for (k, γ) in enumerate(γ_values)
+        ax = axs[2*(k-1)+1]
+        scatter!(ax, (ro^2) ./ ek_values, 1.0 ./ d64v_erf[:, j, k]; 
+            marker = markers[j], 
+            color = color4, 
+            colorrange = extrema(ek_values),
+            label = ro_labels[j] # Optional: adds label for legend
+        )
+        hlines!(ax, [1.0/ds4_erf[j,k]]; linestyle = :dash, color = :black)
+        ax = axs[2*(k-1)+2]
+        scatter!(ax, (ro^2) ./ ek_values, 1.0 ./ d64v_gauss[:, j, k]; 
+            marker = markers[j], 
+            color = color4,
+            colorrange = extrema(ek_values)
+        )
+        hlines!(ax, [1.0/ds4_gauss[j,k]]; linestyle = :dash, color = :black)
+    end
+end
+legendkwargs = (position = :lt, labelsize=10, patchsize = (15, 1), framevisible = false,
+                padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
+axislegend(ax_a; legendkwargs...)
+axislegend(ax_b, ek_elements, ek_labels; legendkwargs...)
+rowgap!(g42, 3)
+resize_to_layout!(figsvff)
+save("ro2ekV_vsff.png", figsvff)
+save("ro2ekV_vsff.pdf", figsvff; pt_per_unit = 1)
+
 ek_labels = [L"Ek=10^{-4}", L"Ek=10^{-3}", L"Ek=10^{-2}", L"Ek=10^{-1}"]
 figsvff = Figure(size = (640, 720))
 g42 = figsvff[1,1] = GridLayout()
@@ -618,7 +670,7 @@ hidexdecorations!(ax_f, ticks=false)
 for (j, ro) in enumerate(ro_values)
     for (k, γ) in enumerate(γ_values)
         ax = axs[2*(k-1)+1]
-        scatter!(ax, (ro^2) ./ ek_values, 1.0 ./ d64BVH_erf[:, j, k]; 
+        scatter!(ax, (ro^2) ./ ek_values, 1.0 ./ d64vVH_erf[:, j, k]; 
             marker = markers[j], 
             color = color4, 
             colorrange = extrema(ek_values),
@@ -626,7 +678,7 @@ for (j, ro) in enumerate(ro_values)
         )
         hlines!(ax, [1.0/ds4_erf[j,k]]; linestyle = :dash, color = :black)
         ax = axs[2*(k-1)+2]
-        scatter!(ax, (ro^2) ./ ek_values, 1.0 ./ d64BVH_gauss[:, j, k]; 
+        scatter!(ax, (ro^2) ./ ek_values, 1.0 ./ d64vVH_gauss[:, j, k]; 
             marker = markers[j], 
             color = color4,
             colorrange = extrema(ek_values)
@@ -637,9 +689,9 @@ end
 axislegend(ax_a; legendkwargs...)
 axislegend(ax_b, ek_elements, ek_labels; legendkwargs...)
 rowgap!(g42, 3)
-resize_to_layout!(figsvff)
-save("ro2ek_bsff.png", figsvff)
-save("ro2ek_bsff.pdf", figsvff; pt_per_unit = 1)
+resize_to_layout!(figsbff)
+save("ro2ek_vsff.png", figsbff)
+save("ro2ek_vsff.pdf", figsbff; pt_per_unit = 1)
 
 # Create a figure and axis
 fig0 = Figure(size = (640, 450));
