@@ -77,8 +77,8 @@ const SAVE_FIGURES = true               # Save quadrant analysis figures
 
 # Fixed depth regions for aggregation (meters, negative down)
 const DEPTH_SURFACE = (-10.0, 0.0)      # Near-surface layer
-const DEPTH_MIXED = (-50.0, -10.0)      # Mixed layer interior  
-const DEPTH_PYCNOCLINE = (-81.0, -50.0) # Pycnocline/entrainment zone
+const DEPTH_MIXED = (-60.0, -10.0)      # Mixed layer interior  
+const DEPTH_PYCNOCLINE = (-81.0, -60.0) # Pycnocline/entrainment zone
 
 # Threshold for masking weak fluctuations (fraction of std)
 # Points with |w'| < THRESHOLD_FRAC * std(w') AND |b'| < THRESHOLD_FRAC * std(b') are masked
@@ -90,8 +90,8 @@ const Y_SLICE_FRACS = (0.25, 0.5, 0.75) # 3 slices at 25%, 50%, 75% of domain
 # Z-levels for x-y visualization (layer centers, meters)
 const Z_LEVEL_FULL = -40.0              # Representative depth for full column
 const Z_LEVEL_SURFACE = -5.0            # Center of surface layer
-const Z_LEVEL_MIXED = -30.0             # Center of mixed layer interior
-const Z_LEVEL_DEEP = -65.0              # Center of pycnocline/deep layer
+const Z_LEVEL_MIXED = -35.0             # Center of mixed layer interior
+const Z_LEVEL_DEEP = -70.5              # Center of pycnocline/deep layer
 
 # Quadrant analysis visualization settings
 const QUADRANT_NAMES = ["Q1: w'>0, b'>0", "Q2: w'<0, b'>0", 
@@ -118,7 +118,7 @@ Assign quadrant index based on signs of w' and b':
   - 3 = Q3: w'<0, b'<0 (cold downdrafts - convective plumes)
   - 4 = Q4: w'>0, b'<0 (cold updrafts - counter-gradient)
 """
-function assign_quadrant(w::T, b::T) where T
+function assign_quadrant(w, b)
     if w > 0 && b > 0
         return 1  # Q1
     elseif w < 0 && b > 0
