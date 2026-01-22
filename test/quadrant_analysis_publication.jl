@@ -31,6 +31,8 @@ using LESStudySetup.Diagnostics
 using LESStudySetup.Diagnostics: load_distributed_checkpoint_subdomain
 using LESStudySetup.Diagnostics: load_checkpoint_clock
 using LESStudySetup.Diagnostics: coarse_graining!
+using LESStudySetup.Diagnostics: save_subdomain_with_halo
+using LESStudySetup.Diagnostics: load_subdomain_snapshot
 using StatsBase: fit, Histogram
 using Statistics: std, quantile
 using CairoMakie
@@ -91,6 +93,10 @@ const QUADRANT_COLORS = [
 ]
 const QUADRANT_NAMES = [L"Q1: w'>0, b'>0", L"Q2: w'<0, b'>0", 
                         L"Q3: w'<0, b'<0", L"Q4: w'>0, b'<0"]
+
+# --- Data Saving Options ---
+const SAVE_LOADED_DATA = true          # Save loaded data before coarse-graining
+const SUBDOMAIN_DIR = OUTPUT_DIR * "subdomains/"  # Directory for saved subdomains
 
 # ===============================================================================
 # SECTION 2: HELPER FUNCTIONS
@@ -255,6 +261,24 @@ snapshot_xy = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION
 
 grid_xy = snapshot_xy[:grid]
 println("\nLoaded subdomain grid: $(grid_xy.Nx) × $(grid_xy.Ny) × $(grid_xy.Nz)")
+
+# 3.2b SAVE LOADED DATA (before coarse-graining)
+if SAVE_LOADED_DATA
+    mkpath(SUBDOMAIN_DIR)
+    xy_save_file = SUBDOMAIN_DIR * "subdomain_xy_levels_iter$(ITERATION).jld2"
+    if !isfile(xy_save_file)
+        println("\nSaving loaded subdomain to: $xy_save_file")
+        save_subdomain_with_halo(xy_save_file, snapshot_xy;
+            core_xlims = XY_CORE_XLIMS,
+            core_ylims = XY_CORE_YLIMS,
+            halo_width = XY_HALO,
+            zlims = (Z_TARGETS[1], Z_TARGETS[end]),
+            iteration = ITERATION
+        )
+    else
+        println("\nSubdomain file already exists: $xy_save_file (skipping save)")
+    end
+end
 
 # 3.3 COMPUTE BUOYANCY
 println("\nComputing buoyancy from temperature...")
@@ -449,6 +473,23 @@ for (i, y_target) in enumerate(Y_TARGETS)
     grid_xz = snapshot_xz[:grid]
     println("  Loaded grid: $(grid_xz.Nx) × $(grid_xz.Ny) × $(grid_xz.Nz)")
     
+    # 4.1b SAVE LOADED DATA (before coarse-graining)
+    if SAVE_LOADED_DATA
+        xz_save_file = SUBDOMAIN_DIR * "subdomain_xz_y$(Int(y_target/1e3))km_iter$(ITERATION).jld2"
+        if !isfile(xz_save_file)
+            println("  Saving loaded subdomain to: $xz_save_file")
+            save_subdomain_with_halo(xz_save_file, snapshot_xz;
+                core_xlims = XZ_CORE_XLIMS,
+                core_ylims = y_lims,
+                halo_width = XY_HALO,
+                zlims = XZ_ZLIMS,
+                iteration = ITERATION
+            )
+        else
+            println("  Subdomain file already exists: $xz_save_file (skipping save)")
+        end
+    end
+    
     # 4.2 COMPUTE BUOYANCY
     w_xz = snapshot_xz[:w]
     T_xz = snapshot_xz[:T]
@@ -617,3 +658,11 @@ println("  $fig1_pdf")
 println("  $fig1_png")
 println("  $fig2_pdf")
 println("  $fig2_png")
+
+if SAVE_LOADED_DATA
+    println("\nSaved subdomain files:")
+    println("  $(SUBDOMAIN_DIR)subdomain_xy_levels_iter$(ITERATION).jld2")
+    for y_target in Y_TARGETS
+        println("  $(SUBDOMAIN_DIR)subdomain_xz_y$(Int(y_target/1e3))km_iter$(ITERATION).jld2")
+    end
+end
