@@ -823,7 +823,7 @@ if SAVE_FIGURES
     z_titles = [L"\text{(a) Full depth repr. }z=%$(Int(Z_LEVEL_FULL))~\text{m}",
                 L"\text{(b) Surface }z=%$(Int(Z_LEVEL_SURFACE))~\text{m}",
                 L"\text{(c) Mixed layer }z=%$(Int(Z_LEVEL_MIXED))~\text{m}",
-                L"\text{(d) Below ML }z=%$(Int(Z_LEVEL_DEEP))~\text{m}"]
+                L"\text{(d) Below ML }z=%$(trunc(Z_LEVEL_DEEP))~\text{m}"]
     
     fig3 = Figure(size = (560, 560))
     
