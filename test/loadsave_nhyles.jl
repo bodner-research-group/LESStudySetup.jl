@@ -641,57 +641,25 @@ if SAVE_FIGURES
     w_lim = (first(h_global.edges[1]), last(h_global.edges[1]))
     b_lim = (first(h_global.edges[2]), last(h_global.edges[2]))
     
-    # Create mask overlay for |w'b'| < wb_threshold region
-    # This creates a white semi-transparent image where the masked region is shown
-    function create_wb_mask_overlay(w_edges, b_edges, wb_thresh)
-        nw, nb = length(w_edges)-1, length(b_edges)-1
-        w_centers = [(w_edges[i] + w_edges[i+1])/2 for i in 1:nw]
-        b_centers = [(b_edges[i] + b_edges[i+1])/2 for i in 1:nb]
-        
-        # Create RGBA mask: white with alpha where |w'b'| < threshold
-        mask_rgba = fill(RGBA(1.0, 1.0, 1.0, 0.0), nw, nb)
-        for j in 1:nb, i in 1:nw
-            if abs(w_centers[i] * b_centers[j]) < wb_thresh
-                mask_rgba[i, j] = RGBA(1.0, 1.0, 1.0, 0.7)
-            end
+    # Helper to shade the masked region |w'b'| < wb_threshold using band!
+    # The hyperbola b = ±wb_thresh/w defines the boundary
+    function add_wb_threshold_mask!(ax, wb_thresh, w_lim, b_lim; n_pts=200, alpha=0.7)
+        # For w > 0: shade between b = -wb_thresh/w and b = +wb_thresh/w
+        w_pos = range(wb_thresh / abs(b_lim[2]), w_lim[2], length=n_pts)
+        w_pos = collect(filter(w -> w > 1e-12, w_pos))
+        if length(w_pos) > 1
+            b_upper = clamp.(wb_thresh ./ w_pos, b_lim[1], b_lim[2])
+            b_lower = clamp.(-wb_thresh ./ w_pos, b_lim[1], b_lim[2])
+            band!(ax, w_pos, b_lower, b_upper; color = (:white, alpha))
         end
-        return mask_rgba
-    end
-    
-    # Helper to add the mask overlay and hyperbolic boundary lines
-    function add_wb_threshold_overlay!(ax, w_edges, b_edges, wb_thresh)
-        mask_rgba = create_wb_mask_overlay(collect(w_edges), collect(b_edges), wb_thresh)
-        w_lim_local = (first(w_edges), last(w_edges))
-        b_lim_local = (first(b_edges), last(b_edges))
         
-        # Overlay the mask
-        image!(ax, w_lim_local, b_lim_local, mask_rgba)
-        
-        # Draw hyperbolic boundary curves |w'b'| = wb_thresh
-        # In each quadrant: b = ±wb_thresh/w
-        n_pts = 100
-        
-        # Q1 and Q3: w*b > 0, so b = wb_thresh/w (same sign)
-        # Q2 and Q4: w*b < 0, so b = -wb_thresh/w (opposite sign)
-        for sign_w in [1, -1], sign_b in [1, -1]
-            # For w*b = wb_thresh with given signs
-            w_min = sign_w > 0 ? wb_thresh / abs(b_lim_local[2]) : w_lim_local[1]
-            w_max = sign_w > 0 ? w_lim_local[2] : -wb_thresh / abs(b_lim_local[2])
-            
-            if w_min < w_max
-                w_vals = range(w_min, w_max, length=n_pts)
-                w_vals = filter(w -> abs(w) > 1e-12, collect(w_vals))
-                if sign_w * sign_b > 0
-                    b_vals = wb_thresh ./ w_vals
-                else
-                    b_vals = -wb_thresh ./ w_vals
-                end
-                # Clip to limits
-                valid = (b_vals .>= b_lim_local[1]) .& (b_vals .<= b_lim_local[2])
-                if count(valid) > 1
-                    lines!(ax, w_vals[valid], b_vals[valid], color=:gray, linestyle=:dash, linewidth=1.0)
-                end
-            end
+        # For w < 0: shade between b = -wb_thresh/w and b = +wb_thresh/w
+        w_neg = range(w_lim[1], -wb_thresh / abs(b_lim[2]), length=n_pts)
+        w_neg = collect(filter(w -> w < -1e-12, w_neg))
+        if length(w_neg) > 1
+            b_upper = clamp.(-wb_thresh ./ w_neg, b_lim[1], b_lim[2])
+            b_lower = clamp.(wb_thresh ./ w_neg, b_lim[1], b_lim[2])
+            band!(ax, w_neg, b_lower, b_upper; color = (:white, alpha))
         end
     end
     
@@ -706,7 +674,7 @@ if SAVE_FIGURES
                 title=L"\text{(a) Global, log counts}", limits=(w_lim, b_lim))
     hm11 = heatmap!(ax11, h_global.edges[1], h_global.edges[2], log10.(1 .+ h_global.weights); 
                     rasterize=true, colormap=Reverse(:grays))
-    add_wb_threshold_overlay!(ax11, h_global.edges[1], h_global.edges[2], wb_threshold)
+    add_wb_threshold_mask!(ax11, wb_threshold, w_lim, b_lim)
     Colorbar(fig1[1,2], hm11, label=L"\log_{10}(1+N)")
     
     # [1,2] Global histogram colored by mean depth
@@ -714,7 +682,7 @@ if SAVE_FIGURES
                 title=L"\text{(b) Global, mean depth}", limits=(w_lim, b_lim))
     hm12 = heatmap!(ax12, h_global.edges[1], h_global.edges[2], mean_depth; 
                     rasterize=true, colormap=:deep, colorrange=(Z_LIMITS[1], 0))
-    add_wb_threshold_overlay!(ax12, h_global.edges[1], h_global.edges[2], wb_threshold)
+    add_wb_threshold_mask!(ax12, wb_threshold, w_lim, b_lim)
     Colorbar(fig1[1,4], hm12, label=L"\bar{z}~\text{(m)}")
     hideydecorations!(ax12, ticks = false)
     
@@ -723,7 +691,7 @@ if SAVE_FIGURES
                 title=L"\text{(c) Surface }z\in[-10,0]~\text{m}", limits=(w_lim, b_lim))
     hm21 = heatmap!(ax21, h_surface.edges[1], h_surface.edges[2], log10.(1 .+ h_surface.weights); 
                     rasterize=true, colormap=Reverse(:grays))
-    add_wb_threshold_overlay!(ax21, h_surface.edges[1], h_surface.edges[2], wb_threshold)
+    add_wb_threshold_mask!(ax21, wb_threshold, w_lim, b_lim)
     Colorbar(fig1[2,2], hm21, label=L"\log_{10}(1+N)")
     
     # [2,2] Mixed layer histogram
@@ -731,7 +699,7 @@ if SAVE_FIGURES
                 title=L"\text{(d) Mixed layer }z\in[-50,-10]~\text{m}", limits=(w_lim, b_lim))
     hm22 = heatmap!(ax22, h_mixed.edges[1], h_mixed.edges[2], log10.(1 .+ h_mixed.weights); 
                     rasterize=true, colormap=Reverse(:grays))
-    add_wb_threshold_overlay!(ax22, h_mixed.edges[1], h_mixed.edges[2], wb_threshold)
+    add_wb_threshold_mask!(ax22, wb_threshold, w_lim, b_lim)
     Colorbar(fig1[2,4], hm22, label=L"\log_{10}(1+N)")
     hideydecorations!(ax22, ticks = false)
     
@@ -823,7 +791,7 @@ if SAVE_FIGURES
     z_titles = [L"\text{(a) Full depth repr. }z=%$(Int(Z_LEVEL_FULL))~\text{m}",
                 L"\text{(b) Surface }z=%$(Int(Z_LEVEL_SURFACE))~\text{m}",
                 L"\text{(c) Mixed layer }z=%$(Int(Z_LEVEL_MIXED))~\text{m}",
-                L"\text{(d) Below ML }z=%$(trunc(Z_LEVEL_DEEP))~\text{m}"]
+                L"\text{(d) Below ML }z=%$((Z_LEVEL_DEEP))~\text{m}"]
     
     fig3 = Figure(size = (560, 560))
     
