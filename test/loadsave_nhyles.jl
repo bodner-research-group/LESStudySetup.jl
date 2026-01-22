@@ -80,9 +80,10 @@ const DEPTH_SURFACE = (-10.0, 0.0)      # Near-surface layer
 const DEPTH_MIXED = (-60.0, -10.0)      # Mixed layer interior  
 const DEPTH_PYCNOCLINE = (-81.0, -60.0) # Pycnocline/entrainment zone
 
-# Threshold for masking weak fluctuations (fraction of std)
-# Points with |w'| < THRESHOLD_FRAC * std(w') AND |b'| < THRESHOLD_FRAC * std(b') are masked
-const THRESHOLD_FRAC = 0.1              # Mask points within 10% of std from zero
+# Threshold for masking weak fluctuations based on |w'b'| magnitude
+# Points with |w'b'| below the THRESHOLD_PERCENTILE of the distribution are masked
+# This filters noise near origin AND along both axes (where flux is negligible)
+const THRESHOLD_PERCENTILE = 0.10       # Mask bottom 10% of |w'b'| distribution
 
 # Y-slices for x-z quadrant visualization (fraction of Ny_core)
 const Y_SLICE_FRACS = (0.25, 0.5, 0.75) # 3 slices at 25%, 50%, 75% of domain
@@ -538,25 +539,28 @@ w_vec = vec(wp_centered)
 b_vec = vec(bp_centered)
 
 # -----------------------------------------------------------------------------
-# Mask weak fluctuations (noise filtering)
+# Mask weak fluctuations (noise filtering based on |w'b'| magnitude)
 # -----------------------------------------------------------------------------
+# Compute |w'b'| for each point
+wb_magnitude_vec = abs.(w_vec .* b_vec)
+wb_magnitude_3d = abs.(wp_centered .* bp_centered)
+
+# Use percentile-based threshold: dynamically adapts to data distribution
+# This filters: (1) near origin, (2) along w'-axis, (3) along b'-axis
+wb_threshold = quantile(wb_magnitude_vec, THRESHOLD_PERCENTILE)
+
+# Create mask: true for significant points (|w'b'| above threshold)
+significant_mask = wb_magnitude_vec .>= wb_threshold
+sig_mask_3d = wb_magnitude_3d .>= wb_threshold
+
+# Statistics for output
 w_std = std(w_vec)
 b_std = std(b_vec)
-w_threshold = THRESHOLD_FRAC * w_std
-b_threshold = THRESHOLD_FRAC * b_std
 
-# Create mask: true for significant points (outside the threshold bands)
-# Points are masked if BOTH |w'| < threshold AND |b'| < threshold
-significant_mask = (abs.(w_vec) .>= w_threshold) .| (abs.(b_vec) .>= b_threshold)
-
-# Also create 3D mask for spatial plots
-sig_mask_3d = (abs.(wp_centered) .>= w_threshold) .| (abs.(bp_centered) .>= b_threshold)
-
-println("\nMasking weak fluctuations:")
+println("\nMasking weak fluctuations (|w'b'| percentile method):")
 println("  * w' std: $(round(w_std, sigdigits=3)) m/s")
 println("  * b' std: $(round(b_std, sigdigits=3)) m/s²")
-println("  * w' threshold ($(Int(THRESHOLD_FRAC*100))% of std): ±$(round(w_threshold, sigdigits=3)) m/s")
-println("  * b' threshold ($(Int(THRESHOLD_FRAC*100))% of std): ±$(round(b_threshold, sigdigits=3)) m/s²")
+println("  * |w'b'| threshold ($(Int(THRESHOLD_PERCENTILE*100))th percentile): $(round(wb_threshold, sigdigits=3)) m²/s³")
 println("  * Significant points: $(count(significant_mask))/$(length(significant_mask)) ($(round(100*count(significant_mask)/length(significant_mask), digits=1))%)")
 
 # -----------------------------------------------------------------------------
@@ -637,6 +641,60 @@ if SAVE_FIGURES
     w_lim = (first(h_global.edges[1]), last(h_global.edges[1]))
     b_lim = (first(h_global.edges[2]), last(h_global.edges[2]))
     
+    # Create mask overlay for |w'b'| < wb_threshold region
+    # This creates a white semi-transparent image where the masked region is shown
+    function create_wb_mask_overlay(w_edges, b_edges, wb_thresh)
+        nw, nb = length(w_edges)-1, length(b_edges)-1
+        w_centers = [(w_edges[i] + w_edges[i+1])/2 for i in 1:nw]
+        b_centers = [(b_edges[i] + b_edges[i+1])/2 for i in 1:nb]
+        
+        # Create RGBA mask: white with alpha where |w'b'| < threshold
+        mask_rgba = fill(RGBA(1.0, 1.0, 1.0, 0.0), nw, nb)
+        for j in 1:nb, i in 1:nw
+            if abs(w_centers[i] * b_centers[j]) < wb_thresh
+                mask_rgba[i, j] = RGBA(1.0, 1.0, 1.0, 0.7)
+            end
+        end
+        return mask_rgba
+    end
+    
+    # Helper to add the mask overlay and hyperbolic boundary lines
+    function add_wb_threshold_overlay!(ax, w_edges, b_edges, wb_thresh)
+        mask_rgba = create_wb_mask_overlay(collect(w_edges), collect(b_edges), wb_thresh)
+        w_lim_local = (first(w_edges), last(w_edges))
+        b_lim_local = (first(b_edges), last(b_edges))
+        
+        # Overlay the mask
+        image!(ax, w_lim_local, b_lim_local, mask_rgba)
+        
+        # Draw hyperbolic boundary curves |w'b'| = wb_thresh
+        # In each quadrant: b = ±wb_thresh/w
+        n_pts = 100
+        
+        # Q1 and Q3: w*b > 0, so b = wb_thresh/w (same sign)
+        # Q2 and Q4: w*b < 0, so b = -wb_thresh/w (opposite sign)
+        for sign_w in [1, -1], sign_b in [1, -1]
+            # For w*b = wb_thresh with given signs
+            w_min = sign_w > 0 ? wb_thresh / abs(b_lim_local[2]) : w_lim_local[1]
+            w_max = sign_w > 0 ? w_lim_local[2] : -wb_thresh / abs(b_lim_local[2])
+            
+            if w_min < w_max
+                w_vals = range(w_min, w_max, length=n_pts)
+                w_vals = filter(w -> abs(w) > 1e-12, collect(w_vals))
+                if sign_w * sign_b > 0
+                    b_vals = wb_thresh ./ w_vals
+                else
+                    b_vals = -wb_thresh ./ w_vals
+                end
+                # Clip to limits
+                valid = (b_vals .>= b_lim_local[1]) .& (b_vals .<= b_lim_local[2])
+                if count(valid) > 1
+                    lines!(ax, w_vals[valid], b_vals[valid], color=:gray, linestyle=:dash, linewidth=1.0)
+                end
+            end
+        end
+    end
+    
     # Mean depth per bin
     mean_depth = compute_mean_depth_per_bin(wp_centered, bp_centered, z_centers, 
                                              collect(h_global.edges[1]), collect(h_global.edges[2]))
@@ -648,13 +706,7 @@ if SAVE_FIGURES
                 title=L"\text{(a) Global, log counts}", limits=(w_lim, b_lim))
     hm11 = heatmap!(ax11, h_global.edges[1], h_global.edges[2], log10.(1 .+ h_global.weights); 
                     rasterize=true, colormap=Reverse(:grays))
-    # Add threshold bands (white semi-transparent)
-    band!(ax11, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
-          color = (:white, 0.7))
-    band!(ax11, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
-          color = (:white, 0.7))
-    vlines!(ax11, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
-    hlines!(ax11, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    add_wb_threshold_overlay!(ax11, h_global.edges[1], h_global.edges[2], wb_threshold)
     Colorbar(fig1[1,2], hm11, label=L"\log_{10}(1+N)")
     
     # [1,2] Global histogram colored by mean depth
@@ -662,12 +714,7 @@ if SAVE_FIGURES
                 title=L"\text{(b) Global, mean depth}", limits=(w_lim, b_lim))
     hm12 = heatmap!(ax12, h_global.edges[1], h_global.edges[2], mean_depth; 
                     rasterize=true, colormap=:deep, colorrange=(Z_LIMITS[1], 0))
-    band!(ax12, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
-          color = (:white, 0.7))
-    band!(ax12, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
-          color = (:white, 0.7))
-    vlines!(ax12, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
-    hlines!(ax12, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    add_wb_threshold_overlay!(ax12, h_global.edges[1], h_global.edges[2], wb_threshold)
     Colorbar(fig1[1,4], hm12, label=L"\bar{z}~\text{(m)}")
     hideydecorations!(ax12, ticks = false)
     
@@ -676,12 +723,7 @@ if SAVE_FIGURES
                 title=L"\text{(c) Surface }z\in[-10,0]~\text{m}", limits=(w_lim, b_lim))
     hm21 = heatmap!(ax21, h_surface.edges[1], h_surface.edges[2], log10.(1 .+ h_surface.weights); 
                     rasterize=true, colormap=Reverse(:grays))
-    band!(ax21, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
-          color = (:white, 0.7))
-    band!(ax21, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
-          color = (:white, 0.7))
-    vlines!(ax21, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
-    hlines!(ax21, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    add_wb_threshold_overlay!(ax21, h_surface.edges[1], h_surface.edges[2], wb_threshold)
     Colorbar(fig1[2,2], hm21, label=L"\log_{10}(1+N)")
     
     # [2,2] Mixed layer histogram
@@ -689,12 +731,7 @@ if SAVE_FIGURES
                 title=L"\text{(d) Mixed layer }z\in[-50,-10]~\text{m}", limits=(w_lim, b_lim))
     hm22 = heatmap!(ax22, h_mixed.edges[1], h_mixed.edges[2], log10.(1 .+ h_mixed.weights); 
                     rasterize=true, colormap=Reverse(:grays))
-    band!(ax22, [-w_threshold, w_threshold], [b_lim[1], b_lim[1]], [b_lim[2], b_lim[2]]; 
-          color = (:white, 0.7))
-    band!(ax22, [w_lim[1], w_lim[2]], [-b_threshold, -b_threshold], [b_threshold, b_threshold]; 
-          color = (:white, 0.7))
-    vlines!(ax22, [-w_threshold, w_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
-    hlines!(ax22, [-b_threshold, b_threshold], color=:gray, linestyle=:dot, linewidth=0.8)
+    add_wb_threshold_overlay!(ax22, h_mixed.edges[1], h_mixed.edges[2], wb_threshold)
     Colorbar(fig1[2,4], hm22, label=L"\log_{10}(1+N)")
     hideydecorations!(ax22, ticks = false)
     
@@ -720,9 +757,10 @@ if SAVE_FIGURES
     wb_ref = quantile(vec(wb_magnitude[sig_mask_3d]), 0.99)  # 99th percentile for scaling
     alpha_field = clamp.(wb_magnitude ./ wb_ref, 0, 1)
     
-    # x and y coordinates (km)
-    x_core = range(0, TILE_SIZE, length=Nx_core) ./ 1e3
-    y_core = range(0, TILE_SIZE, length=Ny_core) ./ 1e3
+    # x and y coordinates - use endpoints for image!
+    x_start, x_end = 0.0, TILE_SIZE / 1e3
+    y_start, y_end = 0.0, TILE_SIZE / 1e3
+    z_start, z_end = Z_LIMITS[1], Z_LIMITS[2]
     
     # y-slice indices
     j_slices = [max(1, round(Int, f * Ny_core)) for f in Y_SLICE_FRACS]
@@ -754,7 +792,7 @@ if SAVE_FIGURES
             end
         end
         
-        image!(ax, x_core, z_centers, rgba_data)
+        image!(ax, (x_start, x_end), (z_start, z_end), rgba_data)
         
         if row < 3
             hidexdecorations!(ax, ticks = false)
@@ -815,7 +853,7 @@ if SAVE_FIGURES
             end
         end
         
-        image!(ax, x_core, y_core, rgba_data)
+        image!(ax, (x_start, x_end), (y_start, y_end), rgba_data)
         
         if row == 1
             hidexdecorations!(ax, ticks = false)
