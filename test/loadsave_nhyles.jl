@@ -28,7 +28,7 @@ using LESStudySetup.Diagnostics: coarse_graining!
 using StatsBase: fit, Histogram
 using Statistics: std, quantile
 using CairoMakie
-using Colors: RGB, RGBA, red, green, blue
+using CairoMakie.Makie.Colors: RGB, RGBA, red, green, blue
 
 # ===============================================================================
 # SECTION 1: USER CONFIGURATION
@@ -71,7 +71,7 @@ const alpha = 2e-4                # Thermal expansion coefficient (1/K)
 const g = 9.81                    # Gravitational acceleration (m/s^2)
 
 # --- Quadrant Analysis Parameters ---
-const N_BINS = 50                       # Number of histogram bins
+const N_BINS = 60                       # Number of histogram bins
 const COMPUTE_DEPTH_PROFILES = true     # Compute depth-resolved quadrant analysis
 const SAVE_FIGURES = true               # Save quadrant analysis figures
 
@@ -83,7 +83,7 @@ const DEPTH_PYCNOCLINE = (-81.0, -60.0) # Pycnocline/entrainment zone
 # Threshold for masking weak fluctuations based on |w'b'| magnitude
 # Points with |w'b'| below the THRESHOLD_PERCENTILE of the distribution are masked
 # This filters noise near origin AND along both axes (where flux is negligible)
-const THRESHOLD_PERCENTILE = 0.30       # Mask bottom 30% of |w'b'| distribution
+const THRESHOLD_PERCENTILE = 0.50       # Mask bottom 50% of |w'b'| distribution
 
 # Y-slices for x-z quadrant visualization (fraction of Ny_core)
 const Y_SLICE_FRACS = (0.25, 0.5, 0.75) # 3 slices at 25%, 50%, 75% of domain
