@@ -697,7 +697,7 @@ if SAVE_FIGURES && !isfile(fig1_path)
     
     # [2,2] Mixed layer histogram
     ax22 = Axis(fig1[2,3]; xlabel=L"w^\prime~\text{(m s^{-1})}", 
-                title=L"\text{(d) Mixed layer }z\in[-50,-10]~\text{m}", limits=(w_lim, b_lim))
+                title=L"\text{(d) Mixed layer }z\in[-60,-10]~\text{m}", limits=(w_lim, b_lim))
     hm22 = heatmap!(ax22, h_mixed.edges[1], h_mixed.edges[2], log10.(1 .+ h_mixed.weights); 
                     rasterize=true, colormap=Reverse(:grays))
     add_wb_threshold_mask!(ax22, wb_threshold, w_lim, b_lim)
@@ -779,7 +779,7 @@ if SAVE_FIGURES && !isfile(fig2_path)
     
     # Legend in first subplot using PolyElements
     legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
-    axislegend(ax_first, legend_elements, QUADRANT_NAMES, position = :lt, 
+    axislegend(ax_first, legend_elements, QUADRANT_NAMES, position = :rt, 
                labelsize=10, patchsize = (15, 10), framevisible = false, 
                padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
     
@@ -839,7 +839,7 @@ if SAVE_FIGURES && !isfile(fig3_path)
             end
         end
         
-        image!(ax, (x_start, x_end), (y_start, y_end), rgba_data)
+        image!(ax, (x_start, x_end), (y_start, y_end), rgba_data; rasterize=true)
         
         if row == 1
             hidexdecorations!(ax, ticks = false)
@@ -851,7 +851,7 @@ if SAVE_FIGURES && !isfile(fig3_path)
     
     # Legend in first subplot using PolyElements
     legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
-    axislegend(ax_first, legend_elements, QUADRANT_NAMES, position = :lb, 
+    axislegend(ax_first, legend_elements, QUADRANT_NAMES, position = :rb, 
                labelsize=10, patchsize = (15, 10), framevisible = false, 
                padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
     
