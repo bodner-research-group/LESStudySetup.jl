@@ -743,12 +743,13 @@ if SAVE_FIGURES && !isfile(fig2_path)
     
     fig2 = Figure(size = (540, 480))
     
+    panel_labels = ["(a)", "(b)", "(c)"]
     ax_first = nothing  # Store reference to first axis for legend
     for (row, (j_slice, y_pos)) in enumerate(zip(j_slices, y_positions))
         ax = Axis(fig2[row, 1]; 
                   xlabel = row == 3 ? L"x~\text{(km)}" : "",
                   ylabel = L"z~\text{(m)}",
-                  title = L"\text{y = %$(y_pos) km}",
+                  title = L"\text{%$(panel_labels[row]) y = %$(y_pos) km}",
                   limits = ((x_start, x_end), (z_start, z_end)))
         
         if row == 1
