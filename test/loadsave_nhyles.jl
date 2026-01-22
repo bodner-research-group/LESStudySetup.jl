@@ -95,8 +95,8 @@ const Z_LEVEL_MIXED = -35.0             # Center of mixed layer interior
 const Z_LEVEL_DEEP = -70.5              # Center of pycnocline/deep layer
 
 # Quadrant analysis visualization settings
-const QUADRANT_NAMES = ["Q1: w'>0, b'>0", "Q2: w'<0, b'>0", 
-                        "Q3: w'<0, b'<0", "Q4: w'>0, b'<0"]
+const QUADRANT_NAMES = [L"Q1: w'>0, b'>0", L"Q2: w'<0, b'>0", 
+                        L"Q3: w'<0, b'<0", L"Q4: w'>0, b'<0"]
 const QUADRANT_COLORS = [RGB(0.894, 0.102, 0.110),   # Q1: red - warm updrafts
                          RGB(0.216, 0.494, 0.722),   # Q2: blue - warm downdrafts
                          RGB(0.302, 0.686, 0.290),   # Q3: green - cold downdrafts
@@ -615,7 +615,7 @@ println("  * Max counts per bin: $(maximum(counts))")
 # SECTION 7A: FIGURE 1 - 2×2 Histogram Layout
 # =============================================================================
 
-fig1_path = OUTPUT_DIR * "quadrant_histograms_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+fig1_path = OUTPUT_DIR * "quadrant_histograms_tile$(TARGET_TILE)_iter$(ITERATION)_fc$(Int(FILTER_CUTOFF)).pdf"
 if SAVE_FIGURES && !isfile(fig1_path)
     println("\n" * "="^70)
     println("STEP 7: Generating Quadrant Analysis Figures")
@@ -718,7 +718,7 @@ end
 # SECTION 7B: FIGURE 2 - 3×1 x-z Slices with Quadrant Spatial Distribution
 # =============================================================================
 
-fig2_path = OUTPUT_DIR * "quadrant_xz_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+fig2_path = OUTPUT_DIR * "quadrant_xz_slices_tile$(TARGET_TILE)_iter$(ITERATION)_fc$(Int(FILTER_CUTOFF)).pdf"
 if SAVE_FIGURES && !isfile(fig2_path)
     # Assign quadrant categories to 3D field
     Q_field = assign_quadrants(wp_centered, bp_centered, sig_mask_3d)
@@ -795,7 +795,7 @@ end
 # SECTION 7C: FIGURE 3 - 2×2 x-y Slices at Different Z-levels
 # =============================================================================
 
-fig3_path = OUTPUT_DIR * "quadrant_xy_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+fig3_path = OUTPUT_DIR * "quadrant_xy_slices_tile$(TARGET_TILE)_iter$(ITERATION)_fc$(Int(FILTER_CUTOFF)).pdf"
 if SAVE_FIGURES && !isfile(fig3_path)
     # Find z-indices for each level
     find_z_index(z_level) = argmin(abs.(z_centers .- z_level))
