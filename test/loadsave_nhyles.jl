@@ -103,7 +103,7 @@ const QUADRANT_COLORS = [RGB(0.894, 0.102, 0.110),   # Q1: red - warm updrafts
                          RGB(0.596, 0.306, 0.639)]   # Q4: purple - cold updrafts
 
 # --- Processing Options ---
-const SAVE_ALL_TILES = true       # Set false to skip tile extraction step
+const SAVE_ALL_TILES = false      # Set false to skip tile extraction step
 const TARGET_TILE = 4             # Which tile to process for coarse-graining
 
 # ===============================================================================
@@ -744,12 +744,12 @@ if SAVE_FIGURES && !isfile(fig2_path)
     fig2 = Figure(size = (540, 480))
     
     panel_labels = ["(a)", "(b)", "(c)"]
-    ax_first = nothing  # Store reference to first axis for legend
+    local ax_first  # Declare local to avoid scope ambiguity
     for (row, (j_slice, y_pos)) in enumerate(zip(j_slices, y_positions))
         ax = Axis(fig2[row, 1]; 
                   xlabel = row == 3 ? L"x~\text{(km)}" : "",
                   ylabel = L"z~\text{(m)}",
-                  title = L"\text{%$(panel_labels[row]) y = %$(y_pos) km}",
+                  title = L"\text{%$(panel_labels[row])}~y = %$(y_pos)~\text{km}",
                   limits = ((x_start, x_end), (z_start, z_end)))
         
         if row == 1
@@ -777,12 +777,11 @@ if SAVE_FIGURES && !isfile(fig2_path)
         end
     end
     
-    # Legend in first subplot
-    for (i, (c, name)) in enumerate(zip(QUADRANT_COLORS, QUADRANT_NAMES))
-        scatter!(ax_first, [NaN], [NaN], color=c, marker=:rect, markersize=10, label=name)
-    end
-    axislegend(ax_first, position = :rt, labelsize=10, patchsize = (15, 1), 
-               framevisible = false, padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
+    # Legend in first subplot using PolyElements
+    legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
+    axislegend(ax_first, legend_elements, QUADRANT_NAMES, position = :lt, 
+               labelsize=10, patchsize = (15, 10), framevisible = false, 
+               padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
     
     resize_to_layout!(fig2)
     
@@ -809,7 +808,7 @@ if SAVE_FIGURES && !isfile(fig3_path)
     
     fig3 = Figure(size = (560, 560))
     
-    ax_first = nothing  # Store reference to first axis for legend
+    local ax_first  # Declare local to avoid scope ambiguity
     for (idx, (z_lev, ztitle)) in enumerate(zip(z_levels, z_titles))
         row = (idx - 1) ÷ 2 + 1
         col = (idx - 1) % 2 + 1
@@ -850,12 +849,11 @@ if SAVE_FIGURES && !isfile(fig3_path)
         end
     end
     
-    # Legend in first subplot
-    for (i, (c, name)) in enumerate(zip(QUADRANT_COLORS, QUADRANT_NAMES))
-        scatter!(ax_first, [NaN], [NaN], color=c, marker=:rect, markersize=10, label=name)
-    end
-    axislegend(ax_first, position = :rb, labelsize=10, patchsize = (15, 1), 
-               framevisible = false, padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
+    # Legend in first subplot using PolyElements
+    legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
+    axislegend(ax_first, legend_elements, QUADRANT_NAMES, position = :lb, 
+               labelsize=10, patchsize = (15, 10), framevisible = false, 
+               padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
     
     colgap!(fig3.layout, 1, 10)
     rowgap!(fig3.layout, 1, 10)
