@@ -83,7 +83,7 @@ const DEPTH_PYCNOCLINE = (-81.0, -60.0) # Pycnocline/entrainment zone
 # Threshold for masking weak fluctuations based on |w'b'| magnitude
 # Points with |w'b'| below the THRESHOLD_PERCENTILE of the distribution are masked
 # This filters noise near origin AND along both axes (where flux is negligible)
-const THRESHOLD_PERCENTILE = 0.20       # Mask bottom 20% of |w'b'| distribution
+const THRESHOLD_PERCENTILE = 0.30       # Mask bottom 30% of |w'b'| distribution
 
 # Y-slices for x-z quadrant visualization (fraction of Ny_core)
 const Y_SLICE_FRACS = (0.25, 0.5, 0.75) # 3 slices at 25%, 50%, 75% of domain
@@ -682,7 +682,7 @@ if SAVE_FIGURES && !isfile(fig1_path)
     ax12 = Axis(fig1[1,3]; xlabel=L"w^\prime~\text{(m s^{-1})}", 
                 title=L"\text{(b) Global, mean depth}", limits=(w_lim, b_lim))
     hm12 = heatmap!(ax12, h_global.edges[1], h_global.edges[2], mean_depth; 
-                    rasterize=true, colormap=:deep, colorrange=(Z_LIMITS[1], 0))
+                    rasterize=true, colormap=Reverse(:deep), colorrange=(Z_LIMITS[1], 0))
     add_wb_threshold_mask!(ax12, wb_threshold, w_lim, b_lim)
     Colorbar(fig1[1,4], hm12, label=L"\bar{z}~\text{(m)}")
     hideydecorations!(ax12, ticks = false)
