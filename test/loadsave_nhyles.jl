@@ -725,14 +725,15 @@ if SAVE_FIGURES
     wb_ref = quantile(vec(wb_magnitude[sig_mask_3d]), 0.99)  # 99th percentile for scaling
     alpha_field = clamp.(wb_magnitude ./ wb_ref, 0, 1)
     
-    # x and y coordinates - use endpoints for image!
-    x_start, x_end = 0.0, TILE_SIZE / 1e3
-    y_start, y_end = 0.0, TILE_SIZE / 1e3
+    # Get tile's absolute position in the full domain (from tiles array)
+    tile_info = tiles[TARGET_TILE]
+    x_start, x_end = tile_info.core_xlims[1] / 1e3, tile_info.core_xlims[2] / 1e3  # km
+    y_start, y_end = tile_info.core_ylims[1] / 1e3, tile_info.core_ylims[2] / 1e3  # km
     z_start, z_end = Z_LIMITS[1], Z_LIMITS[2]
     
-    # y-slice indices
+    # y-slice indices and their absolute y-positions
     j_slices = [max(1, round(Int, f * Ny_core)) for f in Y_SLICE_FRACS]
-    y_positions = [round(f * TILE_SIZE / 1e3, digits=1) for f in Y_SLICE_FRACS]
+    y_positions = [round(y_start + f * (y_end - y_start), digits=1) for f in Y_SLICE_FRACS]
     
     # Create categorical colormap
     QCMAP = cgrad(QUADRANT_COLORS, 4, categorical=true)
@@ -744,7 +745,7 @@ if SAVE_FIGURES
                   xlabel = row == 3 ? L"x~\text{(km)}" : "",
                   ylabel = L"z~\text{(m)}",
                   title = L"\text{y = %$(y_pos) km}",
-                  limits = ((0, TILE_SIZE/1e3), (Z_LIMITS[1], Z_LIMITS[2])))
+                  limits = ((x_start, x_end), (z_start, z_end)))
         
         # Extract slice
         Q_slice = Q_field[:, j_slice, :]
@@ -806,7 +807,7 @@ if SAVE_FIGURES
                   ylabel = col == 1 ? L"y~\text{(km)}" : "",
                   title = ztitle,
                   aspect = 1,
-                  limits = ((0, TILE_SIZE/1e3), (0, TILE_SIZE/1e3)))
+                  limits = ((x_start, x_end), (y_start, y_end)))
         
         Q_slice = Q_field[:, :, k]
         alpha_slice = alpha_field[:, :, k]
