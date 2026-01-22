@@ -722,14 +722,14 @@ vᵃ = file["fields/va"]
 wᵃ = file["fields/wa"]
 close(file)
 
-@info "plot along-y mean wᵃ bᵃ..."
-fig = Figure(size = (540, 400))
-ax = Axis(fig[1,1]; xlabel=L"w^a~\text{(m s^{-1})}", ylabel=L"b^a~\text{(m s^{-2})}")
-# scatter!(ax, vec((wᵃ[:,1,1:end-1].+wᵃ[:,1,2:end])/2), vec(Bᵃ), alpha=0.5, markersize = 3)
 h = fit(Histogram, (vec((wᵃ[:,1,1:end-1].+wᵃ[:,1,2:end])/2), vec(Bᵃ)), nbins=50);
 counts = h.weights
 w_edges = h.edges[1]
 b_edges = h.edges[2]
+@info "plot along-y mean wᵃ bᵃ..."
+fig = Figure(size = (540, 400))
+ax = Axis(fig[1,1]; xlabel=L"w^a~\text{(m s^{-1})}", ylabel=L"b^a~\text{(m s^{-2})}")
+# scatter!(ax, vec((wᵃ[:,1,1:end-1].+wᵃ[:,1,2:end])/2), vec(Bᵃ), alpha=0.5, markersize = 3)
 hm = heatmap!(ax, w_edges, b_edges, log10.(1 .+ counts); rasterize = true, colormap = Reverse(:grays))
 Colorbar(fig[1,2], hm)
 hlines!(ax, 0, color=:black, linestyle=:dash)

@@ -449,7 +449,7 @@ println("  * b range: $(extrema(interior(b)))")
 
 println("\nApplying coarse-graining filter:")
 println("  * Kernel: $KERNEL")
-println("  * Cutoff: $CUTOFF m")
+println("  * Cutoff: $FILTER_CUTOFF m")
 println("  * Border: $BORDER")
 
 # Allocate output fields for filtered quantities
@@ -458,8 +458,8 @@ b_bar = CenterField(grid, Float32)
 
 # Apply filter
 t_start = time()
-coarse_graining!(w, w_bar; kernel=KERNEL, cutoff=CUTOFF, border=BORDER)
-coarse_graining!(b, b_bar; kernel=KERNEL, cutoff=CUTOFF, border=BORDER)
+coarse_graining!(w, w_bar; kernel=KERNEL, cutoff=FILTER_CUTOFF, border=BORDER)
+coarse_graining!(b, b_bar; kernel=KERNEL, cutoff=FILTER_CUTOFF, border=BORDER)
 t_filter = time() - t_start
 
 println("  * Filtering completed in $(round(t_filter, digits=2)) seconds")
