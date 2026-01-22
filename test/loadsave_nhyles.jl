@@ -83,7 +83,7 @@ const DEPTH_PYCNOCLINE = (-81.0, -60.0) # Pycnocline/entrainment zone
 # Threshold for masking weak fluctuations based on |w'b'| magnitude
 # Points with |w'b'| below the THRESHOLD_PERCENTILE of the distribution are masked
 # This filters noise near origin AND along both axes (where flux is negligible)
-const THRESHOLD_PERCENTILE = 0.10       # Mask bottom 10% of |w'b'| distribution
+const THRESHOLD_PERCENTILE = 0.20       # Mask bottom 20% of |w'b'| distribution
 
 # Y-slices for x-z quadrant visualization (fraction of Ny_core)
 const Y_SLICE_FRACS = (0.25, 0.5, 0.75) # 3 slices at 25%, 50%, 75% of domain
@@ -615,7 +615,8 @@ println("  * Max counts per bin: $(maximum(counts))")
 # SECTION 7A: FIGURE 1 - 2×2 Histogram Layout
 # =============================================================================
 
-if SAVE_FIGURES
+fig1_path = OUTPUT_DIR * "quadrant_histograms_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+if SAVE_FIGURES && !isfile(fig1_path)
     println("\n" * "="^70)
     println("STEP 7: Generating Quadrant Analysis Figures")
     println("="^70)
@@ -707,16 +708,18 @@ if SAVE_FIGURES
     rowgap!(fig1.layout, 1, 10)
     resize_to_layout!(fig1)
     
-    fig1_path = OUTPUT_DIR * "quadrant_histograms_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
     save(fig1_path, fig1; pt_per_unit=1)
     println("  Saved: $fig1_path")
+elseif SAVE_FIGURES
+    println("  Skipping Figure 1: $fig1_path already exists")
 end
 
 # =============================================================================
 # SECTION 7B: FIGURE 2 - 3×1 x-z Slices with Quadrant Spatial Distribution
 # =============================================================================
 
-if SAVE_FIGURES
+fig2_path = OUTPUT_DIR * "quadrant_xz_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+if SAVE_FIGURES && !isfile(fig2_path)
     # Assign quadrant categories to 3D field
     Q_field = assign_quadrants(wp_centered, bp_centered, sig_mask_3d)
     
@@ -740,12 +743,17 @@ if SAVE_FIGURES
     
     fig2 = Figure(size = (540, 480))
     
+    ax_first = nothing  # Store reference to first axis for legend
     for (row, (j_slice, y_pos)) in enumerate(zip(j_slices, y_positions))
         ax = Axis(fig2[row, 1]; 
                   xlabel = row == 3 ? L"x~\text{(km)}" : "",
                   ylabel = L"z~\text{(m)}",
                   title = L"\text{y = %$(y_pos) km}",
                   limits = ((x_start, x_end), (z_start, z_end)))
+        
+        if row == 1
+            ax_first = ax
+        end
         
         # Extract slice
         Q_slice = Q_field[:, j_slice, :]
@@ -768,23 +776,27 @@ if SAVE_FIGURES
         end
     end
     
-    # Legend for quadrants
-    Legend(fig2[1:3, 2], 
-           [MarkerElement(color=c, marker=:rect, markersize=15) for c in QUADRANT_COLORS],
-           QUADRANT_NAMES, "Quadrants", framevisible=false)
+    # Legend in first subplot
+    for (i, (c, name)) in enumerate(zip(QUADRANT_COLORS, QUADRANT_NAMES))
+        scatter!(ax_first, [NaN], [NaN], color=c, marker=:rect, markersize=10, label=name)
+    end
+    axislegend(ax_first, position = :rt, labelsize=10, patchsize = (15, 1), 
+               framevisible = false, padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
     
     resize_to_layout!(fig2)
     
-    fig2_path = OUTPUT_DIR * "quadrant_xz_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
     save(fig2_path, fig2; pt_per_unit=1)
     println("  Saved: $fig2_path")
+elseif SAVE_FIGURES
+    println("  Skipping Figure 2: $fig2_path already exists")
 end
 
 # =============================================================================
 # SECTION 7C: FIGURE 3 - 2×2 x-y Slices at Different Z-levels
 # =============================================================================
 
-if SAVE_FIGURES
+fig3_path = OUTPUT_DIR * "quadrant_xy_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
+if SAVE_FIGURES && !isfile(fig3_path)
     # Find z-indices for each level
     find_z_index(z_level) = argmin(abs.(z_centers .- z_level))
     
@@ -796,6 +808,7 @@ if SAVE_FIGURES
     
     fig3 = Figure(size = (560, 560))
     
+    ax_first = nothing  # Store reference to first axis for legend
     for (idx, (z_lev, ztitle)) in enumerate(zip(z_levels, z_titles))
         row = (idx - 1) ÷ 2 + 1
         col = (idx - 1) % 2 + 1
@@ -808,6 +821,10 @@ if SAVE_FIGURES
                   title = ztitle,
                   aspect = 1,
                   limits = ((x_start, x_end), (y_start, y_end)))
+        
+        if idx == 1
+            ax_first = ax
+        end
         
         Q_slice = Q_field[:, :, k]
         alpha_slice = alpha_field[:, :, k]
@@ -832,18 +849,21 @@ if SAVE_FIGURES
         end
     end
     
-    # Shared legend
-    Legend(fig3[1:2, 3], 
-           [MarkerElement(color=c, marker=:rect, markersize=15) for c in QUADRANT_COLORS],
-           QUADRANT_NAMES, "Quadrants", framevisible=false)
+    # Legend in first subplot
+    for (i, (c, name)) in enumerate(zip(QUADRANT_COLORS, QUADRANT_NAMES))
+        scatter!(ax_first, [NaN], [NaN], color=c, marker=:rect, markersize=10, label=name)
+    end
+    axislegend(ax_first, position = :rb, labelsize=10, patchsize = (15, 1), 
+               framevisible = false, padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
     
     colgap!(fig3.layout, 1, 10)
     rowgap!(fig3.layout, 1, 10)
     resize_to_layout!(fig3)
     
-    fig3_path = OUTPUT_DIR * "quadrant_xy_slices_tile$(TARGET_TILE)_iter$(ITERATION).pdf"
     save(fig3_path, fig3; pt_per_unit=1)
     println("  Saved: $fig3_path")
+elseif SAVE_FIGURES
+    println("  Skipping Figure 3: $fig3_path already exists")
 end
 
 # ===============================================================================
