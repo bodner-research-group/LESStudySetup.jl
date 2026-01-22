@@ -61,10 +61,10 @@ const HALO_WIDTH = 2 * CUTOFF     # 600m halo on each side
 
 # Filter cutoff for coarse-graining (can differ from CUTOFF used for tile saving)
 # If FILTER_CUTOFF > CUTOFF, tile will be reloaded from checkpoint with larger halo
-const FILTER_CUTOFF = 3000.0       # Filter cutoff scale (m) for coarse-graining
+const FILTER_CUTOFF = 3000.0      # Filter cutoff scale (m) for coarse-graining
 
 # Whether to save reloaded tiles (when FILTER_CUTOFF > CUTOFF requires reload)
-const SAVE_RELOADED_TILE = false  # Set true to save tile with larger halo
+const SAVE_RELOADED_TILE = true   # Set true to save tile with larger halo
 
 # --- Physical Constants ---
 const alpha = 2e-4                # Thermal expansion coefficient (1/K)
