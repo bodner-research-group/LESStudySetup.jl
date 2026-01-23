@@ -23,6 +23,7 @@
 using JLD2
 using Oceananigans
 using Oceananigans: location
+using Oceananigans: fill_halo_regions!
 
 # --- Configuration (same as quadrant_analysis_publication.jl) ---
 const CHECKPOINT_DIR = "/orcd/data/abodner/002/shared_datasets/nhyles_output/"
