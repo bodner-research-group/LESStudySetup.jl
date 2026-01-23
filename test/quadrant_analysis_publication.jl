@@ -68,7 +68,7 @@ const Z_TARGETS = [-5.0, -35.0, -70.5]  # Target depths (m)
 const XZ_CORE_XLIMS = (-40e3, 10e3)    # Same x-range as Figure 1
 const XZ_ZLIMS = (-81.0, 0.0)          # Full depth
 const Y_TARGETS = [30e3, 50e3, 70e3]   # Target y-positions (m)
-const Y_BAND_HALF_WIDTH = 50.0         # Load ±50m around each y-slice
+const Y_BAND_HALF_WIDTH = 10 * Δh      # Load ±~49m around each y-slice (ensures isotropic grid)
 
 # --- Coarse-Graining Parameters ---
 const FILTER_CUTOFF = 10e3             # 10km filter cutoff
@@ -407,6 +407,9 @@ panel_labels_right = ["(b)", "(d)", "(f)"]
 x_km = range(XY_CORE_XLIMS[1]/1e3, XY_CORE_XLIMS[2]/1e3, length=Nx_core)
 y_km = range(XY_CORE_YLIMS[1]/1e3, XY_CORE_YLIMS[2]/1e3, length=Ny_core)
 
+# Legend in second subplot using PolyElements
+legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
+
 for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, actual_z))
     # Extract this level
     wp_level = wp_centered_xy[:, :, row]
@@ -447,6 +450,12 @@ for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, ac
         aspect = 1,
         limits = ((x_km[1], x_km[end]), (y_km[1], y_km[end])))
     
+    if row==1
+        axislegend(ax_xy, legend_elements, QUADRANT_NAMES, position = :lt, 
+                   labelsize=10, patchsize = (15, 10), framevisible = false, 
+                   padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
+    end
+    
     # Alpha based on |w'b'| magnitude
     wb_ref = quantile(vec(wb_mag[mask]), 0.99)
     alpha_field = clamp.(wb_mag ./ wb_ref, 0, 1)
@@ -465,12 +474,6 @@ for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, ac
     n_total = length(mask)
     println("  Level $row (z=$((z_target))m): $(n_sig)/$(n_total) significant points ($(round(100*n_sig/n_total, digits=1))%)")
 end
-
-# Legend at top
-legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
-Legend(fig1[0, 3], legend_elements, QUADRANT_NAMES; 
-       orientation=:horizontal, framevisible=false, 
-       labelsize=9, patchsize=(12, 8), padding=(0, 0, 0, 0))
 
 # Adjust layout
 colgap!(fig1.layout, 2, 5)
