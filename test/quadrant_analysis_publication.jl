@@ -24,7 +24,7 @@
 # ===============================================================================
 
 using Oceananigans
-using Oceananigans: location
+using Oceananigans: location, architecture, fill_halo_regions!
 using JLD2
 using LESStudySetup
 using LESStudySetup.Diagnostics
@@ -225,6 +225,62 @@ function extract_core_x(data, halo_cells)
     return data[(halo_cells+1):(end-halo_cells), :, :]
 end
 
+"""
+    create_compact_snapshot_from_levels(snapshot, z_indices, Δz, Lz) -> Dict
+
+Create a compact snapshot with a grid matching the discrete z-levels.
+
+When `load_distributed_checkpoint_subdomain()` is called with `levels`,
+it creates a windowed field on the full-depth grid. This function creates
+a new grid with Nz = length(z_indices) and copies the field data, ensuring
+the grid dimensions match the actual data shape for consistent save/load.
+
+Arguments:
+- `snapshot`: Dict from `load_distributed_checkpoint_subdomain()` with `:grid`, `:u`, `:v`, `:w`, `:T`
+- `z_indices`: Vector of z-level indices that were loaded
+- `Δz`: Vertical grid spacing (m)
+- `Lz`: Total domain depth (m)
+
+Returns:
+- New Dict with compact grid and fields with matching dimensions
+"""
+function create_compact_snapshot_from_levels(snapshot, z_indices, Δz, Lz)
+    old_grid = snapshot[:grid]
+    Nz_compact = length(z_indices)
+    
+    # Compute z-bounds for the discrete levels
+    z_centers = [-Lz + (k - 1) * Δz + Δz/2 for k in z_indices]
+    z_min = minimum(z_centers) - Δz/2
+    z_max = maximum(z_centers) + Δz/2
+    
+    # Extract x and y extents from original grid
+    x_min = old_grid.xᶜᵃᵃ[1] - old_grid.Δxᶜᵃᵃ/2
+    x_max = old_grid.xᶜᵃᵃ[old_grid.Nx] + old_grid.Δxᶜᵃᵃ/2
+    y_min = old_grid.yᵃᶜᵃ[1] - old_grid.Δyᵃᶜᵃ/2
+    y_max = old_grid.yᵃᶜᵃ[old_grid.Ny] + old_grid.Δyᵃᶜᵃ/2
+    
+    compact_grid = RectilinearGrid(architecture(old_grid);
+        size = (old_grid.Nx, old_grid.Ny, Nz_compact),
+        x = (x_min, x_max),
+        y = (y_min, y_max),
+        z = (z_min, z_max),
+        topology = (Bounded, Bounded, Bounded))
+    
+    compact_snapshot = Dict{Symbol, Any}(:grid => compact_grid)
+    
+    for (name, FieldType) in [(:u, XFaceField), (:v, YFaceField), (:w, ZFaceField), (:T, CenterField)]
+        if haskey(snapshot, name)
+            new_field = FieldType(compact_grid)
+            interior(new_field) .= interior(snapshot[name])
+            fill_halo_regions!(new_field)
+            compact_snapshot[name] = new_field
+        end
+    end
+    
+    println("  Created compact snapshot: $(old_grid.Nx) × $(old_grid.Ny) × $(Nz_compact)")
+    return compact_snapshot
+end
+
 # ===============================================================================
 # SECTION 3: FIGURE 1 - X-Y ANALYSIS AT Z-LEVELS
 # ===============================================================================
@@ -270,12 +326,15 @@ else
     
     # Save for future runs
     if SAVE_LOADED_DATA
-        println("\nSaving loaded subdomain to: $xy_save_file")
-        save_subdomain_with_halo(xy_save_file, snapshot_xy;
+        println("\nCompacting snapshot for storage...")
+        snapshot_xy_compact = create_compact_snapshot_from_levels(snapshot_xy, z_indices, Δz, Lz)
+        
+        println("Saving compacted subdomain to: $xy_save_file")
+        save_subdomain_with_halo(xy_save_file, snapshot_xy_compact;
             core_xlims = XY_CORE_XLIMS,
             core_ylims = XY_CORE_YLIMS,
             halo_width = XY_HALO,
-            zlims = (Z_TARGETS[1], Z_TARGETS[end]),
+            levels = z_indices,
             iteration = ITERATION
         )
     end
@@ -323,14 +382,10 @@ println("\nExtracting core region (removing $halo_cells_xy halo cells per side).
 wp_core_xy = extract_core_xy(wp_full_xy, halo_cells_xy)
 bp_core_xy = extract_core_xy(bp_full_xy, halo_cells_xy)
 
-# Interpolate w' to cell centers (average adjacent z-faces if needed)
-# For discrete levels loaded via `levels`, w has same shape as T
+# Get w' from all but the lowest level
+# For discrete levels loaded via `levels`, w is set only in upper levels
 # If w has one extra z-level, average them
-if size(wp_core_xy, 3) > size(bp_core_xy, 3)
-    wp_centered_xy = (wp_core_xy[:, :, 1:end-1] .+ wp_core_xy[:, :, 2:end]) ./ 2
-else
-    wp_centered_xy = wp_core_xy
-end
+wp_centered_xy = wp_core_xy[:, :, 2:end]
 bp_centered_xy = bp_core_xy
 
 Nx_core, Ny_core, Nz_core = size(wp_centered_xy)
