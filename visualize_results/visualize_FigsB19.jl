@@ -15,7 +15,7 @@ const Ro   = 1.0
 const Bu   = 0.1
 const Fr   = Ro / Bu
 γ          = 0.03           # growth-rate parameter requested
-ϵ          = 0.00           # small parameter for geostrophic departure
+ϵ          = 0.01           # small parameter for geostrophic departure
 t_max      = 15.0           # blow-up time
 t_early    = 0.4            # diagnostic snapshot
 x_min,x_max = -4, 4
@@ -395,16 +395,17 @@ else
     t_aft          = fill(T[i2], size(x_xt))
 
     # ----------------------------- figure & axis ---------------------------------
-    fig = Figure(size = (640, 320))
-    ax  = Axis3(fig[2, 1]; 
-            xlabel = L"\text{Time}~t ", ylabel = L"\text{Cross-front}~x", zlabel = L"\text{Vertical}~z",
-            aspect = (1.1, 1, 0.6),
+    fig = Figure(size = (384, 320))
+    ax  = Axis3(fig[1, 1]; 
+            xlabel = "", ylabel = "", zlabel = "",
+            aspect = (1.5, 1.2, 0.9),
             limits = ((T[i1], T[i2]),
                         (minimum(xgrid), maximum(xgrid)),
                         (minimum(zgrid), maximum(zgrid))),
             elevation = 0.3, azimuth = 0.24π,
             xspinesvisible = false, yspinesvisible = false, zspinesvisible = false,
             xgridvisible = false, ygridvisible = false, zgridvisible = false,
+            xticklabelsvisible = false, yticklabelsvisible = false, zticklabelsvisible = false,
             perspectiveness = 0.7,protrusions = (40,10,0,0))
     ax.xreversed = true
 
@@ -424,13 +425,13 @@ else
     surface!(ax, t_bt, x_bt', z0';   color = bottom_b', kw_buoy...)   # bottom 
     surface!(ax, t_bt, x_bt', z1';         color = top_b',    kw_buoy...)   # top
     surface!(ax, t_front,  x_xt,  z_xt;     color = b_i1,      kw_buoy...)   # t = t₁ 
-    Colorbar(fig[2, 2], sf, height = Relative(0.3), tellheight=false)
-    title = L"\text{Buoyancy evolution}~b^0(x,z,t)"
-    fig[1, 1:2] = Label(fig, title; tellwidth = false, padding = (0, 0, -120, 0))
-    rowgap!(fig.layout, 1, Relative(-0.3))
-    colgap!(fig.layout, 1, Relative(0))    
+    # Colorbar(fig[2, 2], sf, height = Relative(0.3), tellheight=false)
+    # title = L"\text{Buoyancy evolution}~b^0(x,z,t)"
+    # fig[1, 1] = Label(fig, title; tellwidth = false, padding = (0, 0, -120, 0))
+    # rowgap!(fig.layout, 1, Relative(-0.4))
+    # colgap!(fig.layout, 1, Relative(-0.2))    
     resize_to_layout!(fig)
-    save("figure3_B00.pdf", fig; pt_per_unit = 1)
+    save("figure3_B00.jepg", fig; pt_per_unit = 1)
     println("✓  saved → figure3_B00.pdf")
 
     fig4 = Figure(size = (640, 300));
