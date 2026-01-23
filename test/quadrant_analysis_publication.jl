@@ -251,22 +251,25 @@ println("  X range (with halo): $(XY_FULL_XLIMS)")
 println("  Y range (with halo): $(XY_FULL_YLIMS)")
 println("  Z indices: $z_indices")
 
-snapshot_xy = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
-    xlims = XY_FULL_XLIMS,
-    ylims = XY_FULL_YLIMS,
-    levels = z_indices,
-    getEw = false,
-    getMLD = 0
-)
+# Check if saved subdomain exists first
+mkpath(SUBDOMAIN_DIR)
+xy_save_file = SUBDOMAIN_DIR * "subdomain_xy_levels_iter$(ITERATION).jld2"
 
-grid_xy = snapshot_xy[:grid]
-println("\nLoaded subdomain grid: $(grid_xy.Nx) × $(grid_xy.Ny) × $(grid_xy.Nz)")
-
-# 3.2b SAVE LOADED DATA (before coarse-graining)
-if SAVE_LOADED_DATA
-    mkpath(SUBDOMAIN_DIR)
-    xy_save_file = SUBDOMAIN_DIR * "subdomain_xy_levels_iter$(ITERATION).jld2"
-    if !isfile(xy_save_file)
+if isfile(xy_save_file)
+    println("\nLoading from saved subdomain: $xy_save_file")
+    snapshot_xy = load_subdomain_snapshot(xy_save_file; variables=("u", "v", "w", "T"))
+else
+    println("\nLoading from distributed checkpoint...")
+    snapshot_xy = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
+        xlims = XY_FULL_XLIMS,
+        ylims = XY_FULL_YLIMS,
+        levels = z_indices,
+        getEw = false,
+        getMLD = 0
+    )
+    
+    # Save for future runs
+    if SAVE_LOADED_DATA
         println("\nSaving loaded subdomain to: $xy_save_file")
         save_subdomain_with_halo(xy_save_file, snapshot_xy;
             core_xlims = XY_CORE_XLIMS,
@@ -275,10 +278,11 @@ if SAVE_LOADED_DATA
             zlims = (Z_TARGETS[1], Z_TARGETS[end]),
             iteration = ITERATION
         )
-    else
-        println("\nSubdomain file already exists: $xy_save_file (skipping save)")
     end
 end
+
+grid_xy = snapshot_xy[:grid]
+println("\nLoaded subdomain grid: $(grid_xy.Nx) × $(grid_xy.Ny) × $(grid_xy.Nz)")
 
 # 3.3 COMPUTE BUOYANCY
 println("\nComputing buoyancy from temperature...")
@@ -462,21 +466,24 @@ for (i, y_target) in enumerate(Y_TARGETS)
     println("  X range (with halo): $x_lims_with_halo")
     println("  Z range: $XZ_ZLIMS")
     
-    snapshot_xz = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
-        xlims = x_lims_with_halo,
-        ylims = y_lims,
-        zlims = XZ_ZLIMS,
-        getEw = false,
-        getMLD = 0
-    )
+    # Check if saved subdomain exists first
+    xz_save_file = SUBDOMAIN_DIR * "subdomain_xz_y$(Int(y_target/1e3))km_iter$(ITERATION).jld2"
     
-    grid_xz = snapshot_xz[:grid]
-    println("  Loaded grid: $(grid_xz.Nx) × $(grid_xz.Ny) × $(grid_xz.Nz)")
-    
-    # 4.1b SAVE LOADED DATA (before coarse-graining)
-    if SAVE_LOADED_DATA
-        xz_save_file = SUBDOMAIN_DIR * "subdomain_xz_y$(Int(y_target/1e3))km_iter$(ITERATION).jld2"
-        if !isfile(xz_save_file)
+    if isfile(xz_save_file)
+        println("  Loading from saved subdomain: $xz_save_file")
+        snapshot_xz = load_subdomain_snapshot(xz_save_file; variables=("u", "v", "w", "T"))
+    else
+        println("  Loading from distributed checkpoint...")
+        snapshot_xz = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
+            xlims = x_lims_with_halo,
+            ylims = y_lims,
+            zlims = XZ_ZLIMS,
+            getEw = false,
+            getMLD = 0
+        )
+        
+        # Save for future runs
+        if SAVE_LOADED_DATA
             println("  Saving loaded subdomain to: $xz_save_file")
             save_subdomain_with_halo(xz_save_file, snapshot_xz;
                 core_xlims = XZ_CORE_XLIMS,
@@ -485,10 +492,11 @@ for (i, y_target) in enumerate(Y_TARGETS)
                 zlims = XZ_ZLIMS,
                 iteration = ITERATION
             )
-        else
-            println("  Subdomain file already exists: $xz_save_file (skipping save)")
         end
     end
+    
+    grid_xz = snapshot_xz[:grid]
+    println("  Loaded grid: $(grid_xz.Nx) × $(grid_xz.Ny) × $(grid_xz.Nz)")
     
     # 4.2 COMPUTE BUOYANCY
     w_xz = snapshot_xz[:w]
