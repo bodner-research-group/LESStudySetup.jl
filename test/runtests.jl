@@ -250,6 +250,7 @@ using JLD2
     @testset "Coarse-graining on subdomain grid" begin
         using LESStudySetup.Diagnostics: coarse_graining!
         using Statistics: var, mean
+        using Oceananigans: fill_halo_regions!
         
         # Set up parameters for a 100km domain with 1km spacing
         set_value!(;
@@ -303,5 +304,97 @@ using JLD2
         @test isapprox(mean(T_filt_interior), mean(T_interior), rtol=0.1)
         
         @info "Coarse-graining on subdomain test passed!"
+    end
+
+    @testset "Discrete levels save/load round-trip with save_subdomain_with_halo" begin
+        using LESStudySetup.Diagnostics: save_subdomain_with_halo
+        using Oceananigans: fill_halo_regions!
+        
+        # 1. Configure test parameters
+        set_value!(;
+            Δh = 1000.0,     # 1km horizontal spacing
+            Δz = 10.0,       # 10m vertical spacing
+            Lx = 10000.0,    # 10km domain
+            Ly = 10000.0,
+            Lz = 100.0       # 100m depth (10 z-levels)
+        )
+        
+        # 2. Define discrete levels metadata (as would be used in quadrant_analysis_publication.jl)
+        z_indices = [2, 5, 8]
+        Nz_compact = length(z_indices)
+        
+        # 3. Create a "compact" grid with only these 3 levels
+        # This simulates what create_compact_snapshot_from_levels() produces
+        Δz_val = parameters.Δz
+        Lz_val = parameters.Lz
+        z_centers = [-Lz_val + (k - 1) * Δz_val + Δz_val/2 for k in z_indices]
+        z_min = minimum(z_centers) - Δz_val/2
+        z_max = maximum(z_centers) + Δz_val/2
+        
+        compact_grid = RectilinearGrid(CPU();
+            size = (10, 10, Nz_compact),
+            x = (0.0, 10000.0),
+            y = (0.0, 10000.0),
+            z = (z_min, z_max),
+            topology = (Bounded, Bounded, Bounded))
+        
+        # 4. Create fields on compact grid with test data
+        # This is what the compacted snapshot would contain after extraction
+        u_compact = XFaceField(compact_grid)
+        v_compact = YFaceField(compact_grid)
+        w_compact = ZFaceField(compact_grid)
+        T_compact = CenterField(compact_grid)
+        
+        # Fill with simple constant values for fast testing
+        interior(u_compact) .= 0.1
+        interior(v_compact) .= 0.2
+        interior(w_compact) .= 0.01
+        interior(T_compact) .= 10.5
+        
+        fill_halo_regions!(u_compact)
+        fill_halo_regions!(v_compact)
+        fill_halo_regions!(w_compact)
+        fill_halo_regions!(T_compact)
+        
+        compact_snapshot = Dict{Symbol, Any}(
+            :grid => compact_grid,
+            :u => u_compact,
+            :v => v_compact,
+            :w => w_compact,
+            :T => T_compact
+        )
+        
+        # 5. Save with save_subdomain_with_halo using `levels` (not `zlims`)
+        test_file = tempname() * ".jld2"
+        save_subdomain_with_halo(test_file, compact_snapshot;
+            core_xlims = (1000.0, 9000.0),
+            core_ylims = (1000.0, 9000.0),
+            halo_width = 1000.0,
+            levels = z_indices,
+            iteration = 0)
+        
+        # 6. Verify file contains levels metadata, not zlims
+        jldopen(test_file, "r") do file
+            @test haskey(file, "metadata/levels")
+            @test file["metadata/levels"] == z_indices
+            @test !haskey(file, "metadata/zlims")
+        end
+        
+        # 7. Load back and verify dimensions match
+        loaded = load_subdomain_snapshot(test_file)
+        
+        @test loaded[:grid].Nx == compact_grid.Nx
+        @test loaded[:grid].Ny == compact_grid.Ny
+        @test loaded[:grid].Nz == Nz_compact  # Critical: Nz should be 3, not 10
+        
+        @test interior(loaded[:T]) ≈ interior(T_compact)
+        @test interior(loaded[:u]) ≈ interior(u_compact)
+        @test interior(loaded[:v]) ≈ interior(v_compact)
+        @test interior(loaded[:w]) ≈ interior(w_compact)
+        
+        # 8. Cleanup
+        rm(test_file, force=true)
+        
+        @info "Discrete levels save/load round-trip test passed!"
     end
 end

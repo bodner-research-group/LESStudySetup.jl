@@ -1052,9 +1052,20 @@ function save_subdomain_with_halo(filename, snapshot;
     core_ylims::Tuple{Real,Real},
     halo_width::Real,
     zlims::Union{Nothing, Tuple{Real,Real}} = nothing,
+    levels::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     iteration::Union{Nothing, Integer} = nothing,
     clock_time::Union{Nothing, Real} = nothing,
     clock_time_days::Union{Nothing, Real} = nothing)
+    
+    # Mutual exclusivity check
+    if !isnothing(zlims) && !isnothing(levels)
+        error("Cannot specify both `zlims` and `levels`. Use one or the other.")
+    end
+    
+    # Warning if neither specified
+    if isnothing(zlims) && isnothing(levels)
+        @warn "Neither `zlims` nor `levels` specified. Z-dimension metadata will not be saved."
+    end
     
     # Validate snapshot has required keys
     if !haskey(snapshot, :grid)
@@ -1097,6 +1108,9 @@ function save_subdomain_with_halo(filename, snapshot;
         # Optional metadata
         if !isnothing(zlims)
             file["metadata/zlims"] = zlims
+        end
+        if !isnothing(levels)
+            file["metadata/levels"] = collect(levels)
         end
         if !isnothing(iteration)
             file["metadata/iteration"] = iteration

@@ -229,220 +229,220 @@ end
 # SECTION 3: FIGURE 1 - X-Y ANALYSIS AT Z-LEVELS
 # ===============================================================================
 
-# println("\n" * "="^70)
-# println("FIGURE 1: X-Y Quadrant Analysis at Z-Levels")
-# println("="^70)
+println("\n" * "="^70)
+println("FIGURE 1: X-Y Quadrant Analysis at Z-Levels")
+println("="^70)
 
-# # Ensure output directory exists
-# mkpath(OUTPUT_DIR)
+# Ensure output directory exists
+mkpath(OUTPUT_DIR)
 
-# # 3.1 COMPUTE Z-INDICES
-# z_indices = compute_z_indices(Z_TARGETS, Δz, Lz)
-# actual_z = [compute_actual_z(k, Δz, Lz) for k in z_indices]
+# 3.1 COMPUTE Z-INDICES
+z_indices = compute_z_indices(Z_TARGETS, Δz, Lz)
+actual_z = [compute_actual_z(k, Δz, Lz) for k in z_indices]
 
-# println("\nTarget vs Actual Z-levels:")
-# for (i, (target, actual, k)) in enumerate(zip(Z_TARGETS, actual_z, z_indices))
-#     println("  Level $i: target=$(target)m → index=$k → actual=$(round(actual, digits=2))m")
-# end
+println("\nTarget vs Actual Z-levels:")
+for (i, (target, actual, k)) in enumerate(zip(Z_TARGETS, actual_z, z_indices))
+    println("  Level $i: target=$(target)m → index=$k → actual=$(round(actual, digits=2))m")
+end
 
-# # 3.2 LOAD DATA
-# println("\nLoading data for Figure 1...")
-# println("  X range (with halo): $(XY_FULL_XLIMS)")
-# println("  Y range (with halo): $(XY_FULL_YLIMS)")
-# println("  Z indices: $z_indices")
+# 3.2 LOAD DATA
+println("\nLoading data for Figure 1...")
+println("  X range (with halo): $(XY_FULL_XLIMS)")
+println("  Y range (with halo): $(XY_FULL_YLIMS)")
+println("  Z indices: $z_indices")
 
-# # Check if saved subdomain exists first
-# mkpath(SUBDOMAIN_DIR)
-# xy_save_file = SUBDOMAIN_DIR * "subdomain_xy_levels_iter$(ITERATION).jld2"
+# Check if saved subdomain exists first
+mkpath(SUBDOMAIN_DIR)
+xy_save_file = SUBDOMAIN_DIR * "subdomain_xy_levels_iter$(ITERATION).jld2"
 
-# if isfile(xy_save_file)
-#     println("\nLoading from saved subdomain: $xy_save_file")
-#     snapshot_xy = load_subdomain_snapshot(xy_save_file; variables=("u", "v", "w", "T"))
-# else
-#     println("\nLoading from distributed checkpoint...")
-#     snapshot_xy = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
-#         xlims = XY_FULL_XLIMS,
-#         ylims = XY_FULL_YLIMS,
-#         levels = z_indices,
-#         getEw = false,
-#         getMLD = 0
-#     )
+if isfile(xy_save_file)
+    println("\nLoading from saved subdomain: $xy_save_file")
+    snapshot_xy = load_subdomain_snapshot(xy_save_file; variables=("u", "v", "w", "T"))
+else
+    println("\nLoading from distributed checkpoint...")
+    snapshot_xy = load_distributed_checkpoint_subdomain(CHECKPOINT_PREFIX, ITERATION;
+        xlims = XY_FULL_XLIMS,
+        ylims = XY_FULL_YLIMS,
+        levels = z_indices,
+        getEw = false,
+        getMLD = 0
+    )
     
-#     # Save for future runs
-#     if SAVE_LOADED_DATA
-#         println("\nSaving loaded subdomain to: $xy_save_file")
-#         save_subdomain_with_halo(xy_save_file, snapshot_xy;
-#             core_xlims = XY_CORE_XLIMS,
-#             core_ylims = XY_CORE_YLIMS,
-#             halo_width = XY_HALO,
-#             zlims = (Z_TARGETS[1], Z_TARGETS[end]),
-#             iteration = ITERATION
-#         )
-#     end
-# end
+    # Save for future runs
+    if SAVE_LOADED_DATA
+        println("\nSaving loaded subdomain to: $xy_save_file")
+        save_subdomain_with_halo(xy_save_file, snapshot_xy;
+            core_xlims = XY_CORE_XLIMS,
+            core_ylims = XY_CORE_YLIMS,
+            halo_width = XY_HALO,
+            zlims = (Z_TARGETS[1], Z_TARGETS[end]),
+            iteration = ITERATION
+        )
+    end
+end
 
-# grid_xy = snapshot_xy[:grid]
-# println("\nLoaded subdomain grid: $(grid_xy.Nx) × $(grid_xy.Ny) × $(grid_xy.Nz)")
+grid_xy = snapshot_xy[:grid]
+println("\nLoaded subdomain grid: $(grid_xy.Nx) × $(grid_xy.Ny) × $(grid_xy.Nz)")
 
-# # 3.3 COMPUTE BUOYANCY
-# println("\nComputing buoyancy from temperature...")
-# w_xy = snapshot_xy[:w]
-# T_xy = snapshot_xy[:T]
-# b_xy = compute!(Field(α_thermal * g_gravity * T_xy))
+# 3.3 COMPUTE BUOYANCY
+println("\nComputing buoyancy from temperature...")
+w_xy = snapshot_xy[:w]
+T_xy = snapshot_xy[:T]
+b_xy = compute!(Field(α_thermal * g_gravity * T_xy))
 
-# println("  w range: $(extrema(interior(w_xy)))")
-# println("  T range: $(extrema(interior(T_xy)))")
-# println("  b range: $(extrema(interior(b_xy)))")
+println("  w range: $(extrema(interior(w_xy)))")
+println("  T range: $(extrema(interior(T_xy)))")
+println("  b range: $(extrema(interior(b_xy)))")
 
-# # 3.4 COARSE-GRAIN
-# println("\nApplying coarse-graining filter...")
-# println("  Kernel: $FILTER_KERNEL")
-# println("  Cutoff: $(FILTER_CUTOFF/1e3) km")
-# println("  Border: $FILTER_BORDER")
+# 3.4 COARSE-GRAIN
+println("\nApplying coarse-graining filter...")
+println("  Kernel: $FILTER_KERNEL")
+println("  Cutoff: $(FILTER_CUTOFF/1e3) km")
+println("  Border: $FILTER_BORDER")
 
-# w_bar_xy = ZFaceField(grid_xy, Float32)
-# b_bar_xy = CenterField(grid_xy, Float32)
+w_bar_xy = ZFaceField(grid_xy, Float32)
+b_bar_xy = CenterField(grid_xy, Float32)
 
-# t_start = time()
-# coarse_graining!(w_xy, w_bar_xy; kernel=FILTER_KERNEL, cutoff=FILTER_CUTOFF, border=FILTER_BORDER)
-# coarse_graining!(b_xy, b_bar_xy; kernel=FILTER_KERNEL, cutoff=FILTER_CUTOFF, border=FILTER_BORDER)
-# t_filter = time() - t_start
-# println("  Filtering completed in $(round(t_filter, digits=2)) seconds")
+t_start = time()
+coarse_graining!(w_xy, w_bar_xy; kernel=FILTER_KERNEL, cutoff=FILTER_CUTOFF, border=FILTER_BORDER)
+coarse_graining!(b_xy, b_bar_xy; kernel=FILTER_KERNEL, cutoff=FILTER_CUTOFF, border=FILTER_BORDER)
+t_filter = time() - t_start
+println("  Filtering completed in $(round(t_filter, digits=2)) seconds")
 
-# # 3.5 COMPUTE RESIDUALS
-# println("\nComputing residuals w' and b'...")
-# wp_full_xy = interior(w_xy) .- interior(w_bar_xy)
-# bp_full_xy = interior(b_xy) .- interior(b_bar_xy)
+# 3.5 COMPUTE RESIDUALS
+println("\nComputing residuals w' and b'...")
+wp_full_xy = interior(w_xy) .- interior(w_bar_xy)
+bp_full_xy = interior(b_xy) .- interior(b_bar_xy)
 
-# # 3.6 EXTRACT CORE REGION
-# halo_cells_xy = ceil(Int, XY_HALO / Δh)
-# println("\nExtracting core region (removing $halo_cells_xy halo cells per side)...")
+# 3.6 EXTRACT CORE REGION
+halo_cells_xy = ceil(Int, XY_HALO / Δh)
+println("\nExtracting core region (removing $halo_cells_xy halo cells per side)...")
 
-# # For ZFaceField, we have Nz+1 faces; for CenterField, Nz cells
-# # Since we loaded specific levels, the z-dimension is already small
-# wp_core_xy = extract_core_xy(wp_full_xy, halo_cells_xy)
-# bp_core_xy = extract_core_xy(bp_full_xy, halo_cells_xy)
+# For ZFaceField, we have Nz+1 faces; for CenterField, Nz cells
+# Since we loaded specific levels, the z-dimension is already small
+wp_core_xy = extract_core_xy(wp_full_xy, halo_cells_xy)
+bp_core_xy = extract_core_xy(bp_full_xy, halo_cells_xy)
 
-# # Interpolate w' to cell centers (average adjacent z-faces if needed)
-# # For discrete levels loaded via `levels`, w has same shape as T
-# # If w has one extra z-level, average them
-# if size(wp_core_xy, 3) > size(bp_core_xy, 3)
-#     wp_centered_xy = (wp_core_xy[:, :, 1:end-1] .+ wp_core_xy[:, :, 2:end]) ./ 2
-# else
-#     wp_centered_xy = wp_core_xy
-# end
-# bp_centered_xy = bp_core_xy
+# Interpolate w' to cell centers (average adjacent z-faces if needed)
+# For discrete levels loaded via `levels`, w has same shape as T
+# If w has one extra z-level, average them
+if size(wp_core_xy, 3) > size(bp_core_xy, 3)
+    wp_centered_xy = (wp_core_xy[:, :, 1:end-1] .+ wp_core_xy[:, :, 2:end]) ./ 2
+else
+    wp_centered_xy = wp_core_xy
+end
+bp_centered_xy = bp_core_xy
 
-# Nx_core, Ny_core, Nz_core = size(wp_centered_xy)
-# println("  Core region size: $Nx_core × $Ny_core × $Nz_core")
-# println("  w' range: $(extrema(wp_centered_xy))")
-# println("  b' range: $(extrema(bp_centered_xy))")
+Nx_core, Ny_core, Nz_core = size(wp_centered_xy)
+println("  Core region size: $Nx_core × $Ny_core × $Nz_core")
+println("  w' range: $(extrema(wp_centered_xy))")
+println("  b' range: $(extrema(bp_centered_xy))")
 
-# # 3.7 BUILD FIGURE 1
-# println("\nGenerating Figure 1...")
+# 3.7 BUILD FIGURE 1
+println("\nGenerating Figure 1...")
 
-# set_theme!(theme_latexfonts(), fontsize=10, figure_padding=8)
-# fig1 = Figure(size = (700, 850))
+set_theme!(theme_latexfonts(), fontsize=10, figure_padding=8)
+fig1 = Figure(size = (700, 850))
 
-# # Panel labels
-# panel_labels_left = ["(a)", "(c)", "(e)"]
-# panel_labels_right = ["(b)", "(d)", "(f)"]
+# Panel labels
+panel_labels_left = ["(a)", "(c)", "(e)"]
+panel_labels_right = ["(b)", "(d)", "(f)"]
 
-# # Coordinate vectors for spatial plots (in km)
-# x_km = range(XY_CORE_XLIMS[1]/1e3, XY_CORE_XLIMS[2]/1e3, length=Nx_core)
-# y_km = range(XY_CORE_YLIMS[1]/1e3, XY_CORE_YLIMS[2]/1e3, length=Ny_core)
+# Coordinate vectors for spatial plots (in km)
+x_km = range(XY_CORE_XLIMS[1]/1e3, XY_CORE_XLIMS[2]/1e3, length=Nx_core)
+y_km = range(XY_CORE_YLIMS[1]/1e3, XY_CORE_YLIMS[2]/1e3, length=Ny_core)
 
-# for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, actual_z))
-#     # Extract this level
-#     wp_level = wp_centered_xy[:, :, row]
-#     bp_level = bp_centered_xy[:, :, row]
+for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, actual_z))
+    # Extract this level
+    wp_level = wp_centered_xy[:, :, row]
+    bp_level = bp_centered_xy[:, :, row]
     
-#     # Compute mask based on |w'b'| magnitude
-#     wb_mag = abs.(wp_level .* bp_level)
-#     wb_thresh = quantile(vec(wb_mag), THRESHOLD_PERCENTILE)
-#     mask = wb_mag .>= wb_thresh
+    # Compute mask based on |w'b'| magnitude
+    wb_mag = abs.(wp_level .* bp_level)
+    wb_thresh = quantile(vec(wb_mag), THRESHOLD_PERCENTILE)
+    mask = wb_mag .>= wb_thresh
     
-#     # Quadrant assignment
-#     Q_field = assign_quadrants(wp_level, bp_level, mask)
+    # Quadrant assignment
+    Q_field = assign_quadrants(wp_level, bp_level, mask)
     
-#     # --- Left column: Histogram ---
-#     wp_sig = vec(wp_level)[vec(mask)]
-#     bp_sig = vec(bp_level)[vec(mask)]
-#     h = fit(Histogram, (wp_sig, bp_sig), nbins=N_BINS)
+    # --- Left column: Histogram ---
+    wp_sig = vec(wp_level)[vec(mask)]
+    bp_sig = vec(bp_level)[vec(mask)]
+    h = fit(Histogram, (wp_sig, bp_sig), nbins=N_BINS)
     
-#     w_lim = (first(h.edges[1]), last(h.edges[1]))
-#     b_lim = (first(h.edges[2]), last(h.edges[2]))
+    w_lim = (first(h.edges[1]), last(h.edges[1]))
+    b_lim = (first(h.edges[2]), last(h.edges[2]))
     
-#     ax_hist = Axis(fig1[row, 1]; 
-#         xlabel = row == 3 ? L"w'~\text{(m s}^{-1}\text{)}" : "",
-#         ylabel = L"b'~\text{(m s}^{-2}\text{)}",
-#         title = L"%$(panel_labels_left[row])~z = %$(Int(z_target))~\text{m}",
-#         limits = (w_lim, b_lim))
+    ax_hist = Axis(fig1[row, 1]; 
+        xlabel = row == 3 ? L"w'~\text{(m s}^{-1}\text{)}" : "",
+        ylabel = L"b'~\text{(m s}^{-2}\text{)}",
+        title = L"%$(panel_labels_left[row])~z = %$(Int(z_target))~\text{m}",
+        limits = (w_lim, b_lim))
     
-#     hm = heatmap!(ax_hist, h.edges[1], h.edges[2], log10.(1 .+ h.weights); 
-#                   colormap=Reverse(:grays), rasterize=true)
-#     add_wb_threshold_mask!(ax_hist, wb_thresh, w_lim, b_lim)
-#     Colorbar(fig1[row, 2], hm; label=L"\log_{10}(1+N)")
+    hm = heatmap!(ax_hist, h.edges[1], h.edges[2], log10.(1 .+ h.weights); 
+                  colormap=Reverse(:grays), rasterize=true)
+    add_wb_threshold_mask!(ax_hist, wb_thresh, w_lim, b_lim)
+    Colorbar(fig1[row, 2], hm; label=L"\log_{10}(1+N)")
     
-#     # --- Right column: X-Y Pattern ---
-#     ax_xy = Axis(fig1[row, 3];
-#         xlabel = row == 3 ? L"x~\text{(km)}" : "",
-#         ylabel = L"y~\text{(km)}",
-#         title = L"%$(panel_labels_right[row])~\text{Quadrant pattern}",
-#         aspect = 1,
-#         limits = ((x_km[1], x_km[end]), (y_km[1], y_km[end])))
+    # --- Right column: X-Y Pattern ---
+    ax_xy = Axis(fig1[row, 3];
+        xlabel = row == 3 ? L"x~\text{(km)}" : "",
+        ylabel = L"y~\text{(km)}",
+        title = L"%$(panel_labels_right[row])~\text{Quadrant pattern}",
+        aspect = 1,
+        limits = ((x_km[1], x_km[end]), (y_km[1], y_km[end])))
     
-#     # Alpha based on |w'b'| magnitude
-#     wb_ref = quantile(vec(wb_mag[mask]), 0.99)
-#     alpha_field = clamp.(wb_mag ./ wb_ref, 0, 1)
-#     rgba_data = create_quadrant_rgba(Q_field, alpha_field, QUADRANT_COLORS)
+    # Alpha based on |w'b'| magnitude
+    wb_ref = quantile(vec(wb_mag[mask]), 0.99)
+    alpha_field = clamp.(wb_mag ./ wb_ref, 0, 1)
+    rgba_data = create_quadrant_rgba(Q_field, alpha_field, QUADRANT_COLORS)
     
-#     image!(ax_xy, (x_km[1], x_km[end]), (y_km[1], y_km[end]), rgba_data; rasterize=true)
+    image!(ax_xy, (x_km[1], x_km[end]), (y_km[1], y_km[end]), rgba_data; rasterize=true)
     
-#     # Hide x-decorations for non-bottom rows
-#     if row < 3
-#         hidexdecorations!(ax_hist, ticks=false)
-#         hidexdecorations!(ax_xy, ticks=false)
-#     end
+    # Hide x-decorations for non-bottom rows
+    if row < 3
+        hidexdecorations!(ax_hist, ticks=false)
+        hidexdecorations!(ax_xy, ticks=false)
+    end
     
-#     # Statistics
-#     n_sig = count(mask)
-#     n_total = length(mask)
-#     println("  Level $row (z=$(Int(z_target))m): $(n_sig)/$(n_total) significant points ($(round(100*n_sig/n_total, digits=1))%)")
-# end
+    # Statistics
+    n_sig = count(mask)
+    n_total = length(mask)
+    println("  Level $row (z=$(Int(z_target))m): $(n_sig)/$(n_total) significant points ($(round(100*n_sig/n_total, digits=1))%)")
+end
 
-# # Legend at top
-# legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
-# Legend(fig1[0, 3], legend_elements, QUADRANT_NAMES; 
-#        orientation=:horizontal, framevisible=false, 
-#        labelsize=9, patchsize=(12, 8), padding=(0, 0, 0, 0))
+# Legend at top
+legend_elements = [PolyElement(color=c) for c in QUADRANT_COLORS]
+Legend(fig1[0, 3], legend_elements, QUADRANT_NAMES; 
+       orientation=:horizontal, framevisible=false, 
+       labelsize=9, patchsize=(12, 8), padding=(0, 0, 0, 0))
 
-# # Adjust layout
-# colgap!(fig1.layout, 2, 5)
-# colgap!(fig1.layout, 1, 10)
-# rowgap!(fig1.layout, 1, 8)
-# rowgap!(fig1.layout, 2, 8)
-# resize_to_layout!(fig1)
+# Adjust layout
+colgap!(fig1.layout, 2, 5)
+colgap!(fig1.layout, 1, 10)
+rowgap!(fig1.layout, 1, 8)
+rowgap!(fig1.layout, 2, 8)
+resize_to_layout!(fig1)
 
-# # Save Figure 1
-# fig1_pdf = OUTPUT_DIR * "figure1_xy_quadrants_iter$(ITERATION).pdf"
-# fig1_png = OUTPUT_DIR * "figure1_xy_quadrants_iter$(ITERATION).png"
-# save(fig1_pdf, fig1; pt_per_unit=1)
-# save(fig1_png, fig1; px_per_unit=4)
-# println("\nFigure 1 saved:")
-# println("  $fig1_pdf")
-# println("  $fig1_png")
+# Save Figure 1
+fig1_pdf = OUTPUT_DIR * "figure1_xy_quadrants_iter$(ITERATION).pdf"
+fig1_png = OUTPUT_DIR * "figure1_xy_quadrants_iter$(ITERATION).png"
+save(fig1_pdf, fig1; pt_per_unit=1)
+save(fig1_png, fig1; px_per_unit=4)
+println("\nFigure 1 saved:")
+println("  $fig1_pdf")
+println("  $fig1_png")
 
-# # Clear memory before Figure 2
-# snapshot_xy = nothing
-# w_xy = nothing
-# T_xy = nothing
-# b_xy = nothing
-# w_bar_xy = nothing
-# b_bar_xy = nothing
-# wp_full_xy = nothing
-# bp_full_xy = nothing
-# GC.gc()
+# Clear memory before Figure 2
+snapshot_xy = nothing
+w_xy = nothing
+T_xy = nothing
+b_xy = nothing
+w_bar_xy = nothing
+b_bar_xy = nothing
+wp_full_xy = nothing
+bp_full_xy = nothing
+GC.gc()
 
 # ===============================================================================
 # SECTION 4: FIGURE 2 - X-Z ANALYSIS AT Y-SLICES
