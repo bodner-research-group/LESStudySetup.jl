@@ -431,7 +431,7 @@ for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, ac
     ax_hist = Axis(fig1[row, 1]; 
         xlabel = row == 3 ? L"w'~\text{(m s}^{-1}\text{)}" : "",
         ylabel = L"b'~\text{(m s}^{-2}\text{)}",
-        title = L"%$(panel_labels_left[row])~z = %$(Int(z_target))~\text{m}",
+        title = L"%$(panel_labels_left[row])~z = %$((z_target))~\text{m}",
         limits = (w_lim, b_lim))
     
     hm = heatmap!(ax_hist, h.edges[1], h.edges[2], log10.(1 .+ h.weights); 
@@ -463,7 +463,7 @@ for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, ac
     # Statistics
     n_sig = count(mask)
     n_total = length(mask)
-    println("  Level $row (z=$(Int(z_target))m): $(n_sig)/$(n_total) significant points ($(round(100*n_sig/n_total, digits=1))%)")
+    println("  Level $row (z=$((z_target))m): $(n_sig)/$(n_total) significant points ($(round(100*n_sig/n_total, digits=1))%)")
 end
 
 # Legend at top
