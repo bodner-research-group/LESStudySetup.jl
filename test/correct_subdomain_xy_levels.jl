@@ -121,7 +121,7 @@ jldopen(xy_original_file, "r") do old_file
     
     interior(u) .= u_data
     interior(v) .= v_data
-    interior(w) .= w_data
+    interior(w)[:,:,2:end] .= w_data
     interior(T) .= T_data
     
     fill_halo_regions!(u)
