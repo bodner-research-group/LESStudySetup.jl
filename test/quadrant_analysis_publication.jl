@@ -465,7 +465,7 @@ for (row, (z_idx, z_target, z_actual)) in enumerate(zip(z_indices, Z_TARGETS, ac
     
     # Hide x-decorations for non-bottom rows
     if row < 3
-        hidexdecorations!(ax_hist, ticks=false)
+        # hidexdecorations!(ax_hist, ticks=false)
         hidexdecorations!(ax_xy, ticks=false)
     end
     
@@ -657,6 +657,12 @@ for (row, data) in enumerate(xz_data)
         ylabel = L"z~\text{(m)}",
         title = L"%$(panel_labels_right[row])~\text{Quadrant pattern}",
         limits = ((x_km_xz[1], x_km_xz[end]), (z_m[1], z_m[end])))
+
+    if row==1
+        axislegend(ax_xz, legend_elements, QUADRANT_NAMES, position = :lt, 
+                   labelsize=10, patchsize = (15, 10), framevisible = false, 
+                   padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
+    end
     
     # Alpha based on |w'b'| magnitude
     wb_ref = quantile(vec(wb_mag[mask]), 0.99)
@@ -667,7 +673,7 @@ for (row, data) in enumerate(xz_data)
     
     # Hide x-decorations for non-bottom rows
     if row < 3
-        hidexdecorations!(ax_hist, ticks=false)
+        # hidexdecorations!(ax_hist, ticks=false)
         hidexdecorations!(ax_xz, ticks=false)
     end
     
@@ -677,16 +683,12 @@ for (row, data) in enumerate(xz_data)
     println("  Slice $row (y=$(Int(y_km))km): $(n_sig)/$(n_total) significant points ($(round(100*n_sig/n_total, digits=1))%)")
 end
 
-# Legend at top
-Legend(fig2[0, 3], legend_elements, QUADRANT_NAMES; 
-       orientation=:horizontal, framevisible=false, 
-       labelsize=9, patchsize=(12, 8), padding=(0, 0, 0, 0))
-
 # Adjust layout
 colgap!(fig2.layout, 2, 5)
 colgap!(fig2.layout, 1, 10)
 rowgap!(fig2.layout, 1, 8)
 rowgap!(fig2.layout, 2, 8)
+colsize!(fig2.layout, 1, Relative(0.3))
 resize_to_layout!(fig2)
 
 # Save Figure 2
