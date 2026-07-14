@@ -10,7 +10,6 @@ using Oceananigans
 using Oceananigans
 
 using Oceananigans
-using Oceananigans.BuoyancyFormulations: buoyancy
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 using Oceananigans.Architectures: device, architecture

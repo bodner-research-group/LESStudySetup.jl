@@ -136,7 +136,8 @@ using JLD2
         model = simulation.model
 
         # 4. Save checkpoint after 1 iteration
-        checkpoint_prefix = joinpath(test_dir, "test_checkpoint_\$(arch.local_rank)")
+        #    Oceananigans automatically appends "_rank{local_rank}" on distributed architectures.
+        checkpoint_prefix = joinpath(test_dir, "test_checkpoint")
         simulation.output_writers[:checkpoint] = Checkpointer(model;
             schedule = IterationInterval(1),
             prefix = checkpoint_prefix,
@@ -150,10 +151,10 @@ using JLD2
 
         # 6. Only rank 0 performs verification
         if arch.local_rank == 0
-            checkpoint_path = joinpath(test_dir, "test_checkpoint_")
+            checkpoint_path = joinpath(test_dir, "test_checkpoint")
 
             # Load full domain checkpoint at iteration 1
-            full = load_distributed_checkpoint(checkpoint_path, 1)
+            full = load_distributed_checkpoint(checkpoint_path, 1; partition = Partition(2, 2))
 
             # Verify full domain dimensions
             @test size(interior(full[:T])) == (8, 8, 10)
@@ -168,6 +169,7 @@ using JLD2
 
             # Load subdomain
             subdomain = load_distributed_checkpoint_subdomain(checkpoint_path, 1;
+                partition = Partition(2, 2),
                 xlims = xlims,
                 ylims = ylims,
                 zlims = zlims)
@@ -186,6 +188,7 @@ using JLD2
             # Load new subdomain with larger zlims (including original range)
             new_zlims = (-80.0, 0.0)  # 80m depth
             new_subdomain = load_distributed_checkpoint_subdomain(checkpoint_path, 1;
+                partition = Partition(2, 2),
                 xlims = xlims,
                 ylims = ylims,
                 zlims = new_zlims)

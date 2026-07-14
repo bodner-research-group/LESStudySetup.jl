@@ -47,8 +47,8 @@ end
     end
 end
 
-function model_settings(model_type, grid; background_forcing = false)
-    
+function model_settings(model_type, grid; background_forcing = false, advect_background = false)
+
     advection = WENO(; order = 9)
 
     if background_forcing
@@ -62,13 +62,14 @@ function model_settings(model_type, grid; background_forcing = false)
 
         advection = ForcedAdvection(; scheme = advection,
                                       u_background,
-                                      v_background)
+                                      v_background,
+                                      advect_background)
     end
 
     if model_type == HydrostaticFreeSurfaceModel # Additional stuff to add if 
         mixing_length = CATKEMixingLength(Cᵇ = 0.01)
         closure = CATKEVerticalDiffusivity(; mixing_length)
-        tracers = (:T, :e)
+        tracers = :T
 
         free_surface = SplitExplicitFreeSurface(grid; substeps = 75, gravitational_acceleration = parameters.g)
         #@info "running with $(length(free_surface.settings.substepping.averaging_weights)) substeps"

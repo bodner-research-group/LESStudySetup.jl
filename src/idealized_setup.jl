@@ -24,7 +24,8 @@ function idealized_setup(arch;
                          stop_time = 100days,
 			             stop_iteration = Inf,
                          hydrostatic_approximation = false,
-                         background_forcing = true) # by default we include the eddies as a background forcing 
+                         background_forcing = true, # by default we include the eddies as a background forcing
+                         advect_background = false) # opt-in: also advect the background eddy velocity by u′ (u′⋅∇U)
     
     # Retrieving the problem constants
     Δh = parameters.Δh 
@@ -57,7 +58,7 @@ function idealized_setup(arch;
 
     # ModelType can be either a `HydrostaticFreeSurfaceModel` or a `NonhydrostaticModel`
     ModelType = model_type(Val(hydrostatic_approximation))
-    settings  = model_settings(ModelType, grid; background_forcing)
+    settings  = model_settings(ModelType, grid; background_forcing, advect_background)
 
     coriolis = FPlane(; f)
     buoyancy = SeawaterBuoyancy(; equation_of_state = LinearEquationOfState(thermal_expansion = α), 
@@ -87,7 +88,7 @@ function idealized_setup(arch;
 
     boundary_conditions = (u = u_bcs, v = v_bcs, T = T_bcs)
     
-    model = ModelType(; grid, 
+    model = ModelType(grid;
                         coriolis,
                         buoyancy,
                         boundary_conditions,
@@ -205,7 +206,7 @@ function turbulence_generator_setup(arch;
 
     boundary_conditions = (u = u_bcs, v = v_bcs, T = T_bcs)
     
-    model = NonhydrostaticModel(; grid, 
+    model = NonhydrostaticModel(grid;
                                   coriolis,
                                   buoyancy,
                                   boundary_conditions,

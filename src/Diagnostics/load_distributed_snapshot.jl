@@ -1,32 +1,36 @@
 
-function load_distributed_checkpoint(filename, iteration; 
+function load_distributed_checkpoint(filename, iteration;
                                      architecture = CPU(),
+                                     partition,
                                      metadata = nothing,
                                      level = nothing)
 
+    # Recent Oceananigans checkpoints store only the prognostic state, not the grid, so the
+    # global grid is reconstructed from `parameters` exactly as in `idealized_setup`. When a
+    # metadata file is provided its parameters are applied first, before the grid is built.
+    if !isnothing(metadata)
+        params = jldopen(metadata)["parameters"]
+        set_value!(params)
+    end
+
     snapshot = Dict()
 
-    file = jldopen(filename * "0_iteration$(iteration).jld2")
+    Px = partition.x
+    Py = partition.y
 
-    Px = file["NonhydrostaticModel/grid"].architecture.partition.x
-    Py = file["NonhydrostaticModel/grid"].architecture.partition.y
+    Nx = ceil(Int, parameters.Lx / parameters.Δh)
+    Ny = ceil(Int, parameters.Ly / parameters.Δh)
+    Nz = ceil(Int, parameters.Lz / parameters.Δz)
 
-    nx = file["NonhydrostaticModel/grid"].Nx
-    ny = file["NonhydrostaticModel/grid"].Ny
-    Nz = file["NonhydrostaticModel/grid"].Nz
+    grid = RectilinearGrid(architecture;
+                           size = (Nx, Ny, Nz),
+                           x = (0, parameters.Lx),
+                           y = (0, parameters.Ly),
+                           z = (-parameters.Lz, 0),
+                           halo = (6, 6, 6))
 
-    Hx = file["NonhydrostaticModel/grid"].Hx
-    Hy = file["NonhydrostaticModel/grid"].Hy
-    Hz = file["NonhydrostaticModel/grid"].Hz
-
-    Nx = nx * Px
-    Ny = ny * Py
-
-    Lx = file["NonhydrostaticModel/grid"].Lx * Px
-    Ly = file["NonhydrostaticModel/grid"].Ly * Py
-    Lz = file["NonhydrostaticModel/grid"].Lz
-
-    grid = RectilinearGrid(architecture; size = (Nx, Ny, Nz), extent = (Lx, Ly, Lz))
+    nx = Nx ÷ Px
+    ny = Ny ÷ Py
 
     indices = isnothing(level) ? (Colon(), Colon(), Colon()) : (Colon(), Colon(), UnitRange(level, level))
 
@@ -35,21 +39,27 @@ function load_distributed_checkpoint(filename, iteration;
     w = ZFaceField(grid; indices)
     T = CenterField(grid; indices)
 
-    close(file)
-
-    for rank in 0 : (Px * Py-1)
+    for rank in 0 : (Px * Py - 1)
         @info "loading rank $rank of $(Px * Py - 1)"
 
-        file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
+        Rx = div(rank, Py) + 1
+        Ry = mod(rank, Py) + 1
 
-        Rx = file["NonhydrostaticModel/grid"].architecture.local_index[1]
-        Ry = file["NonhydrostaticModel/grid"].architecture.local_index[2]
+        file = jldopen(filename * "_rank$(rank)_iteration$(iteration).jld2")
 
-        udata = file["NonhydrostaticModel/u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-        vdata = file["NonhydrostaticModel/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-        wdata = file["NonhydrostaticModel/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-        Tdata = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-        
+        # Halos are inferred from the center field, whose interior is exactly (nx, ny, Nz).
+        Tdata = file["simulation/model/tracers/T/data"]
+        Hx = (size(Tdata, 1) - nx) ÷ 2
+        Hy = (size(Tdata, 2) - ny) ÷ 2
+        Hz = (size(Tdata, 3) - Nz) ÷ 2
+
+        udata = file["simulation/model/velocities/u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+        vdata = file["simulation/model/velocities/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+        wdata = file["simulation/model/velocities/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+        Tdata = Tdata[Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+
+        close(file)
+
         irange = 1 + (Rx - 1) * nx : Rx * nx
         jrange = 1 + (Ry - 1) * ny : Ry * ny
 
@@ -64,11 +74,6 @@ function load_distributed_checkpoint(filename, iteration;
     snapshot[:w] = w
     snapshot[:T] = T
 
-    if !isnothing(metadata)
-        params = jldopen(metadata)["parameters"]
-        set_value!(params)
-    end
-    
     return snapshot
 end
 
@@ -83,7 +88,7 @@ metadata about when a snapshot was saved.
 
 Arguments:
 - `filename_prefix`: Path prefix to checkpoint files (without rank suffix).
-                     Example: "/path/to/checkpoint_" for files like "checkpoint_0_iteration1000.jld2"
+                     Example: "/path/to/checkpoint" for files like "checkpoint_rank0_iteration1000.jld2"
 - `iteration`: Checkpoint iteration number
 
 Returns:
@@ -94,15 +99,15 @@ Returns:
 
 Example:
 ```julia
-clock = load_checkpoint_clock("/path/to/checkpoint_", 32207)
+clock = load_checkpoint_clock("/path/to/checkpoint", 32207)
 @info "Simulation time: \$(clock.time_days) days (iteration \$(clock.iteration))"
 ```
 """
 function load_checkpoint_clock(filename_prefix, iteration)
-    filepath = filename_prefix * "0_iteration$(iteration).jld2"
+    filepath = filename_prefix * "_rank0_iteration$(iteration).jld2"
     
     jldopen(filepath, "r") do file
-        clock = file["NonhydrostaticModel/clock"]
+        clock = file["simulation/model/clock"]
         time_seconds = clock.time
         iter = clock.iteration
         time_days = time_seconds / 86400.0  # Convert to days
@@ -215,7 +220,7 @@ function load_distributed_snapshot(filename, iteration;
 
     snapshot = Dict()
 
-    file = jldopen(filename * "0.jld2")
+    file = jldopen(filename * "_rank0.jld2")
 
     Px = file["grid/architecture/partition/x"]
     Py = file["grid/architecture/partition/y"]
@@ -245,7 +250,7 @@ function load_distributed_snapshot(filename, iteration;
     for rank in 0 : (Px * Py - 1)
         @info "loading rank $rank of $(Px * Py - 1)"
 
-        file = jldopen(filename * "$(rank).jld2")
+        file = jldopen(filename * "_rank$(rank).jld2")
 
         Rx = file["grid/architecture/local_index/1"]
         Ry = file["grid/architecture/local_index/2"]
@@ -279,6 +284,7 @@ end
 
 function load_distributed_checkpoint_subdomain(filename, iteration;
                                                architecture = CPU(),
+                                               partition,
                                                metadata = nothing,
                                                xlims = nothing,
                                                ylims = nothing,
@@ -307,30 +313,32 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
         end
     end
 
-    # Read metadata from rank 0 to understand full grid layout
-    file = jldopen(filename * "0_iteration$(iteration).jld2")
-    Px = file["NonhydrostaticModel/grid"].architecture.partition.x
-    Py = file["NonhydrostaticModel/grid"].architecture.partition.y
-    nx = file["NonhydrostaticModel/grid"].Nx # points per rank in x
-    ny = file["NonhydrostaticModel/grid"].Ny # points per rank in y
-    Nz = file["NonhydrostaticModel/grid"].Nz # total points in z
-    Hx = file["NonhydrostaticModel/grid"].Hx
-    Hy = file["NonhydrostaticModel/grid"].Hy
-    Hz = file["NonhydrostaticModel/grid"].Hz
-    
+    # Recent Oceananigans checkpoints store only the prognostic state, so the full-domain
+    # layout is reconstructed from `parameters` (as in `idealized_setup`) plus the supplied
+    # `partition`. Per-rank halos are inferred from each rank's center field inside the loop.
+    if !isnothing(metadata)
+        params = jldopen(metadata)["parameters"]
+        set_value!(params)
+    end
+
+    Px = partition.x
+    Py = partition.y
+
     # Full domain parameters
-    Nx_full = nx * Px
-    Ny_full = ny * Py
-    Lx_full = file["NonhydrostaticModel/grid"].Lx * Px
-    Ly_full = file["NonhydrostaticModel/grid"].Ly * Py
-    Lz_full = file["NonhydrostaticModel/grid"].Lz
-    
+    Nx_full = ceil(Int, parameters.Lx / parameters.Δh)
+    Ny_full = ceil(Int, parameters.Ly / parameters.Δh)
+    Nz = ceil(Int, parameters.Lz / parameters.Δz) # total points in z
+    Lx_full = parameters.Lx
+    Ly_full = parameters.Ly
+    Lz_full = parameters.Lz
+
+    nx = Nx_full ÷ Px # points per rank in x
+    ny = Ny_full ÷ Py # points per rank in y
+
     # Grid spacing
     Δx = Lx_full / Nx_full
     Δy = Ly_full / Ny_full
     Δz = Lz_full / Nz
-    
-    close(file)
 
     # Handle default limits (full domain)
     if isnothing(xlims)
@@ -460,22 +468,25 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
             # Load data from necessary ranks for this segment
             for Rx in rank_x_start:rank_x_end
                 for Ry in rank_y_start:rank_y_end
-                    # Calculate rank number (0-indexed)
-                    rank = (Rx - 1) * Px + (Ry - 1)
+                    # Rank number from the (Rx, Ry) tile position (0-indexed, y varies fastest)
+                    rank = (Rx - 1) * Py + (Ry - 1)
+                    file_Rx = Rx
+                    file_Ry = Ry
                     @info "Loading from rank $rank (Rx=$Rx, Ry=$Ry)"
-                    
-                    file = jldopen(filename * "$(rank)_iteration$(iteration).jld2")
-                    
-                    # Get the actual local indices for this rank from the file
-                    file_Rx = file["NonhydrostaticModel/grid"].architecture.local_index[1]
-                    file_Ry = file["NonhydrostaticModel/grid"].architecture.local_index[2]
-                    
-                    # Load data from this rank (excluding halos)
-                    udata = file["NonhydrostaticModel/u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-                    vdata = file["NonhydrostaticModel/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-                    wdata = file["NonhydrostaticModel/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-                    Tdata = file["NonhydrostaticModel/T/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
-                    
+
+                    file = jldopen(filename * "_rank$(rank)_iteration$(iteration).jld2")
+
+                    # Load data from this rank (excluding halos); halos inferred from the center field
+                    Tdata = file["simulation/model/tracers/T/data"]
+                    Hx = (size(Tdata, 1) - nx) ÷ 2
+                    Hy = (size(Tdata, 2) - ny) ÷ 2
+                    Hz = (size(Tdata, 3) - Nz) ÷ 2
+
+                    udata = file["simulation/model/velocities/u/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+                    vdata = file["simulation/model/velocities/v/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+                    wdata = file["simulation/model/velocities/w/data"][Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+                    Tdata = Tdata[Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+
                     close(file)
 
                     if getMLD >= 1
@@ -636,11 +647,6 @@ function load_distributed_checkpoint_subdomain(filename, iteration;
             fill_halo_regions!(Ew3)
             snapshot[:Ew3] = Ew3
         end
-    end
-
-    if !isnothing(metadata)
-        params = jldopen(metadata)["parameters"]
-        set_value!(params)
     end
 
     return snapshot

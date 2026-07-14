@@ -73,7 +73,7 @@ evaporation_bc = FluxBoundaryCondition(Qˢ, field_dependencies=:S, parameters=ev
 S_bcs = FieldBoundaryConditions(top=evaporation_bc)
 
 ### initialize model
-model = NonhydrostaticModel(; grid, buoyancy,
+model = NonhydrostaticModel(grid; buoyancy,
                             advection = UpwindBiased(order=5),
                             tracers = (:T, :S),
                             coriolis = FPlane(f=1e-4),
@@ -154,7 +154,7 @@ T_cg = box_filter(T_nh, r)
 
 @info "Stage 2 ▶ Starting HydrostaticFreeSurfaceModel with coarse fields"
 
-model_H = HydrostaticFreeSurfaceModel(; grid, buoyancy,
+model_H = HydrostaticFreeSurfaceModel(grid; buoyancy,
                                       tracers = (:T, :S),
                                       coriolis = FPlane(f=1e-4),
                                       boundary_conditions = (u=u_bcs, T=T_bcs, S=S_bcs))
