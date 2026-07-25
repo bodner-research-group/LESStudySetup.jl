@@ -47,10 +47,11 @@ end
     end
 end
 
-function model_settings(model_type, grid; background_forcing = false)
+function model_settings(model_type, grid; 
+                        background_forcing = false, 
+                        advection = WENO(; order = 9), 
+                        nonhydrostatic_closure = nothing)
     
-    advection = WENO(; order = 9)
-
     if background_forcing
         u_background = XFaceField(grid)
         v_background = YFaceField(grid)
@@ -82,6 +83,7 @@ function model_settings(model_type, grid; background_forcing = false)
         return (; tracers = :T, 
                   timestepper = :RungeKutta3,
                   hydrostatic_pressure_anomaly = CenterField(grid),
+                  closure = nonhydrostatic_closure,
                   advection)
     end
 end
