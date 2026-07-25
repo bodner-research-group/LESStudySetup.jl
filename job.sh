@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -C gpu
-#SBATCH -N 256
+#SBATCH -N 1 # 256 
 #SBATCH -q regular
 #SBATCH --account=m4499
 #SBATCH --time=24:00:00
@@ -22,4 +22,5 @@ exec \$*
 EoF_s
 chmod +x launch.sh
 
+$JULIA --check-bounds=no --project -e 'using Pkg; Pkg.instantiate()'
 srun ./launch.sh $JULIA --check-bounds=no --project experiments/nonhydrostatic_experiment.jl 

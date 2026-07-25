@@ -5,7 +5,7 @@ using LESStudySetup.Oceananigans.OutputWriters: Checkpointer
 using JLD2 
 
 # Architecture (CPU, GPU, or Distributed)
-architecture = CPU()
+architecture = GPU()
 
 function run_experiment(experiment; 
                         # T₀  = 20,

@@ -22,4 +22,5 @@ exec \$*
 EoF_s
 chmod +x launch.sh
 
+$JULIA --project --check-bounds=no -e 'using Pkg; Pkg.instantiate()'
 srun ./launch.sh $JULIA --check-bounds=no --project experiments/benchmark_nonhydrostatic.jl 

@@ -83,6 +83,7 @@ function model_settings(model_type, grid; background_forcing = false, advect_bac
         return (; tracers = :T, 
                   timestepper = :RungeKutta3,
                   hydrostatic_pressure_anomaly = CenterField(grid),
+                  closure = nonhydrostatic_closure,
                   advection)
     end
 end

@@ -23,6 +23,8 @@ Finally, a `Simulation` object is created with the model, time step, and stop ti
 function idealized_setup(arch; 
                          stop_time = 100days,
 			             stop_iteration = Inf,
+                         advection_scheme = WENO(order=9),
+                         nonhydrostatic_closure = nothing, 
                          hydrostatic_approximation = false,
                          background_forcing = true, # by default we include the eddies as a background forcing
                          advect_background = false) # opt-in: also advect the background eddy velocity by u′ (u′⋅∇U)
