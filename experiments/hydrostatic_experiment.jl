@@ -50,7 +50,8 @@ function run_experiment(experiment;
                           model.pressure,
                           (; κu = model.diffusivity_fields.κu,
                              κc = model.diffusivity_fields.κc,
-                             κe = model.diffusivity_fields.κe)
+                             κe = model.diffusivity_fields.κe,
+                             wT = model.velocities.w * model.tracers.T)
                           )
 
     simulation.output_writers[:checkpoint] = Checkpointer(model;
@@ -66,6 +67,19 @@ function run_experiment(experiment;
                                                              with_halos = true,
                                                              filename = "hydrostatic_snapshots_$(experiment)")
 
+   simulation.output_writers[:thourlyaverages] = JLD2OutputWriter(model, output_fields;
+                                                             schedule = AveragedTimeInterval(3hours),
+                                                             overwrite_existing = true,
+                                                             array_type = Array{Float32},
+                                                             with_halos = true,
+                                                             filename = "hydrostatic_3Haverages_$(experiment)")
+
+   simulation.output_writers[:dailyaverages] = JLD2OutputWriter(model, output_fields;
+                                                             schedule = AveragedTimeInterval(1day),
+                                                             overwrite_existing = true,
+                                                             array_type = Array{Float32},
+                                                             with_halos = true,
+                                                             filename = "hydrostatic_1Daverages_$(experiment)")
 
     simulation.output_writers[:free_surface] = JLD2OutputWriter(model, (; η = model.free_surface.η);
                                                                 schedule = ConsecutiveIterations(TimeInterval(output_frequency)),

@@ -380,24 +380,19 @@ end
     end
 end
 
-""" eddy with isopycnals pushed up """
+""" 1D temperature profile """
 @inline function Tᶻ(x, y, z)
 
-    Lz = parameters.Lz
     T₀ = parameters.T₀
-    ΔT = parameters.ΔTᵉ
-    h₀ = parameters.m₀
-    Δh = parameters.Δm
-    a  = parameters.a
-
-    Tˢ = T̅(1)
-    h  = h₀ - Δh / 2
+    N²s = parameters.N²s
+    N²T = parameters.N²T
+    h₀  = parameters.m₀
+    Δh  = parameters.Δmᶠ
+    α   = parameters.α
+    g   = parameters.g
     
-    if z > - h
-        return Tˢ
-    else
-        return (Tˢ - T₀ + a * ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a * ΔT
-    end
+    ΓT = 0.5 / (α * g) * ((N²s+0.1*N²T)*z+Δh*((N²s-N²T)*log(cosh((z+h₀)/Δh)/cosh(h₀/Δh))+0.9*N²T*log(cosh((z+1.5h₀)/Δh)/cosh(1.5h₀/Δh))))
+    return ΓT + T₀
 end
 
 """ temperature for pure fronts """
