@@ -14,7 +14,7 @@ using LESStudySetup.Diagnostics: isotropic_powerspectrum, coarse_grained_fluxes,
 using LESStudySetup.Diagnostics: MixedLayerN², MixedLayerDepth
 using LESStudySetup.Diagnostics: subfilter_stress!, coarse_graining!
 using MathTeXEngine
-set_theme!(theme_latexfonts(), fontsize=12,figure_padding = 5)
+set_theme!(theme_latexfonts(), fontsize=12,figure_padding = 10)
 shift(x) = [x[size(x,1)÷2+1:end, :]; x[1:size(x,1)÷2, :]]
 yshift(x) = [x[:, 3size(x,2)÷4+1:end] x[:, 1:3size(x,2)÷4]]
 xhift(x) = yshift(shift(x))
@@ -53,28 +53,15 @@ function rma_slope(X::AbstractVector, Y::AbstractVector)
     return k
 end
 
-cooling, wind, dTf,a = 50, 0.1, -1,1.0
-# Examples! (fill in the correct filename and metadata filename)
-# cooling, wind, dTf = 25, 0.02, -1
-cooling = @sprintf("%03d", cooling)
-wind = replace("$(wind)","." => "" )
-a = replace("$(a)","." => "" )
-if dTf < 0
-    fileparams = "hydrostatic_twin_simulation"
-else
-    if length(wind) < 2
-        wind = "0" * wind
-    end
-    dTf = @sprintf("%1d", dTf)
-    fileparams = "free_surface_short_test_$(cooling)_wind_$(wind)_dTf_$(dTf)_a_$(a)"
-end
-filehead = "/orcd/data/abodner/001/shirui/LESStudySetup.jl/"
+
+fileparams = "hydrostatic_twin_simulation"
+filehead = "./"#orcd/data/abodner/001/shirui/LESStudySetup.jl/"
 filename = filehead * "hydrostatic_snapshots_" * fileparams * ".jld2"
 metadata = filehead * "experiment_" * fileparams * "_metadata.jld2"
 freename = filehead * "hydrostatic_free_surface_" * fileparams * ".jld2"
 #fileparams = "nonhydrostatic"
-#filename = filehead * fileparams * "_snapshots_0.jld2"
-#metadata = filehead * fileparams * "_experiment_metadata.jld2"
+#filename = filehead * fileparams * "_snapshots.jld2"
+#metadata = filehead * "nonhydrostatic_experiment_metadata.jld2"
 filesave = filehead * "results/"
 
 # load all the data!!
@@ -108,9 +95,6 @@ xu, yu, zu = nodes(u)
 xv, yv, zv = nodes(v)
 xw, yw, zw = nodes(w)
 xT, yT, zT = nodes(T)
-
-var = wb(snapshots,snapshot_number);
-varh = MLaverage(snapshots,snapshot_number,var);
 
 initfile = filehead * "hydrostatic_snapshots_hydrostatic_background.jld2"
 initsnaps = load_snapshots(initfile)
@@ -284,23 +268,23 @@ vbnd, wbnd = maximum(abs, interior(v)), 5
 lA, lB, lC = 40, 40, 40
 pA, pB, pC = (-45, 70), (-20, 15), (10, 70)
 #####################################
-var = compute!(Field(1e3 * w))
+var,scale = PV,1e8;#compute!(Field(1e8 * PV))
 x, y, z = nodes(var)
-k = kw
+k = kT
 cmap = :balance
-rmin, rmax = -wbnd, wbnd
+rmin, rmax = -1, 1
 hcolor, scolor = :gray, :black
-fig = Figure(size = (640, 795))
+fig = Figure(size = (640, 785))
 gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (ylabel = "y (km)", aspect=1, limits = ((-50, 50), (0, 100)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~w~\text{(10^{-3} m s^{-1})},~z=-25.9~\text{m}", axis_kwargs...)
+ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~\tilde{q}~\text{(10^{-8} s^{-3})},~z=-2.8~\text{m}", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", aspect=1, limits = ((pA[1], pA[1]+lA), (pA[2]-lA, pA[2])))
 ax_c = Axis(gabc[3,1]; titlealign = :left, title=L"\text{(c)~Region B}", ylabel = "y (km)", aspect=1, limits = ((pB[1], pB[1]+lB), (pB[2]-lB,pB[2]))) 
 ax_d = Axis(gabc[3,2]; titlealign = :left, title=L"\text{(d)~Region C}", aspect=1, limits = ((pC[1], pC[1]+lC), (pC[2]-lC, pC[2]))) 
-hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_b = heatmap!(ax_b, 1e-3x.-50, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-25, xhift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
-hm_d = heatmap!(ax_d, 1e-3x.-50, 1e-3y, shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_a = heatmap!(ax_a, 1e-3x.-50, 1e-3y, scale * shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_b = heatmap!(ax_b, 1e-3x.-50, 1e-3y, scale * shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_c = heatmap!(ax_c, 1e-3x.-50, 1e-3y.-25, scale * xhift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
+hm_d = heatmap!(ax_d, 1e-3x.-50, 1e-3y, scale * shift(interior(var,:,:,k)); rasterize = true, colormap = cmap, colorrange = (rmin, rmax))
 Colorbar(gabc[1,3], hm_b)
 Colorbar(gabc[3,3], hm_d)
 hidexdecorations!(ax_a, ticks = false)
@@ -347,10 +331,10 @@ if cmap == :thermal
 else
     vmin, vmax = rmin, rmax
 end
-hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
-hm_b = heatmap!(ax_b, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja+Δj,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
-hm_c = heatmap!(ax_c, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,jc,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
-hm_d = heatmap!(ax_d, 1e-3x.-50, z[kz:Nz], shift(interior(var,:,ja+Δj,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
+hm_a = heatmap!(ax_a, 1e-3x.-50, z[kz:Nz], scale*shift(interior(var,:,ja,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
+hm_b = heatmap!(ax_b, 1e-3x.-50, z[kz:Nz], scale*shift(interior(var,:,ja+Δj,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
+hm_c = heatmap!(ax_c, 1e-3x.-50, z[kz:Nz], scale*shift(interior(var,:,jc,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
+hm_d = heatmap!(ax_d, 1e-3x.-50, z[kz:Nz], scale*shift(interior(var,:,ja+Δj,kz:Nz)); rasterize = true, colormap = cmap, colorrange = (vmin, vmax))
 hideydecorations!(ax_b, ticks = false)
 hideydecorations!(ax_d, ticks = false)
 Colorbar(gabc[2,3], hm_b)
@@ -370,7 +354,7 @@ for row = [2,4]
     rowsize!(gabc, row, Relative(0.1))
 end
 resize_to_layout!(fig)
-save(filesave * "wfields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
+save(filesave * "PVfields_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 println("Finished plotting fields, wall time: $((now() - t0).value/1e3) seconds.")
 
 #####################
@@ -490,7 +474,7 @@ for (i,klev) in enumerate([222, 202, 171])
     Tk = (xhift(interior(T, :, :, klev)))
     for j = 1:3
         println([i,j])
-        window = 1
+        window = :hann
         nalpha = 1+j+(i-1)*4
         title = "("*alphabet[nalpha]*") Region " * uppercase(alphabet[j])
 
@@ -546,15 +530,22 @@ println("Finished plotting spectra, wall time: $((now() - t0).value/1e3) seconds
 #title=L"\text{(a)}~10^{16}\mathcal{B}_h~\text{({kg}^2 m^{-8}s^{-1})}", axis_kwargs1...)
 f = parameters.f
 M²₀ = parameters.M²₀
-u̅  = XFaceField(u.grid)
-v̅  = YFaceField(v.grid)
+u̅  = XFaceField(u.grid);
+v̅  = YFaceField(v.grid);
+w̅  = ZFaceField(w.grid);
 cutoff = 300/2.4*2*π #785.40
 coarse_graining!(u , u̅ ; cutoff)
 coarse_graining!(v , v̅ ; cutoff)
+coarse_graining!(w , w̅ ; cutoff)
 fill_halo_regions!(u̅)
 fill_halo_regions!(v̅)
-R̅o = compute!(Field((∂x(v̅) - ∂y(u̅))/f))
-D̅ = compute!(Field(KernelFunctionOperation{Center, Center, Center}(div_xyᶜᶜᶜ, grid, u̅, v̅)/f))
+fill_halo_regions!(w̅)
+ωz = ∂x(v̅) - ∂y(u̅) + f;
+ωx = ∂y(w̅) - ∂z(v̅);
+ωy = ∂z(u̅) - ∂x(w̅);
+
+R̅o = compute!(Field((∂x(v̅) - ∂y(u̅))/f));
+D̅ = compute!(Field(KernelFunctionOperation{Center, Center, Center}(div_xyᶜᶜᶜ, grid, u̅, v̅)/f));
 ro = compute!(Field(ζ(snapshots, snapshot_number)/f));
 rd = compute!(Field(δ(snapshots, snapshot_number)/f));
 
@@ -563,26 +554,17 @@ coarse_graining!(compute!(Field(α * g * T)), b̅; cutoff)
 fill_halo_regions!(b̅)
 ∇b̅ = compute!(Field((∂x(b̅)^2 + ∂y(b̅)^2)^0.5));
 ∇b = compute!(Field(α * g * (∂x(T)^2 + ∂y(T)^2)^0.5));
+PV = compute!(Field(ωx * ∂x(b̅) + ωy * ∂y(b̅) + ωz * ∂z(b̅)));
 
-w̅  = ZFaceField(w.grid)
-coarse_graining!(w , w̅ ; cutoff);
-fill_halo_regions!(w̅)
 wˢbˢ = compute!(Field((w - w̅) * (α * g * T - b̅)));
 wbh = MLaverage(snapshots,snapshot_number,wˢbˢ);
 
-B̅h = compute!(Field(-(∂x(b̅)^2 * ∂x(u̅) + ∂y(b̅)^2 * ∂y(v̅))-∂x(b̅)*∂y(b̅)*(∂x(v̅) + ∂y(u̅))))
-Bh = compute!(Field(Bₕ(snapshots, snapshot_number)))
+B̅h = compute!(Field(-(∂x(b̅)^2 * ∂x(u̅) + ∂y(b̅)^2 * ∂y(v̅))-∂x(b̅)*∂y(b̅)*(∂x(v̅) + ∂y(u̅))));
+Bh = compute!(Field(Bₕ(snapshots, snapshot_number)));
 
 θ, τ, ρ₀=parameters.θ,parameters.τw,parameters.ρ₀
 τx,τy=-τ*sind(θ),τ*cosd(θ)
 EBF = compute!(Field((τx * ∂x(b̅) + τy * ∂y(b̅))/f/ρ₀))
-w̅  = ZFaceField(w.grid)
-coarse_graining!(w , w̅ ; cutoff)
-fill_halo_regions!(w̅)
-ωz = ∂x(v̅) - ∂y(u̅) + f
-ωx = ∂y(w̅) - ∂z(v̅)
-ωy = ∂z(u̅) - ∂x(w̅)
-PV = compute!(Field(ωx * ∂x(b̅) + ωy * ∂y(b̅) + ωz * ∂z(b̅)))
 
 # Compute the coarse-grained cross-scale fluxes 
 l0 = 2
@@ -683,10 +665,10 @@ gabc = fig[1, 1] = GridLayout()
 axis_kwargs = (xgridvisible = false, ygridvisible = false,limits = ((-7, 20), (-7, 20)))
 ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)}~z=-2.8~\text{m}", ylabel = L"\tilde{\mathcal{B}}_h/(M_0^4 f)", axis_kwargs...)
 ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", axis_kwargs...) 
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = L"-| \nabla_h \overline{b}|^2 \delta/(M_0^4 f)", ylabel = L"\tilde{\mathcal{B}}_h/(M_0^4 f)", axis_kwargs...) 
-ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = L"-| \nabla_h \overline{b}|^2 \delta/(M_0^4 f)", axis_kwargs...) 
-vary = (xhift(interior(Bh, :, :, k)))/(f*M²₀^2)
-varx = -xhift(interior(rd , :, :, k) .* interior(∇b, :, :, k).^2)/(M²₀^2)
+ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = L"-| \nabla \overline{b}|^2 \tilde{\delta}/(M_0^4 f)", ylabel = L"\tilde{\mathcal{B}}_h/(M_0^4 f)", axis_kwargs...) 
+ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = L"-| \nabla \overline{b}|^2 \tilde{\delta}/(M_0^4 f)", axis_kwargs...) 
+vary = (xhift(interior(B̅h, :, :, k)))/(f*M²₀^2);
+varx = -xhift(interior(D̅ , :, :, k) .* interior(∇b̅, :, :, k).^2)/(M²₀^2);
 scatter!(ax_a, vec(varx), vec(vary); markersize = 5, color = :blue, rasterize = true, label = L"\text{data}")
 slope = rma_slope(vec(varx), vec(vary))# vec(varx)' * vec(vary)/(vec(varx)' * vec(varx))
 lines!(ax_a, [-5, 25], slope*[-5, 25]; color = :red, linewidth = 1, label = "y = "*string(round(slope, sigdigits=2))*"x")
@@ -708,48 +690,7 @@ hideydecorations!(ax_d, ticks = false)
 rowgap!(gabc, 3)
 colgap!(gabc, 1, 15)
 resize_to_layout!(fig)
-save(filesave * "Bh0_Dbd0_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
-
-#############################
-
-varh = MLaverage(snapshots,snapshot_number,∇b);
-vary = (xhift(interior(compute!(Field(h^2 * var^2/f)), :, :, k)));
-varx = 1e6xhift(interior(wbh , :, :, k));
-
-pos_indices = (varx .> 0)
-fig = Figure(size = (560, 570))
-gabc = fig[1, 1] = GridLayout()
-axis_kwargs = (xgridvisible = false, ygridvisible = false, xscale=log10, yscale=log10,limits = ((1e-8, 1e1), (1e-12, 1e-5)))
-ax_a = Axis(gabc[1,1]; titlealign = :left, title=L"\text{(a)~Full domain}", ylabel = L"\text{MLI}~\text{(m^2 s^{-3})}", axis_kwargs...)
-ax_b = Axis(gabc[1,2]; titlealign = :left, title=L"\text{(b)~Region A}", axis_kwargs...) 
-ax_c = Axis(gabc[2,1]; titlealign = :left, title=L"\text{(c)~Region B}", xlabel = L"|\overline{w^sb^s}^z|~\text{(10^{-6} m^2 s^{-3})}", ylabel = L"\text{MLI}~\text{(m^2 s^{-3})}", axis_kwargs...) 
-ax_d = Axis(gabc[2,2]; titlealign = :left, title=L"\text{(d)~Region C}", xlabel = L"|\overline{w^sb^s}^z|~\text{(10^{-6} m^2 s^{-3})}", axis_kwargs...) 
-scatter!(ax_a, vec(varx[pos_indices]), vec(vary[pos_indices]); markersize = 5, color = :red, rasterize = true, alpha = 0.5, label = L"\text{positive data}")
-scatter!(ax_a, -vec(varx[.!pos_indices]), vec(vary[.!pos_indices]); markersize = 5, color = :blue, rasterize = true, alpha = 0.5, label = L"\text{negative data}")
-lines!(ax_a, [1e-7, 1e1], 1e-3.*[1e-7, 1e1], linestyle = :dash, color = :black, linewidth = 1, label = L"\propto |\overline{w^sb^s}^z|")
-axislegend(ax_a, labelsize=9, framevisible = false, font = texfont(), position = :lt,patchsize = (15, 1), 
-           padding = (0f0, 0f0, 0f0, 0f0), patchlabelgap = 3, rowgap = 1)
-for (j,ax) in enumerate([ax_b,ax_c,ax_d])
-    xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
-    yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
-    xj = vec((pos_indices.*varx)[xrange,yrange])
-    yj = vec((pos_indices.*vary)[xrange,yrange])
-    xj, yj = xj[xj.>0], yj[xj.>0]
-    scatter!(ax, xj, yj; markersize = 5, color = :red, alpha = 0.5, rasterize = true, label = L"\text{data}")
-    xj = vec((.!pos_indices.*varx)[xrange,yrange])
-    yj = vec((.!pos_indices.*vary)[xrange,yrange])
-    xj, yj = xj[xj.<0], yj[xj.<0]
-    scatter!(ax, -xj, yj; markersize = 5, color = :blue, alpha = 0.5, rasterize = true, label = L"\text{data}")
-    lines!(ax, [1e-7, 1e1], 1e-3.*[1e-7, 1e1], linestyle = :dash, color = :black, linewidth = 1, label = L"|\overline{wb}^z|^2")
-end
-hidexdecorations!(ax_a, ticks = false)
-hidexdecorations!(ax_b, ticks = false)
-hideydecorations!(ax_b, ticks = false)
-hideydecorations!(ax_d, ticks = false)
-rowgap!(gabc, 3)
-colgap!(gabc, 1, 15)
-resize_to_layout!(fig)
-save(filesave * "MLI_wbz_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
+save(filesave * "Bh_Dbd_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 
 #####################
 # Compute the horizontal spectrum of ro, rd, Db
@@ -867,66 +808,6 @@ rowgap!(g33, 3)
 resize_to_layout!(fig)
 save(filesave * "dspectra_" * fileparams * "_d$(nday).pdf", fig; pt_per_unit = 1)
 println("Finished plotting spectra, wall time: $((now() - t0).value/1e3) seconds.")
-
-###############################
-# Compute spectral vertical boyancy flux 
-Nz = length(zT)
-wc = compute!(Field(@at (Center, Center, Center) snapshots[:w][snapshot_number]))
-b = compute!(Field(α * g * T))
-C1 = isotropic_powerspectrum(interior(b, :, :, 1), interior(wc, :, :, 1), xT, yT)
-C = zeros(Nz, length(C1.spec))
-C[1, :] = real.(C1.spec)
-wc1 = (xhift(interior(wc, :, :, 1)))
-b1 = (xhift(interior(b, :, :, 1)))
-SCs = []
-for j = 1:3
-    xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
-    yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
-    SCj = isotropic_powerspectrum(b1[xrange,yrange], wc1[xrange,yrange], xT[xrange], yT[yrange];window=1)
-    push!(SCs, SCj)
-end
-Csub = zeros(3, Nz, length(SCs[1].spec))
-for j = 1:3
-    Csub[j, 1, :] = real.(SCs[j].spec)
-end
-println("level 1 done.")
-for k = 2:Nz
-    Ck = isotropic_powerspectrum(interior(b, :, :, k), interior(wc, :, :, k), xT, yT)
-    C[k,:] = real.(Ck.spec)
-    wck = (xhift(interior(wc, :, :, k)))
-    bk = (xhift(interior(b, :, :, k)))
-    for j = 1:3
-        xrange = findfirst(p3[j][1] .< 1e-3*xT .- 50):findlast(1e-3*xT .- 50 .<= p3[j][1]+l3[j]) 
-        yrange = findfirst(p3[j][2]-l3[j] .< 1e-3*yT .- 25):findlast(1e-3*yT .- 25 .<= p3[j][2]) 
-        SCj = isotropic_powerspectrum(bk[xrange,yrange], wck[xrange,yrange], xT[xrange], yT[yrange];window=1)
-        Csub[j, k, :] = real.(SCj.spec) 
-    end
-    println("level $k done.")
-end
-
-fig = Figure(size = (640, 300))
-g4 = fig[1, 1] = GridLayout()
-axis_kwargs = (ylabel = L"z~\text{(m)}", xlabel = L"\text{Wavenumber (rad m^{-1})}",xscale = log10, ygridvisible = false, 
-               limits = ((6e-5, 0.8e-2), (-150,0)),xticks = ([1e-4,1e-3], [L"10^{-4}",L"10^{-3}"]), xgridvisible = false,
-               xminorticks = [4e-5:1e-5:9e-5; 2e-4:1e-4:9e-4; 2e-3:1e-3:9e-3],xminorticksvisible = true)
-ax_a = Axis(g4[1,1]; titlealign = :left, title=L"\text{(a)}~\hat{w}\hat{b}~\text{(10^5 m^3 s^{-3})}", axis_kwargs...)
-ax_b = Axis(g4[1,2]; titlealign = :left, title=L"\text{(b) Region A,}~5\times", axis_kwargs...)
-ax_c = Axis(g4[1,3]; titlealign = :left, title=L"\text{(c) Region B,}~5\times", axis_kwargs...)
-ax_d = Axis(g4[1,4]; titlealign = :left, title=L"\text{(d) Region C,}~5\times", axis_kwargs...)
-hideydecorations!(ax_b, ticks = false)
-hideydecorations!(ax_c, ticks = false)
-hideydecorations!(ax_d, ticks = false)
-hm_a = heatmap!(ax_a, C1.freq, zT, 1e-5*C'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-hm_b = heatmap!(ax_b, SCs[1].freq, zT, 5e-5*Csub[1,:,:]'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-hm_c = heatmap!(ax_c, SCs[2].freq, zT, 5e-5*Csub[2,:,:]'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-hm_d = heatmap!(ax_d, SCs[3].freq, zT, 5e-5*Csub[3,:,:]'; rasterize = true, colormap = :balance, colorrange = (-2,2))
-Colorbar(g4[1, 5], hm_a)
-for i = 1:3
-    colgap!(g4, i, 5)
-end
-colgap!(g4, 4, 1)
-resize_to_layout!(fig)
-save(filesave * "spectral_vertical_boyancy_flux_d$(nday).pdf", fig; pt_per_unit = 1)
 
 ####################################
 using JLD2 

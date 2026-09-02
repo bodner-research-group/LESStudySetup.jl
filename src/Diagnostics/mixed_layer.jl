@@ -1,28 +1,30 @@
 const c = Center()
 const f = Face()
 
-@inline z_bottom(i, j, grid) = znode(i, j, 1, grid, c, c, f)
-@inline bottom(i, j, grid)   = znode(i, j, 1, grid, c, c, f)
-
 #####
 ##### MixedLayerDepthField
 #####
 
 # b can be temperature (T) or density (ρ)
-@kernel function compute_mld!(h, grid, b, Δb, surface, stratification)
+@kernel function _compute_mixed_layer_properties!(h, Ew, grid, b, Δb, surface, stratification, w)
     i, j = @index(Global, NTuple)
 
     Nz = grid.Nz
-    
-    if surface
-        k_start = Nz - 1
-        z_ij = znode(i, j, k_start, grid, c, c, f)
-    else    
-        k_start   = Nz - 2
-        z_ij = znode(i, j, k_start, grid, c, c, f)
-        while z_ij > -9.99
+
+    k_start = Nz - 1
+    z_ij = znode(i, j, k_start+1, grid, c, c, f)
+    if !isnothing(w) 
+       w_ij = @inbounds w[i, j, k_start+1]
+       Ew_integrated = w_ij^2/2
+    end
+    if !surface
+        while z_ij > -10.0
             k_start = k_start-1
-            z_ij = znode(i, j, k_start, grid, c, c, f)
+            z_ij = znode(i, j, k_start+1, grid, c, c, f)
+            if !isnothing(w) 
+               w_ij = @inbounds w[i, j, k_start+1]
+               Ew_integrated += w_ij^2/2 * Δzᶜᶜᶠ(i, j, k_start+1, grid)
+            end
         end
     end
 
@@ -75,7 +77,14 @@ const f = Face()
                     end
                 end
             end
+            if !isnothing(w) 
+                w_ij = @inbounds w[i, j, k]
+                Ew_integrated += w_ij^2/2 * (Δb - Δbᵏ) / (Δb⁺ - Δbᵏ) * Δz⁺
+            end
             break
+        elseif !isnothing(w)
+            w_ij = @inbounds w[i, j, k]
+            Ew_integrated += w_ij^2/2 * Δz⁺
         end
     end
 
@@ -85,50 +94,150 @@ const f = Face()
     else
         @inbounds h[i, j, 1] = - z_ij
     end
+    if !isnothing(w) 
+        @inbounds Ew[i, j, 1] = z_ij < 0 ? Ew_integrated / (-z_ij) : 0.0
+    end
 end
 
-struct MixedLayerDepthOperand{B, FT, G, S, N}
-    temperature_operation :: B
-    mixed_layer_temperature_differential :: FT
-    grid :: G
-    surface :: S
-    stratification :: N
-end
+"""
+    MixedLayerDepth(model_or_grid; tracers, w=nothing, ΔT=0.2)
 
-Base.summary(op::MixedLayerDepthOperand) = "MixedLayerDepthOperand"
+Computes the mixed layer depth based on a temperature difference criterion.
 
-function MixedLayerDepth(grid, tracers; ΔT = 0.2, surface = false, stratification = false, kw...)
-    operand = MixedLayerDepthOperand(tracers.T, abs(ΔT), grid, surface, stratification)
-    return Field{Center, Center, Nothing}(grid; operand, kw...)
-end
+Arguments:
+- `grid`: An Oceananigans `grid` object.
+- `tracers`: A `NamedTuple` containing the temperature field, e.g., `(; T)`.
+- `w`: (Optional) The vertical velocity field `w`. If provided, the mean vertical
+       kinetic energy (w^2/2) within the mixed layer is also computed.
+- `ΔT`: The temperature difference criterion for the mixed layer depth.
+- `surface`: Whether to consider the surface layer (default: `false`).
+- `stratification`: Whether to consider stratification (default: `false`).
 
-const MixedLayerDepthField = Field{Center, Center, Nothing, <:MixedLayerDepthOperand}
+Returns:
+- If `w` is not provided, returns a `Field{Center, Center, Nothing}` containing the mixed layer depth.
+- If `w` is provided, returns a `NamedTuple` `(h, Ew)` containing the mixed layer depth `h` and the
+  mean vertical kinetic energy `Ew`.
+"""
+function MixedLayerDepth(grid, tracers; w=nothing, ΔT=0.2, surface = false, stratification = false)
 
-function compute!(h::MixedLayerDepthField, time=nothing)
-    arch = architecture(h)
-    b    = h.operand.temperature_operation
-    Δb   = h.operand.mixed_layer_temperature_differential
-    surface = h.operand.surface
-    stratification = h.operand.stratification
-    launch!(arch, h.grid, :xy, compute_mld!, h, h.grid, b, Δb, surface, stratification)
+    arch = architecture(grid)
+    
+    # Create output fields
+    h = Field{Center, Center, Nothing}(grid)
+    
+    Ew = isnothing(w) ? nothing : Field{Center, Center, Nothing}(grid)
+
+    launch!(arch, h.grid, :xy, 
+            _compute_mixed_layer_properties!, 
+            h, Ew, h.grid, tracers.T, ΔT, surface, stratification, w)
+
     fill_halo_regions!(h)
+    if !isnothing(Ew)
+        fill_halo_regions!(Ew)
+        return (h, Ew)
+    end
+
     return h
 end
 
-function MixedLayerN²(grid, tracers; ΔT = 0.2, surface = false, stratification = true, kw...)
-    operand = MixedLayerDepthOperand(tracers.T, abs(ΔT), grid, surface, stratification)
-    return Field{Center, Center, Nothing}(grid; operand, kw...)
-end
 
-const MixedLayerN²Field = Field{Center, Center, Nothing, <:MixedLayerDepthOperand}
+# """
+#     MixedLayerDepthOperand
 
-function computeNh!(Nh::MixedLayerN²Field, time=nothing)
-    arch = architecture(Nh)
-    b    = Nh.operand.temperature_operation
-    Δb   = Nh.operand.mixed_layer_temperature_differential
-    surface = Nh.operand.surface
-    stratification = Nh.operand.stratification
-    launch!(arch, h.grid, :xy, compute_mld!, Nh, Nh.grid, b, Δb, surface, stratification)
-    fill_halo_regions!(h)
-    return h
-end
+# An operand for calculating the mixed layer depth, defined by a temperature- or
+# density-based criterion. This object stores the fields and parameters required
+# for the calculation.
+# """
+# struct MixedLayerDepthOperand{B, FT, G, S, N, W}
+#     temperature_or_buoyancy :: B
+#     criterion :: FT
+#     grid :: G
+#     surface :: S
+#     stratification :: N
+#     vertical_velocity :: W
+# end
+
+# # Show a concise summary
+# Base.summary(op::MixedLayerDepthOperand) = "MixedLayerDepthOperand"
+
+# """
+#     MixedLayerDepth(grid; T, w=nothing, ΔT=0.2, kw...)
+
+# Constructs a `Field{Center, Center, Nothing}` to store the mixed layer depth.
+# The calculation is based on a temperature difference criterion `ΔT`.
+
+# The `compute!` function for this field can also compute the depth-averaged
+# vertical kinetic energy if the vertical velocity field `w` is provided.
+
+# Arguments
+# =========
+# - `grid`: The grid on which to compute the mixed layer depth.
+# - `tracers`: The tracer fields (`NamedTuple`) on which to base the calculation.
+# - `w`: (Optional) The vertical velocity field (`Field`). Provide this to enable kinetic energy calculation.
+# - `ΔT`: The temperature difference criterion for the mixed layer depth, i.e., h where T(z=0) - T(z=-h) = ΔT.
+# - `surface`: Whether to consider the surface layer (default: `false`).
+# - `stratification`: Whether to consider stratification (default: `false`).
+# - `kw...`: Additional keywords passed to the `Field` constructor.
+# """
+# function MixedLayerDepth(grid, tracers; w=nothing, ΔT = 0.2, surface = false, stratification = false, kw...)
+#     operand = MixedLayerDepthOperand(tracers.T, abs(ΔT), grid, surface, stratification, w)
+#     return Field{Center, Center, Nothing}(grid; operand, kw...)
+# end
+
+# # Define a new type alias for clarity
+# const MixedLayerDepthField = Field{Center, Center, Nothing, <:MixedLayerDepthOperand}
+
+# """
+#     compute!(h::MixedLayerDepthField, Ew=nothing)
+
+# Compute the mixed layer depth `h`. If an additional field `Ew` is provided,
+# also compute the depth-averaged vertical kinetic energy integrated within the mixed layer.
+
+# The results are stored in `h` and `Ew`.
+# """
+# function compute!(h::MixedLayerDepthField, time=nothing)
+#     arch = architecture(h)
+
+#     # Unpack operand fields
+#     b    = h.operand.temperature_or_buoyancy
+#     Δb   = h.operand.criterion
+#     surface = h.operand.surface
+#     stratification = h.operand.stratification
+#     w    = h.operand.vertical_velocity
+
+#     Ew = isnothing(w) ? nothing : Field{Center, Center, Nothing}(h.grid)
+
+#     launch!(arch, h.grid, :xy, _compute_mixed_layer_properties!, h, Ew, h.grid, b, Δb, surface, stratification, w)
+
+#     fill_halo_regions!(h)
+#     if !isnothing(Ew)
+#         fill_halo_regions!(Ew)
+#         return (h=h, Ew=Ew)
+#     end
+
+#     return h
+# end
+
+# function MixedLayerN²(grid, tracers; w=nothing,ΔT = 0.2, surface = false, stratification = true, kw...)
+#     operand = MixedLayerDepthOperand(tracers.T, abs(ΔT), grid, surface, stratification, w)
+#     return Field{Center, Center, Nothing}(grid; operand, kw...)
+# end
+
+# const MixedLayerN²Field = Field{Center, Center, Nothing, <:MixedLayerDepthOperand}
+
+# function computeNh!(Nh::MixedLayerN²Field, time=nothing)
+#     arch = architecture(Nh)
+#     b    = Nh.operand.temperature_or_buoyancy
+#     Δb   = Nh.operand.criterion
+#     surface = Nh.operand.surface
+#     stratification = Nh.operand.stratification
+#     w    = Nh.operand.vertical_velocity
+#     Ew = isnothing(w) ? nothing : Field{Center, Center, Nothing}(Nh.grid)
+#     launch!(arch, Nh.grid, :xy, compute_mixed_layer_properties!, Nh, Ew, Nh.grid, b, Δb, surface, stratification, w)
+#     fill_halo_regions!(Nh)
+#     if !isnothing(Ew)
+#         fill_halo_regions!(Ew)
+#         return (Nh=Nh, Ew=Ew)
+#     end
+#     return Nh
+# end

@@ -47,29 +47,31 @@ end
     end
 end
 
-function model_settings(model_type, grid; 
-                        background_forcing = false, 
-                        advection = WENO(; order = 9), 
+function model_settings(model_type, grid; background_forcing = false, advect_background = false,
+                        background_velocity = uᵢ, advection_scheme = WENO(; order = 9),
                         nonhydrostatic_closure = nothing)
-    
+
+    advection = advection_scheme
+
     if background_forcing
         u_background = XFaceField(grid)
         v_background = YFaceField(grid)
 
-        set!(u_background, uᵢ)
+        set!(u_background, background_velocity)
         fill_halo_regions!(u_background)
 
         compute_v_from_continuity!(v_background, architecture(grid), grid, u_background)
 
         advection = ForcedAdvection(; scheme = advection,
                                       u_background,
-                                      v_background)
+                                      v_background,
+                                      advect_background)
     end
 
     if model_type == HydrostaticFreeSurfaceModel # Additional stuff to add if 
         mixing_length = CATKEMixingLength(Cᵇ = 0.01)
         closure = CATKEVerticalDiffusivity(; mixing_length)
-        tracers = (:T, :e)
+        tracers = :T
 
         free_surface = SplitExplicitFreeSurface(grid; substeps = 75, gravitational_acceleration = parameters.g)
         #@info "running with $(length(free_surface.settings.substepping.averaging_weights)) substeps"
@@ -101,7 +103,7 @@ function progress(sim)
     msg0 = @sprintf("Time: %s, iteration: %d, Δt: %s ", prettytime(sim.model.clock.time), 
                                                         sim.model.clock.iteration,
                                                         prettytime(sim.Δt))
-    msg1 = @sprintf("(u, v, w): %.2e %.2e %.2e ", maximum(ui), maximum(vi), maximum(wi))
+    msg1 = @sprintf("(u, v, w): (%.2e, %.2e, %.2e), (%.2e, %.2e, %.2e) ", minimum(ui), minimum(vi), minimum(wi), maximum(ui), maximum(vi), maximum(wi))
     msg2 = @sprintf("T: %.2e %.2e ", minimum(Ti), maximum(Ti))
 
     @info msg0 * msg1 * msg2 

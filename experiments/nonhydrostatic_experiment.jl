@@ -39,10 +39,12 @@ checkpoint_frequency = 1hours
 stop_time = 10days
 
 background_forcing = true
-restart_file = false #"nonhydrostatic_checkpoint_$(arch.local_rank)_iteration5212.jld2"
+advect_background  = false # opt-in: also advect the background eddy velocity by u′ (u′⋅∇U)
+background_velocity = LESStudySetup.uᵢ # eddy velocity carried in the background: uᵢ, uᴮ (barotropic only) or u²ᶜ
+restart_file = false #"nonhydrostatic_checkpoint_rank$(arch.local_rank)_iteration5212.jld2"
 
 # Let's start with an nonhydrostatic setup running for 30 days
-simulation = idealized_setup(arch; stop_time, background_forcing)
+simulation = idealized_setup(arch; stop_time, background_forcing, advect_background, background_velocity)
 
 if arch.local_rank == 0
     jldsave("nonhydrostatic_experiment_metadata.jld2", parameters = parameters)
@@ -59,11 +61,11 @@ simulation.output_writers[:snapshots] = JLD2OutputWriter(model, output_fields;
                                                          schedule = ConsecutiveIterations(TimeInterval(output_frequency)),
                                                          overwrite_existing = true,
 							 array_type = Array{Float32},
-                                                         filename = "nonhydrostatic_snapshots_$(arch.local_rank)")
+                                                         filename = "nonhydrostatic_snapshots")
 
 simulation.output_writers[:checkpoint] = Checkpointer(model;
                                                       schedule = TimeInterval(checkpoint_frequency),
-                                                      prefix = "nonhydrostatic_checkpoint_$(arch.local_rank)",
+                                                      prefix = "nonhydrostatic_checkpoint",
                                                       overwrite_existing = true)
 
 #####

@@ -29,7 +29,19 @@ end
     return eddy_tangential_velocity(x, y, z, R, Lf, Le, minus_cos)
 end
 
-@inline function eddy_tangential_velocity(x, y, z, R, Lf, Le, trig)
+""" barotropic (depth-independent) part of the eddy velocity, without the thermal wind shear """
+@inline function uᴮ(x, y, z)
+    Lf = parameters.Lf
+    Le = parameters.Le
+    R  = parameters.Lx / 4
+
+    return eddy_tangential_velocity(x, y, z, R, Lf, Le, sin, Val(true))
+end
+
+""" eddy velocity with the thermal wind shear counted twice, uᵢ + (uᵢ - uᴮ) """
+@inline u²ᶜ(x, y, z) = 2 * uᵢ(x, y, z) - uᴮ(x, y, z)
+
+@inline function eddy_tangential_velocity(x, y, z, R, Lf, Le, trig, barotropic_only = Val(false))
     if abs(x - 50e3) > 25e3 && abs(y - 50e3) > 25e3
         x += x < 25e3 ? 50e3 : -50e3
         y += y < 25e3 ? 50e3 : -50e3
@@ -55,7 +67,7 @@ end
     
     r  = sqrt(x′^2 + y′^2)
     ξ  = transformR(r, (; R, Le))
-    uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+    uθ = warm_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
     θ  = atan(y′, x′)
     u1 = trig(θ) * uθ
 
@@ -65,7 +77,7 @@ end
         
         r  = sqrt(x′^2 + y′^2)
         ξ  = transformR(r, (; R, Le))
-        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+        uθ = warm_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
         θ  = atan(y′, x′)
         u1 += trig(θ) * uθ
     end
@@ -76,7 +88,7 @@ end
 
     r  = sqrt(x′^2 + y′^2)
     ξ  = transformR(r, (; R, Le))
-    uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+    uθ = cold_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
     θ  = atan(y′, x′)
     u2 = trig(θ) * uθ
 
@@ -86,7 +98,7 @@ end
         
         r  = sqrt(x′^2 + y′^2)
         ξ  = transformR(r, (; R, Le))
-        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+        uθ = cold_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
         θ  = atan(y′, x′)
         u2 += trig(θ) * uθ
     end
@@ -97,7 +109,7 @@ end
 
     r  = sqrt(x′^2 + y′^2)
     ξ  = transformR(r, (; R, Le))
-    uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+    uθ = cold_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
     θ  = atan(y′, x′)
     u3 = trig(θ) * uθ
 
@@ -107,7 +119,7 @@ end
         
         r  = sqrt(x′^2 + y′^2)
         ξ  = transformR(r, (; R, Le))
-        uθ = cold_eddy_velocity(ξ, z, r, R, Lf)
+        uθ = cold_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
         θ  = atan(y′, x′)
         u3 += trig(θ) * uθ
     end
@@ -118,7 +130,7 @@ end
 
     r = sqrt(x′^2 + y′^2)
     ξ = transformR(r, (; R, Le))
-    uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+    uθ = warm_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
     θ  = atan(y′, x′)
     u4 = trig(θ) * uθ
     
@@ -128,7 +140,7 @@ end
         
         r  = sqrt(x′^2 + y′^2)
         ξ  = transformR(r, (; R, Le))
-        uθ = warm_eddy_velocity(ξ, z, r, R, Lf)
+        uθ = warm_eddy_velocity(ξ, z, r, R, Lf, barotropic_only)
         θ  = atan(y′, x′)
         u4 += trig(θ) * uθ
     end
@@ -328,15 +340,33 @@ end
     return η1 + η2 + η3 + η4
 end
 
-@inline function warm_eddy_velocity(ξ, z, r, R, Lf)
+@inline function warm_eddy_velocity(ξ, z, r, R, Lf, barotropic_only = Val(false))
+
+    uθᴮ = warm_barotropic_velocity(r, R, Lf)
+    uθᵀ = warm_thermal_wind_velocity(ξ, z, R, Lf, barotropic_only)
+
+    return uθᴮ + uθᵀ
+end
+
+@inline function warm_barotropic_velocity(r, R, Lf)
+
+    f  = parameters.f
+    g  = parameters.g
+    σ² = parameters.σ²
+    Φ  = parameters.Φ
+
+    return - g / f * ∂η(r, (; R, Lf, σ², Φ))
+end
+
+@inline warm_thermal_wind_velocity(ξ, z, R, Lf, ::Val{true}) = zero(z)
+
+@inline function warm_thermal_wind_velocity(ξ, z, R, Lf, ::Val{false})
 
     Lz = parameters.Lz
     ΔT = parameters.ΔTᵉ
     f  = parameters.f
     α  = parameters.α
     g  = parameters.g
-    σ² = parameters.σ²
-    Φ  = parameters.Φ
     a  = parameters.a
     Δh = parameters.Δm
 
@@ -344,25 +374,41 @@ end
     ∂b∂ξ = Int(0 < ξ < 3.1415926535897) * ∂b∂ξ
     ∂ξ∂r = - 2π / R * Lf
 
-    uθᴮ = - g / f * ∂η(r, (; R, Lf, σ², Φ))
-
     h = h̅⁺(ξ)
     if z > - h
-        return ∂ξ∂r * ∂b∂ξ / f + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f
     else
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^3
     end
 end
 
-@inline function cold_eddy_velocity(ξ, z, r, R, Lf)
+@inline function cold_eddy_velocity(ξ, z, r, R, Lf, barotropic_only = Val(false))
+
+    uθᴮ = cold_barotropic_velocity(r, R, Lf)
+    uθᵀ = cold_thermal_wind_velocity(ξ, z, R, Lf, barotropic_only)
+
+    return uθᴮ + uθᵀ
+end
+
+@inline function cold_barotropic_velocity(r, R, Lf)
+
+    f  = parameters.f
+    g  = parameters.g
+    σ² = parameters.σ²
+    Φ  = parameters.Φ
+
+    return g / f * ∂η(r, (; R, Lf, σ², Φ))
+end
+
+@inline cold_thermal_wind_velocity(ξ, z, R, Lf, ::Val{true}) = zero(z)
+
+@inline function cold_thermal_wind_velocity(ξ, z, R, Lf, ::Val{false})
 
     Lz = parameters.Lz
     ΔT = parameters.ΔTᵉ
     f  = parameters.f
     α  = parameters.α
     g  = parameters.g
-    σ² = parameters.σ²
-    Φ  = parameters.Φ
     a  = parameters.a
     Δh = parameters.Δm
 
@@ -370,34 +416,27 @@ end
     ∂b∂ξ = Int(0 < ξ < 3.1415926535897) * ∂b∂ξ
     ∂ξ∂r = - 2π / R * Lf
 
-    uθᴮ = g / f * ∂η(r, (; R, Lf, σ², Φ))
-
     h = h̅⁻(ξ)
     if z > - h
-        return ∂ξ∂r * ∂b∂ξ / f + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f
     else
-        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^3 + uθᴮ
+        return ∂ξ∂r * ∂b∂ξ / f * (Lz + z)^3 / (Lz - h)^3
     end
 end
 
-""" eddy with isopycnals pushed up """
+""" 1D temperature profile """
 @inline function Tᶻ(x, y, z)
 
-    Lz = parameters.Lz
     T₀ = parameters.T₀
-    ΔT = parameters.ΔTᵉ
-    h₀ = parameters.m₀
-    Δh = parameters.Δm
-    a  = parameters.a
-
-    Tˢ = T̅(1)
-    h  = h₀ - Δh / 2
+    N²s = parameters.N²s
+    N²T = parameters.N²T
+    h₀  = parameters.m₀
+    Δh  = parameters.Δmᶠ
+    α   = parameters.α
+    g   = parameters.g
     
-    if z > - h
-        return Tˢ
-    else
-        return (Tˢ - T₀ + a * ΔT) / (Lz - h)^2 * (Lz + z)^2 + T₀ - a * ΔT
-    end
+    ΓT = 0.5 / (α * g) * ((N²s+0.1*N²T)*z+Δh*((N²s-N²T)*log(cosh((z+h₀)/Δh)/cosh(h₀/Δh))+0.9*N²T*log(cosh((z+1.5h₀)/Δh)/cosh(1.5h₀/Δh))))
+    return ΓT + T₀
 end
 
 """ temperature for pure fronts """
@@ -425,6 +464,9 @@ end
         return ΔTₒ * 0.25 * (tanh((x-Lx/2)/(0.5*Lf))-tanh((x-Lx)/(0.5*Lf))-1)*(tanh((z+h₀)/Δh)+1) + ΓT
     end
 end
+
+""" front without the eddy: the 1D profile Tᶻ plus the frontal anomaly """
+@inline Tᶠᶻ(x, y, z) = Tᶠ(x, z) + parameters.T₀
 
 """ velocity for pure fronts """
 @inline function vᶠ(x, y, z)

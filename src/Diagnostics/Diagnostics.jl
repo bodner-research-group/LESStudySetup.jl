@@ -3,12 +3,13 @@ module Diagnostics
 export write_pointwise_diagnostics
 export load_snapshots, propagate_function,
        ζ, ub, vb, wb, uw, vw, KE, MLD, BLD1D, PV
+export extract_subdomain, save_subdomain_snapshot, load_subdomain_snapshot
+export save_subdomain_with_halo, compute_subdomain_tiles, load_checkpoint_clock
 
 using Oceananigans
 using Oceananigans
 
 using Oceananigans
-using Oceananigans.BuoyancyFormulations: buoyancy
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 using Oceananigans.Architectures: device, architecture
@@ -22,7 +23,7 @@ using JLD2
 
 import Oceananigans.Fields: compute!
 
-using Oceananigans.Fields: OneField, condition_operand
+using Oceananigans.Fields: OneField, condition_operand, location
 using Oceananigans.AbstractOperations: materialize_condition!
 using Oceananigans.Utils
 
