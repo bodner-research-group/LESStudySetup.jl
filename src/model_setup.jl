@@ -47,15 +47,17 @@ end
     end
 end
 
-function model_settings(model_type, grid; background_forcing = false, advect_background = false)
+function model_settings(model_type, grid; background_forcing = false, advect_background = false,
+                        background_velocity = uᵢ, advection_scheme = WENO(; order = 9),
+                        nonhydrostatic_closure = nothing)
 
-    advection = WENO(; order = 9)
+    advection = advection_scheme
 
     if background_forcing
         u_background = XFaceField(grid)
         v_background = YFaceField(grid)
 
-        set!(u_background, uᵢ)
+        set!(u_background, background_velocity)
         fill_halo_regions!(u_background)
 
         compute_v_from_continuity!(v_background, architecture(grid), grid, u_background)

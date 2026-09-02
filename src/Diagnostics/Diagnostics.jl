@@ -113,6 +113,5 @@ include("boundary_layer.jl")
 include("pointwise_diagnostics.jl")
 include("spectra.jl")
 include("filtering.jl")
-include("load_distributed_snapshot.jl")
 
 end

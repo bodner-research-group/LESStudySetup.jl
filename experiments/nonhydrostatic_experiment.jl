@@ -40,10 +40,11 @@ stop_time = 10days
 
 background_forcing = true
 advect_background  = false # opt-in: also advect the background eddy velocity by u′ (u′⋅∇U)
+background_velocity = LESStudySetup.uᵢ # eddy velocity carried in the background: uᵢ, uᴮ (barotropic only) or u²ᶜ
 restart_file = false #"nonhydrostatic_checkpoint_rank$(arch.local_rank)_iteration5212.jld2"
 
 # Let's start with an nonhydrostatic setup running for 30 days
-simulation = idealized_setup(arch; stop_time, background_forcing, advect_background)
+simulation = idealized_setup(arch; stop_time, background_forcing, advect_background, background_velocity)
 
 if arch.local_rank == 0
     jldsave("nonhydrostatic_experiment_metadata.jld2", parameters = parameters)

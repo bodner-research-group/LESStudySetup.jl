@@ -27,7 +27,9 @@ function idealized_setup(arch;
                          nonhydrostatic_closure = nothing, 
                          hydrostatic_approximation = false,
                          background_forcing = true, # by default we include the eddies as a background forcing
-                         advect_background = false) # opt-in: also advect the background eddy velocity by u′ (u′⋅∇U)
+                         advect_background = false, # opt-in: also advect the background eddy velocity by u′ (u′⋅∇U)
+                         background_velocity = uᵢ, # eddy velocity carried in the background: uᵢ, uᴮ (barotropic only) or u²ᶜ
+                         initial_temperature = Tᵢ) # Tᵢ includes the eddy anomaly, Tᶠᶻ is the front alone
     
     # Retrieving the problem constants
     Δh = parameters.Δh 
@@ -60,7 +62,8 @@ function idealized_setup(arch;
 
     # ModelType can be either a `HydrostaticFreeSurfaceModel` or a `NonhydrostaticModel`
     ModelType = model_type(Val(hydrostatic_approximation))
-    settings  = model_settings(ModelType, grid; background_forcing, advect_background)
+    settings  = model_settings(ModelType, grid; background_forcing, advect_background, background_velocity,
+                                                advection_scheme, nonhydrostatic_closure)
 
     coriolis = FPlane(; f)
     buoyancy = SeawaterBuoyancy(; equation_of_state = LinearEquationOfState(thermal_expansion = α), 
@@ -96,11 +99,7 @@ function idealized_setup(arch;
                         boundary_conditions,
                         settings...)
 
-    if isforced(model)
-        set!(model, v = vᶠ, T = Tᵢ) 
-    else
-        set!(model, u = uᵢ, v = vᵢᶠ, T = Tᵢ)
-    end
+    set!(model, v = vᶠ, T = initial_temperature)
     
     u, v, w = model.velocities
     

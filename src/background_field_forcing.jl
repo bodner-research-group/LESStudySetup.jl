@@ -93,12 +93,10 @@ Base.show(io::IO, f::ForcedAdvection) =
 # Advection of the background velocity by the prognostic velocity, u′⋅∇U = ∇⋅(u′U),
 # enabled only when the scheme carries `Val(true)`.
 @inline advect_background_u(i, j, k, grid, scheme, ::Val{false}, U, u_background) = zero(grid)
-@inline advect_background_u(i, j, k, grid, scheme, ::Val{true},  U, u_background) =
-    div_𝐯u(i, j, k, grid, scheme, U, u_background)
+@inline advect_background_u(i, j, k, grid, scheme, ::Val{true},  U, u_background) = div_𝐯u(i, j, k, grid, scheme, U, u_background)
 
 @inline advect_background_v(i, j, k, grid, scheme, ::Val{false}, U, v_background) = zero(grid)
-@inline advect_background_v(i, j, k, grid, scheme, ::Val{true},  U, v_background) =
-    div_𝐯v(i, j, k, grid, scheme, U, v_background)
+@inline advect_background_v(i, j, k, grid, scheme, ::Val{true},  U, v_background) = div_𝐯v(i, j, k, grid, scheme, U, v_background)
 
 @inline function U_dot_∇u(i, j, k, grid::RectilinearGrid, advection::ForcedAdvection, U)
 
